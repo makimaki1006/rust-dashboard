@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}ログイン - ジョブメドレー求職者分析{% endblock %}
+
+{% block body %}
+<div class="min-h-screen flex items-center justify-center">
+    <div class="bg-navy-800 border border-slate-700 rounded-2xl p-8 w-full max-w-md shadow-2xl">
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-bold text-white mb-2">求職者データ分析</h1>
+            <p class="text-slate-400 text-sm">ジョブメドレー ダッシュボード</p>
+        </div>
+
+        {% if error_message %}
+        <div class="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg mb-4 text-sm">
+            {{ error_message }}
+        </div>
+        {% endif %}
+
+        <form method="POST" action="/login" class="space-y-4">
+            <div>
+                <label for="email" class="block text-sm text-slate-300 mb-1">メールアドレス</label>
+                <input type="email" id="email" name="email" required
+                    class="w-full bg-navy-700 border border-slate-600 rounded-lg px-4 py-2.5
+                           text-white placeholder-slate-500 focus:border-blue-500 focus:ring-1
+                           focus:ring-blue-500 outline-none transition"
+                    placeholder="name@example.com">
+            </div>
+
+            <div>
+                <label for="password" class="block text-sm text-slate-300 mb-1">パスワード</label>
+                <input type="password" id="password" name="password" required
+                    class="w-full bg-navy-700 border border-slate-600 rounded-lg px-4 py-2.5
+                           text-white placeholder-slate-500 focus:border-blue-500 focus:ring-1
+                           focus:ring-blue-500 outline-none transition"
+                    placeholder="パスワード">
+            </div>
+
+            <button type="submit"
+                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium
+                       py-2.5 rounded-lg transition duration-200 mt-6">
+                ログイン
+            </button>
+        </form>
+
+        <p class="text-center text-slate-500 text-xs mt-6">
+            許可ドメイン: {{ allowed_domains }}
+        </p>
+    </div>
+</div>
+{% endblock %}

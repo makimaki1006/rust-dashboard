@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ダッシュボード - ジョブメドレー求職者分析</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: { extend: { colors: { navy: { 900: '#0d1525', 800: '#0f172a', 700: '#1e293b' } } } }
+        }
+    </script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body class="bg-navy-900 text-slate-100 min-h-screen">
+    <header class="bg-navy-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-4">
+            <h1 class="text-lg font-bold text-white">求職者データ分析</h1>
+            <select id="job-type-select"
+                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+                {{JOB_OPTIONS}}
+            </select>
+            <select id="pref-select"
+                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+                <option value="">全国</option>
+                {{PREF_OPTIONS}}
+            </select>
+            <select id="muni-select"
+                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+                <option value="">全市区町村</option>
+                {{MUNI_OPTIONS}}
+            </select>
+        </div>
+        <div class="flex items-center gap-4">
+            <span class="text-slate-400 text-sm">{{USER_EMAIL}}</span>
+            <a href="/logout" class="text-slate-400 hover:text-white text-sm transition">ログアウト</a>
+        </div>
+    </header>
+
+    <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto">
+        <button class="tab-btn active" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">市場概況</button>
+        <button class="tab-btn" hx-get="/tab/demographics" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">人口動態</button>
+        <button class="tab-btn" hx-get="/tab/mobility" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">人材移動</button>
+        <button class="tab-btn" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">需給バランス</button>
+        <button class="tab-btn" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">働き方</button>
+        <button class="tab-btn" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">求人マップ</button>
+        <button class="tab-btn" hx-get="/tab/talentmap" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">人材マップ</button>
+        <button class="tab-btn" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">競合調査</button>
+    </nav>
+
+    <main id="content" class="p-6">
+        <div class="text-center text-slate-400 py-20">
+            <p class="text-lg">読み込み中...</p>
+        </div>
+    </main>
+
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/maps.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            htmx.ajax('GET', '/tab/overview', {target: '#content', swap: 'innerHTML'});
+
+            // アクティブタブ再読み込み共通関数
+            function reloadActiveTab() {
+                var activeBtn = document.querySelector('.tab-btn.active');
+                if (activeBtn) {
+                    var url = activeBtn.getAttribute('hx-get');
+                    htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                }
+            }
+
+            // セレクトボックスのオプション安全更新（サーバーから返されるoption要素のみ許可）
+            function safeSetOptions(selectEl, optionHtml, defaultOption) {
+                while (selectEl.options.length > 0) { selectEl.remove(0); }
+                var def = document.createElement('option');
+                def.value = '';
+                def.textContent = defaultOption;
+                selectEl.appendChild(def);
+                if (optionHtml) {
+                    var tmp = document.createElement('select');
+                    tmp.insertAdjacentHTML('afterbegin', optionHtml);
+                    while (tmp.firstChild) { selectEl.appendChild(tmp.firstChild); }
+                }
+            }
+
+            // 職種切り替え
+            var jobSelect = document.getElementById('job-type-select');
+            if (jobSelect) {
+                jobSelect.addEventListener('change', function() {
+                    var jt = this.value;
+                    fetch('/api/set_job_type', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'job_type=' + encodeURIComponent(jt)
+                    }).then(function() {
+                        return fetch('/api/prefectures?job_type=' + encodeURIComponent(jt));
+                    }).then(function(r) { return r.text(); }).then(function(html) {
+                        safeSetOptions(document.getElementById('pref-select'), html, '全国');
+                        safeSetOptions(document.getElementById('muni-select'), '', '全市区町村');
+                        reloadActiveTab();
+                    });
+                });
+            }
+
+            // 都道府県切り替え
+            var prefSelect = document.getElementById('pref-select');
+            if (prefSelect) {
+                prefSelect.addEventListener('change', function() {
+                    var pref = this.value;
+                    fetch('/api/set_prefecture', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'prefecture=' + encodeURIComponent(pref)
+                    }).then(function() {
+                        if (pref) {
+                            return fetch('/api/municipalities_cascade?prefecture=' + encodeURIComponent(pref));
+                        } else {
+                            return Promise.resolve({ text: function() { return ''; } });
+                        }
+                    }).then(function(r) { return r.text(); }).then(function(html) {
+                        safeSetOptions(document.getElementById('muni-select'), html, '全市区町村');
+                        reloadActiveTab();
+                    });
+                });
+            }
+
+            // 市区町村切り替え
+            var muniSelect = document.getElementById('muni-select');
+            if (muniSelect) {
+                muniSelect.addEventListener('change', function() {
+                    var muni = this.value;
+                    fetch('/api/set_municipality', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'municipality=' + encodeURIComponent(muni)
+                    }).then(function() {
+                        reloadActiveTab();
+                    });
+                });
+            }
+        });
+        function setActiveTab(el) {
+            document.querySelectorAll('.tab-btn').forEach(function(btn) { btn.classList.remove('active'); });
+            el.classList.add('active');
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+/* タブボタンスタイル */
+.tab-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    color: #94a3b8;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    color: #e2e8f0;
+    background: rgba(148, 163, 184, 0.08);
+}
+
+.tab-btn.active {
+    color: #60a5fa;
+    border-bottom-color: #3b82f6;
+}
+
+/* 統計カード */
+.stat-card {
+    background: rgba(15, 23, 42, 0.82);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+}
+
+.stat-card .stat-value {
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: #f8fafc;
+}
+
+.stat-card .stat-label {
+    font-size: 0.75rem;
+    color: rgba(226, 232, 240, 0.75);
+    margin-top: 0.25rem;
+}
+
+/* EChartsコンテナ */
+.echart {
+    width: 100%;
+    min-height: 350px;
+}
+
+/* Leaflet地図コンテナ */
+.leaflet-map {
+    width: 100%;
+    min-height: 500px;
+    border-radius: 0.75rem;
+    overflow: hidden;
+}
+
+/* データテーブル */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th {
+    background: rgba(15, 23, 42, 0.6);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    font-size: 0.75rem;
+    color: rgba(226, 232, 240, 0.75);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.data-table td {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.data-table tr:hover {
+    background: rgba(148, 163, 184, 0.06);
+}
+
+/* HTMX ローディングインジケーター */
+.htmx-indicator {
+    display: none;
+}
+
+.htmx-request .htmx-indicator {
+    display: inline-block;
+}
+
+.htmx-request.htmx-indicator {
+    display: inline-block;
+}
+
+/* スクロールバー */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.3);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.5);
+}
+
+/* レスポンシブグリッド */
+.grid-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.grid-charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 1.5rem;
+}
+
+/* アニメーション */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#content > * {
+    animation: fadeIn 0.3s ease-out;
+}

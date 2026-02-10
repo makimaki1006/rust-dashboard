@@ -1,0 +1,11 @@
+# Database files
+data/*.db
+
+# Build artifacts
+target/
+
+# Environment
+.env
+
+# OS files
+nul

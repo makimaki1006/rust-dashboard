@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}ダッシュボード - ジョブメドレー求職者分析{% endblock %}
+
+{% block body %}
+<!-- ヘッダー -->
+<header class="bg-navy-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-4">
+        <h1 class="text-lg font-bold text-white">求職者データ分析</h1>
+        <select id="job-type-select"
+            hx-get="/api/set-job-type"
+            hx-target="#content"
+            hx-include="this"
+            hx-trigger="change"
+            hx-vals='js:{"job_type": document.getElementById("job-type-select").value}'
+            class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+            {% for jt in job_types %}
+            <option value="{{ jt }}" {% if jt == current_job_type %}selected{% endif %}>{{ jt }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="flex items-center gap-4">
+        <span class="text-slate-400 text-sm">{{ user_email }}</span>
+        <a href="/logout" class="text-slate-400 hover:text-white text-sm transition">ログアウト</a>
+    </div>
+</header>
+
+<!-- タブバー -->
+<nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto">
+    <button class="tab-btn active" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
+        hx-on::after-request="setActiveTab(this)">
+        市場概況
+    </button>
+    <button class="tab-btn" hx-get="/tab/demographics" hx-target="#content" hx-swap="innerHTML"
+        hx-on::after-request="setActiveTab(this)">
+        人口動態
+    </button>
+    <button class="tab-btn" hx-get="/tab/mobility" hx-target="#content" hx-swap="innerHTML"
+        hx-on::after-request="setActiveTab(this)">
+        人材移動
+    </button>
+    <button class="tab-btn" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
+        hx-on::after-request="setActiveTab(this)">
+        需給バランス
+    </button>
+    <button class="tab-btn" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
+        hx-on::after-request="setActiveTab(this)">
+        働き方
+    </button>
+    <button class="tab-btn" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
+        hx-on::after-request="setActiveTab(this)">
+        求人マップ
+    </button>
+    <button class="tab-btn" hx-get="/tab/talentmap" hx-target="#content" hx-swap="innerHTML"
+        hx-on::after-request="setActiveTab(this)">
+        人材マップ
+    </button>
+    <button class="tab-btn" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
+        hx-on::after-request="setActiveTab(this)">
+        競合調査
+    </button>
+</nav>
+
+<!-- メインコンテンツ -->
+<main id="content" class="p-6">
+    <div class="text-center text-slate-400 py-20">
+        <p class="text-lg">タブを選択してください</p>
+    </div>
+</main>
+
+<script>
+// 初期表示: 市場概況を自動ロード
+document.addEventListener('DOMContentLoaded', function() {
+    htmx.ajax('GET', '/tab/overview', {target: '#content', swap: 'innerHTML'});
+    document.querySelector('.tab-btn').classList.add('active');
+});
+
+function setActiveTab(el) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    el.classList.add('active');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,133 @@
+<!-- タブ8: 競合調査 パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">競合調査 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+
+    <!-- KPIカード -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="stat-card">
+            <div class="text-sm text-slate-400">求人総数</div>
+            <div class="text-3xl font-bold text-emerald-400">{{TOTAL_POSTINGS}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="text-sm text-slate-400">施設数</div>
+            <div class="text-3xl font-bold text-cyan-400">{{TOTAL_FACILITIES}}</div>
+        </div>
+    </div>
+
+    <!-- フィルタ -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">求人検索</h3>
+        <div class="flex flex-wrap gap-3 items-end">
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">都道府県</label>
+                <select id="comp-pref"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white"
+                    hx-get="/api/competitive/municipalities"
+                    hx-target="#comp-muni"
+                    hx-swap="innerHTML"
+                    hx-include="[name='prefecture']"
+                    name="prefecture">
+                    <option value="">選択してください</option>
+                    {{PREF_OPTIONS}}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">市区町村</label>
+                <select id="comp-muni" name="municipality"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                    <option value="">全て</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">雇用形態</label>
+                <select id="comp-emp" name="employment_type"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                    <option value="">全て</option>
+                    <option value="正職員">正職員</option>
+                    <option value="契約職員">契約職員</option>
+                    <option value="パート・バイト">パート・バイト</option>
+                </select>
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="flex items-center gap-1 text-sm text-slate-300">
+                    <input type="checkbox" id="comp-nearby" class="rounded">
+                    近辺検索
+                </label>
+                <select id="comp-radius"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                    <option value="10">10km</option>
+                    <option value="20">20km</option>
+                    <option value="50">50km</option>
+                </select>
+            </div>
+            <button onclick="searchCompetitive()"
+                class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition">
+                検索
+            </button>
+        </div>
+    </div>
+
+    <!-- 検索結果（HTMXで動的更新） -->
+    <div id="comp-results">
+        <p class="text-slate-400 text-sm">都道府県を選択して検索してください</p>
+    </div>
+
+    <div class="grid-charts">
+        <!-- 都道府県別求人数チャート -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求人数（上位15）</h3>
+            <div class="echart" style="height:400px;" data-chart-config='{
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category", "data": {{PREF_LABELS}}, "inverse": true},
+                "series": [{"type": "bar", "data": {{PREF_VALUES}}, "itemStyle": {"color": "#f59e0b", "borderRadius": [0,4,4,0]}, "barWidth": "60%"}],
+                "grid": {"left": "25%", "right": "5%"}
+            }'></div>
+        </div>
+
+        <!-- テーブル -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求人数ランキング</h3>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="text-center" style="width:50px">順位</th>
+                            <th>都道府県</th>
+                            <th class="text-right">求人数</th>
+                        </tr>
+                    </thead>
+                    <tbody>{{PREF_ROWS}}</tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function searchCompetitive() {
+    var pref = document.getElementById('comp-pref').value;
+    var muni = document.getElementById('comp-muni').value;
+    var emp = document.getElementById('comp-emp').value;
+    var nearby = document.getElementById('comp-nearby').checked;
+    var radius = document.getElementById('comp-radius').value;
+
+    if (!pref) {
+        var el = document.getElementById('comp-results');
+        el.textContent = '';
+        var p = document.createElement('p');
+        p.className = 'text-amber-400 text-sm';
+        p.textContent = '都道府県を選択してください';
+        el.appendChild(p);
+        return;
+    }
+
+    var url = '/api/competitive/filter?prefecture=' + encodeURIComponent(pref)
+        + '&municipality=' + encodeURIComponent(muni)
+        + '&employment_type=' + encodeURIComponent(emp)
+        + '&nearby=' + nearby
+        + '&radius_km=' + radius;
+
+    htmx.ajax('GET', url, {target: '#comp-results', swap: 'innerHTML'});
+}
+</script>

@@ -1,0 +1,47 @@
+<!-- タブ4: 需給バランス パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">需給バランス <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+
+    <div class="grid-charts">
+        <!-- 都道府県別求職者供給 -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求職者供給数（上位15）</h3>
+            <div class="echart" style="height:400px;" data-chart-config='{
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category", "data": {{PREF_LABELS}}, "inverse": true},
+                "series": [{"type": "bar", "data": {{PREF_VALUES}}, "itemStyle": {"color": "#3b82f6", "borderRadius": [0,4,4,0]}, "barWidth": "60%"}],
+                "grid": {"left": "25%", "right": "5%"}
+            }'></div>
+        </div>
+
+        <!-- 競争プロファイル -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">競争プロファイル</h3>
+            <div class="echart" style="height:400px;" data-chart-config='{
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category", "data": {{COMP_LABELS}}, "inverse": true},
+                "series": [{"type": "bar", "data": {{COMP_VALUES}}, "itemStyle": {"color": "#f59e0b", "borderRadius": [0,4,4,0]}, "barWidth": "60%"}],
+                "grid": {"left": "35%", "right": "5%"}
+            }'></div>
+        </div>
+    </div>
+
+    <!-- 都道府県別需給テーブル -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">都道府県別 求職者供給ランキング</h3>
+        <div style="overflow-x:auto;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th class="text-center" style="width:50px">順位</th>
+                        <th>都道府県</th>
+                        <th class="text-right">供給数</th>
+                    </tr>
+                </thead>
+                <tbody>{{GAP_ROWS}}</tbody>
+            </table>
+        </div>
+    </div>
+</div>

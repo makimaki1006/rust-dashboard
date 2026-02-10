@@ -1,0 +1,66 @@
+<!-- タブ3: 人材移動 パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">人材移動 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+
+    <!-- 流入・流出 KPI -->
+    {{FLOW_KPI_SECTION}}
+
+    <!-- 距離統計 -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="stat-card">
+            <div class="stat-value text-orange-400">{{AVG_DISTANCE}}<span class="text-lg">km</span></div>
+            <div class="stat-label">平均移動距離</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value text-slate-300">{{DISTANCE_Q25}}<span class="text-lg">km</span></div>
+            <div class="stat-label">25パーセンタイル</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value text-cyan-400">{{DISTANCE_MEDIAN}}<span class="text-lg">km</span></div>
+            <div class="stat-label">中央値</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value text-purple-400">{{DISTANCE_Q75}}<span class="text-lg">km</span></div>
+            <div class="stat-label">75パーセンタイル</div>
+        </div>
+    </div>
+
+    <div class="grid-charts">
+        <!-- 移動型分布 -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">移動型分布</h3>
+            <div class="echart" style="height:320px;" data-chart-config='{
+                "tooltip": {"trigger": "item", "formatter": "{b}: {c}人 ({d}%)"},
+                "series": [{
+                    "type": "pie",
+                    "radius": ["40%", "70%"],
+                    "center": ["50%", "52%"],
+                    "itemStyle": {"borderRadius": 6, "borderColor": "#0f172a", "borderWidth": 2},
+                    "label": {"show": true, "color": "#e2e8f0", "fontSize": 12, "formatter": "{b}\n{d}%"},
+                    "data": [
+                        {{MOBILITY_PIE_DATA}}
+                    ]
+                }]
+            }'></div>
+        </div>
+
+        <!-- 都道府県間フロー -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">都道府県間 主要移動フロー（上位10）</h3>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="text-center" style="width:50px">順位</th>
+                            <th>居住地</th>
+                            <th class="text-center" style="width:40px"></th>
+                            <th>希望勤務地</th>
+                            <th class="text-right">人数</th>
+                        </tr>
+                    </thead>
+                    <tbody>{{FLOW_ROWS}}</tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,48 @@
+<!-- タブ6: 求人マップ パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">求人マップ <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">求人密度マップ</h3>
+        <div id="jobmap" class="leaflet-map" style="height:600px;"></div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var el = document.getElementById('jobmap');
+    if (!el) return;
+
+    // 既存のマップインスタンスがあれば破棄
+    if (el._leaflet_id) {
+        el._leaflet_map.remove();
+    }
+
+    var map = L.map(el).setView([36.5, 138.0], 6);
+    el._leaflet_map = map;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
+        maxZoom: 18
+    }).addTo(map);
+
+    // マーカーAPI呼び出し
+    fetch('/api/markers?job_type={{JOB_TYPE}}')
+        .then(function(r) { return r.json(); })
+        .then(function(markers) {
+            markers.forEach(function(m) {
+                if (m.lat && m.lng) {
+                    L.circleMarker([m.lat, m.lng], {
+                        radius: Math.min(Math.max(m.count / 100, 3), 20),
+                        fillColor: '#3b82f6',
+                        color: '#1e40af',
+                        weight: 1,
+                        fillOpacity: 0.6
+                    }).bindPopup(m.name + ': ' + m.count + '件').addTo(map);
+                }
+            });
+        });
+
+    setTimeout(function() { map.invalidateSize(); }, 300);
+})();
+</script>

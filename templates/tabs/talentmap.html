@@ -1,0 +1,35 @@
+<!-- タブ7: 人材マップ パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">人材マップ <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+
+    <div class="grid-charts">
+        <!-- 都道府県別人材密度チャート -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求職者数（上位15）</h3>
+            <div class="echart" style="height:400px;" data-chart-config='{
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category", "data": {{PREF_LABELS}}, "inverse": true},
+                "series": [{"type": "bar", "data": {{PREF_VALUES}}, "itemStyle": {"color": "#10b981", "borderRadius": [0,4,4,0]}, "barWidth": "60%"}],
+                "grid": {"left": "25%", "right": "5%"}
+            }'></div>
+        </div>
+
+        <!-- テーブル -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求職者数ランキング</h3>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="text-center" style="width:50px">順位</th>
+                            <th>都道府県</th>
+                            <th class="text-right">求職者数</th>
+                        </tr>
+                    </thead>
+                    <tbody>{{DENSITY_ROWS}}</tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
