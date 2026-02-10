@@ -26,7 +26,8 @@
                     hx-target="#comp-muni"
                     hx-swap="innerHTML"
                     hx-include="[name='prefecture']"
-                    name="prefecture">
+                    name="prefecture"
+                    onchange="updateFacilityTypes(this.value)">
                     <option value="">選択してください</option>
                     {{PREF_OPTIONS}}
                 </select>
@@ -46,6 +47,14 @@
                     <option value="正職員">正職員</option>
                     <option value="契約職員">契約職員</option>
                     <option value="パート・バイト">パート・バイト</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">施設形態</label>
+                <select id="comp-ftype" name="facility_type"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                    <option value="">全て</option>
+                    {{FTYPE_OPTIONS}}
                 </select>
             </div>
             <div class="flex items-center gap-2">
@@ -109,6 +118,7 @@ function searchCompetitive() {
     var pref = document.getElementById('comp-pref').value;
     var muni = document.getElementById('comp-muni').value;
     var emp = document.getElementById('comp-emp').value;
+    var ftype = document.getElementById('comp-ftype').value;
     var nearby = document.getElementById('comp-nearby').checked;
     var radius = document.getElementById('comp-radius').value;
 
@@ -125,9 +135,16 @@ function searchCompetitive() {
     var url = '/api/competitive/filter?prefecture=' + encodeURIComponent(pref)
         + '&municipality=' + encodeURIComponent(muni)
         + '&employment_type=' + encodeURIComponent(emp)
+        + '&facility_type=' + encodeURIComponent(ftype)
         + '&nearby=' + nearby
         + '&radius_km=' + radius;
 
     htmx.ajax('GET', url, {target: '#comp-results', swap: 'innerHTML'});
+}
+
+// 都道府県変更時に施設形態ドロップダウンを更新
+function updateFacilityTypes(pref) {
+    var url = '/api/competitive/facility_types?prefecture=' + encodeURIComponent(pref);
+    htmx.ajax('GET', url, {target: '#comp-ftype', swap: 'innerHTML'});
 }
 </script>

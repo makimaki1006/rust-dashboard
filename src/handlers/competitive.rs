@@ -25,7 +25,8 @@ pub async fn tab_competitive(
 
     let stats = fetch_competitive(&state, &job_type);
     let pref_options = fetch_prefectures(&state, &job_type);
-    let html = render_competitive(&job_type, &stats, &pref_options);
+    let ftype_options = fetch_facility_types(&state, &job_type);
+    let html = render_competitive(&job_type, &stats, &pref_options, &ftype_options);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -36,6 +37,7 @@ pub struct CompFilterParams {
     pub prefecture: Option<String>,
     pub municipality: Option<String>,
     pub employment_type: Option<String>,
+    pub facility_type: Option<String>,
     pub nearby: Option<bool>,
     pub radius_km: Option<f64>,
     pub page: Option<i64>,
@@ -57,6 +59,7 @@ pub async fn comp_filter(
     let pref = params.prefecture.as_deref().unwrap_or("");
     let muni = params.municipality.as_deref().unwrap_or("");
     let emp = params.employment_type.as_deref().unwrap_or("");
+    let ftype = params.facility_type.as_deref().unwrap_or("");
     let nearby = params.nearby.unwrap_or(false);
     let radius_km = params.radius_km.unwrap_or(10.0);
     let page = params.page.unwrap_or(1).max(1);
@@ -68,9 +71,9 @@ pub async fn comp_filter(
 
     // 近辺検索 or 通常検索
     let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp)
+        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp, ftype)
     } else {
-        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
+        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp, ftype)
     };
 
     let total = postings.len() as i64;
@@ -84,7 +87,7 @@ pub async fn comp_filter(
 
     render_posting_table(
         &job_type, pref, muni, page_data, &salary_stats,
-        page, total_pages, total, nearby, radius_km, emp,
+        page, total_pages, total, nearby, radius_km, emp, ftype,
     )
 }
 
@@ -128,6 +131,53 @@ pub async fn comp_municipalities(
     Html(html)
 }
 
+/// 施設形態一覧API（HTMXパーシャル: <option>タグを返す）
+pub async fn comp_facility_types(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<MuniParams>,
+) -> Html<String> {
+    let (job_type, _, _) = get_session_filters(&session).await;
+
+    let pref = params.prefecture.as_deref().unwrap_or("");
+
+    let db = match &state.local_db {
+        Some(db) => db,
+        None => return Html(r#"<option value="">全て</option>"#.to_string()),
+    };
+
+    // 都道府県が選択されていれば絞り込み、なければ全体から取得
+    let (sql, param_values) = if pref.is_empty() {
+        (
+            "SELECT DISTINCT facility_type FROM job_postings WHERE job_type = ? AND facility_type != '' ORDER BY facility_type".to_string(),
+            vec![job_type.clone()],
+        )
+    } else {
+        (
+            "SELECT DISTINCT facility_type FROM job_postings WHERE job_type = ? AND prefecture = ? AND facility_type != '' ORDER BY facility_type".to_string(),
+            vec![job_type.clone(), pref.to_string()],
+        )
+    };
+
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = db.query(&sql, &params_ref).unwrap_or_default();
+
+    let mut html = String::from(r#"<option value="">全て</option>"#);
+    for row in &rows {
+        let ft = row.get("facility_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !ft.is_empty() {
+            html.push_str(&format!(r#"<option value="{ft}">{ft}</option>"#));
+        }
+    }
+    Html(html)
+}
+
 /// HTMLレポート生成API
 pub async fn comp_report(
     State(state): State<Arc<AppState>>,
@@ -144,6 +194,7 @@ pub async fn comp_report(
     let pref = params.prefecture.as_deref().unwrap_or("");
     let muni = params.municipality.as_deref().unwrap_or("");
     let emp = params.employment_type.as_deref().unwrap_or("");
+    let ftype = params.facility_type.as_deref().unwrap_or("");
     let nearby = params.nearby.unwrap_or(false);
     let radius_km = params.radius_km.unwrap_or(10.0);
 
@@ -153,9 +204,9 @@ pub async fn comp_report(
 
     // 全件取得（ページネーションなし）
     let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp)
+        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp, ftype)
     } else {
-        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
+        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp, ftype)
     };
 
     let stats = calc_salary_stats(&postings);
@@ -271,12 +322,30 @@ fn fetch_prefectures(state: &AppState, job_type: &str) -> Vec<String> {
         .collect()
 }
 
+/// 施設形態の一覧を取得（初期表示用: 全都道府県対象）
+fn fetch_facility_types(state: &AppState, job_type: &str) -> Vec<String> {
+    let db = match &state.local_db {
+        Some(db) => db,
+        None => return Vec::new(),
+    };
+
+    let rows = db.query(
+        "SELECT DISTINCT facility_type FROM job_postings WHERE job_type = ? AND facility_type != '' ORDER BY facility_type",
+        &[&job_type as &dyn rusqlite::types::ToSql],
+    ).unwrap_or_default();
+
+    rows.iter()
+        .filter_map(|r| r.get("facility_type").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .collect()
+}
+
 fn fetch_postings(
     db: &crate::db::local_sqlite::LocalDb,
     job_type: &str,
     pref: &str,
     muni: Option<&str>,
     emp: &str,
+    ftype: &str,
 ) -> Vec<PostingRow> {
     let mut sql = String::from(
         "SELECT facility_name, facility_type, prefecture, municipality, employment_type, \
@@ -294,6 +363,11 @@ fn fetch_postings(
     if !emp.is_empty() && emp != "全て" {
         sql.push_str(" AND employment_type = ?");
         param_values.push(emp.to_string());
+    }
+    // 施設形態フィルタ
+    if !ftype.is_empty() && ftype != "全て" {
+        sql.push_str(" AND facility_type = ?");
+        param_values.push(ftype.to_string());
     }
     sql.push_str(" ORDER BY salary_min DESC");
 
@@ -320,6 +394,7 @@ fn fetch_nearby_postings(
     muni: &str,
     radius_km: f64,
     emp: &str,
+    ftype: &str,
 ) -> Vec<PostingRow> {
     // 中心座標を取得
     let center = match get_geocode(db, pref, muni) {
@@ -351,6 +426,11 @@ fn fetch_nearby_postings(
     if !emp.is_empty() && emp != "全て" {
         sql.push_str(" AND employment_type = ?");
         param_values.push(emp.to_string());
+    }
+    // 施設形態フィルタ
+    if !ftype.is_empty() && ftype != "全て" {
+        sql.push_str(" AND facility_type = ?");
+        param_values.push(ftype.to_string());
     }
     sql.push_str(" ORDER BY salary_min DESC");
 
@@ -519,7 +599,7 @@ fn calc_mode_str(vals: &[i64]) -> String {
 
 // --- HTMLレンダリング ---
 
-fn render_competitive(job_type: &str, stats: &CompStats, pref_options: &[String]) -> String {
+fn render_competitive(job_type: &str, stats: &CompStats, pref_options: &[String], ftype_options: &[String]) -> String {
     let pref_labels: Vec<String> = stats.pref_ranking.iter().map(|(p, _)| format!("\"{}\"", p)).collect();
     let pref_values: Vec<String> = stats.pref_ranking.iter().map(|(_, v)| v.to_string()).collect();
 
@@ -541,6 +621,13 @@ fn render_competitive(job_type: &str, stats: &CompStats, pref_options: &[String]
         .collect::<Vec<_>>()
         .join("\n");
 
+    // 施設形態オプション
+    let ftype_option_html: String = ftype_options
+        .iter()
+        .map(|ft| format!(r#"<option value="{ft}">{ft}</option>"#))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     include_str!("../../templates/tabs/competitive.html")
         .replace("{{JOB_TYPE}}", job_type)
         .replace("{{TOTAL_POSTINGS}}", &format_number(stats.total_postings))
@@ -549,6 +636,7 @@ fn render_competitive(job_type: &str, stats: &CompStats, pref_options: &[String]
         .replace("{{PREF_VALUES}}", &format!("[{}]", pref_values.join(",")))
         .replace("{{PREF_ROWS}}", &pref_rows)
         .replace("{{PREF_OPTIONS}}", &pref_option_html)
+        .replace("{{FTYPE_OPTIONS}}", &ftype_option_html)
 }
 
 /// 求人一覧テーブル（HTMXパーシャル）
@@ -564,6 +652,7 @@ fn render_posting_table(
     nearby: bool,
     radius_km: f64,
     emp: &str,
+    ftype: &str,
 ) -> Html<String> {
     let show_distance = nearby && postings.iter().any(|p| p.distance_km.is_some());
 
@@ -602,7 +691,7 @@ fn render_posting_table(
     html.push_str(&format!(
         r#"<div class="flex justify-between items-center mb-2">
             <span class="text-sm text-slate-400">全{}件中 {}〜{}件</span>
-            <a href="/api/report?prefecture={}&municipality={}&employment_type={}&nearby={}&radius_km={}"
+            <a href="/api/report?prefecture={}&municipality={}&employment_type={}&facility_type={}&nearby={}&radius_km={}"
                target="_blank"
                class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded-lg transition">
                HTMLレポート出力
@@ -614,6 +703,7 @@ fn render_posting_table(
         urlencoding::encode(pref),
         urlencoding::encode(muni),
         urlencoding::encode(emp),
+        urlencoding::encode(ftype),
         nearby,
         radius_km,
     ));
@@ -640,7 +730,7 @@ fn render_posting_table(
     let start_num = (page - 1) * 50;
     for (i, p) in postings.iter().enumerate() {
         let fname = truncate_str(&escape_html(&p.facility_name), 40);
-        let ftype = truncate_str(&escape_html(&p.facility_type), 30);
+        let ftype_display = truncate_str(&escape_html(&p.facility_type), 30);
         let area = format!("{} {}", p.prefecture, p.municipality);
         let sal_min = if p.salary_min > 0 { format_number(p.salary_min) } else { "-".to_string() };
         let sal_max = if p.salary_max > 0 { format_number(p.salary_max) } else { "-".to_string() };
@@ -650,7 +740,7 @@ fn render_posting_table(
 
         html.push_str(&format!(
             r#"<tr><td class="text-center">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td>{}</td><td class="text-right">{}</td>"#,
-            start_num + i as i64 + 1, fname, ftype, area, p.employment_type, p.salary_type,
+            start_num + i as i64 + 1, fname, ftype_display, area, p.employment_type, p.salary_type,
             sal_min, sal_max, base, bonus, holidays,
         ));
         if show_distance {
@@ -665,10 +755,11 @@ fn render_posting_table(
     if total_pages > 1 {
         html.push_str(r#"<div class="flex justify-center gap-2 mt-4">"#);
         let base_url = format!(
-            "/api/competitive/filter?prefecture={}&municipality={}&employment_type={}&nearby={}&radius_km={}",
+            "/api/competitive/filter?prefecture={}&municipality={}&employment_type={}&facility_type={}&nearby={}&radius_km={}",
             urlencoding::encode(pref),
             urlencoding::encode(muni),
             urlencoding::encode(emp),
+            urlencoding::encode(ftype),
             nearby,
             radius_km,
         );

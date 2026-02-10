@@ -113,6 +113,7 @@ async fn main() {
         .route("/api/municipalities_cascade", get(handlers::api::get_municipalities_cascade))
         .route("/api/competitive/filter", get(handlers::competitive::comp_filter))
         .route("/api/competitive/municipalities", get(handlers::competitive::comp_municipalities))
+        .route("/api/competitive/facility_types", get(handlers::competitive::comp_facility_types))
         .route("/api/report", get(handlers::competitive::comp_report))
         .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 

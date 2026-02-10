@@ -51,6 +51,12 @@ struct MobilityStats {
     distance_q75: f64,
     /// 都道府県が選択されているか（フローKPI表示判定用）
     has_prefecture: bool,
+    /// 採用圏拡大カード用: 主要流入元 (地名, 人数) 上位5
+    top_inflow_sources: Vec<(String, i64)>,
+    /// 採用圏拡大カード用: 主要流出先 (地名, 人数) 上位5
+    top_outflow_targets: Vec<(String, i64)>,
+    /// 採用圏拡大カード用: 地元志向率
+    local_pct: f64,
 }
 
 impl Default for MobilityStats {
@@ -67,6 +73,9 @@ impl Default for MobilityStats {
             distance_median: 0.0,
             distance_q75: 0.0,
             has_prefecture: false,
+            top_inflow_sources: Vec::new(),
+            top_outflow_targets: Vec::new(),
+            local_pct: 0.0,
         }
     }
 }
@@ -98,6 +107,9 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
     let mut mobility_map: HashMap<String, i64> = HashMap::new();
     // 都道府県間フロー集計
     let mut flow_map: HashMap<(String, String), i64> = HashMap::new();
+    // 採用圏拡大カード用: 流入元・流出先の集計
+    let mut inflow_source_map: HashMap<String, i64> = HashMap::new();
+    let mut outflow_target_map: HashMap<String, i64> = HashMap::new();
 
     // 距離値を重み付きで収集（分位数計算用）
     let mut distance_values: Vec<(f64, i64)> = Vec::new();
@@ -133,9 +145,13 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
             } else if from_pref != prefecture && to_pref == prefecture {
                 // 流入: 他県から選択県へ
                 stats.inflow += cnt;
+                // 採用圏カード用: 流入元の県別集計
+                *inflow_source_map.entry(from_pref.clone()).or_insert(0) += cnt;
             } else if from_pref == prefecture && to_pref != prefecture {
                 // 流出: 選択県から他県へ
                 stats.outflow += cnt;
+                // 採用圏カード用: 流出先の県別集計
+                *outflow_target_map.entry(to_pref.clone()).or_insert(0) += cnt;
             }
         }
 
@@ -165,6 +181,23 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
     flow_list.sort_by(|a, b| b.2.cmp(&a.2));
     stats.top_flows = flow_list.into_iter().take(10).collect();
 
+    // 採用圏カード用: 流入元を人数降順ソートして上位5件
+    let mut inflow_list: Vec<(String, i64)> = inflow_source_map.into_iter().collect();
+    inflow_list.sort_by(|a, b| b.1.cmp(&a.1));
+    stats.top_inflow_sources = inflow_list.into_iter().take(5).collect();
+
+    // 採用圏カード用: 流出先を人数降順ソートして上位5件
+    let mut outflow_list: Vec<(String, i64)> = outflow_target_map.into_iter().collect();
+    outflow_list.sort_by(|a, b| b.1.cmp(&a.1));
+    stats.top_outflow_targets = outflow_list.into_iter().take(5).collect();
+
+    // 採用圏カード用: 地元志向率
+    stats.local_pct = if stats.total_flow > 0 {
+        (stats.local_count as f64 / stats.total_flow as f64) * 100.0
+    } else {
+        0.0
+    };
+
     stats
 }
 
@@ -183,6 +216,69 @@ fn weighted_percentile(values: &[(f64, i64)], total_weight: i64, p: f64) -> f64 
     }
     // フォールバック: 最後の値を返す
     values.last().map(|(v, _)| *v).unwrap_or(0.0)
+}
+
+/// 採用圏分析カードのHTML生成（都道府県選択時のみ表示）
+fn build_recruitment_area_card(stats: &MobilityStats) -> String {
+    if !stats.has_prefecture {
+        return String::new();
+    }
+
+    // 地元志向率の評価テキスト
+    let local_eval = if stats.local_pct > 70.0 {
+        "地元志向が非常に強い地域"
+    } else if stats.local_pct > 50.0 {
+        "地元志向がやや強い地域"
+    } else {
+        "広域から人材が集まる地域"
+    };
+
+    // 流入元リスト（上位5の県名と人数をバッジ表示）
+    let inflow_html: String = if stats.top_inflow_sources.is_empty() {
+        r#"<span class="text-slate-500 text-sm">データなし</span>"#.to_string()
+    } else {
+        stats.top_inflow_sources.iter()
+            .map(|(name, cnt)| format!(
+                r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm"><span class="text-green-400">&larr;</span> {} <span class="text-slate-400">({}人)</span></span>"#,
+                name, format_number(*cnt)
+            ))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    // 流出先リスト（上位5の県名と人数をバッジ表示）
+    let outflow_html: String = if stats.top_outflow_targets.is_empty() {
+        r#"<span class="text-slate-500 text-sm">データなし</span>"#.to_string()
+    } else {
+        stats.top_outflow_targets.iter()
+            .map(|(name, cnt)| format!(
+                r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm"><span class="text-red-400">&rarr;</span> {} <span class="text-slate-400">({}人)</span></span>"#,
+                name, format_number(*cnt)
+            ))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    format!(
+        r#"<div class="stat-card border-l-4 border-emerald-500">
+    <h3 class="text-sm text-emerald-400 mb-2">&#x1f5fa;&#xfe0f; 採用圏分析</h3>
+    <p class="text-sm text-slate-300 mb-3">{local_eval}（地元志向率: {local_pct:.1}%）</p>
+    <div class="space-y-2">
+        <div>
+            <div class="text-xs text-green-400 mb-1">主要流入元（上位5）</div>
+            <div class="flex flex-wrap gap-1">{inflow_html}</div>
+        </div>
+        <div>
+            <div class="text-xs text-red-400 mb-1">主要流出先（上位5）</div>
+            <div class="flex flex-wrap gap-1">{outflow_html}</div>
+        </div>
+    </div>
+</div>"#,
+        local_eval = local_eval,
+        local_pct = stats.local_pct,
+        inflow_html = inflow_html,
+        outflow_html = outflow_html,
+    )
 }
 
 fn render_mobility(job_type: &str, stats: &MobilityStats) -> String {
@@ -249,10 +345,14 @@ fn render_mobility(job_type: &str, stats: &MobilityStats) -> String {
         r#"<div class="text-slate-500 text-sm italic">※ 都道府県を選択すると流入・流出の詳細が表示されます</div>"#.to_string()
     };
 
+    // 採用圏分析カード
+    let recruitment_area_card = build_recruitment_area_card(stats);
+
     include_str!("../../templates/tabs/mobility.html")
         .replace("{{JOB_TYPE}}", job_type)
         .replace("{{AVG_DISTANCE}}", &format!("{:.1}", stats.avg_distance))
         .replace("{{FLOW_KPI_SECTION}}", &flow_kpi_section)
+        .replace("{{RECRUITMENT_AREA_CARD}}", &recruitment_area_card)
         .replace("{{DISTANCE_Q25}}", &format!("{:.1}", stats.distance_q25))
         .replace("{{DISTANCE_MEDIAN}}", &format!("{:.1}", stats.distance_median))
         .replace("{{DISTANCE_Q75}}", &format!("{:.1}", stats.distance_q75))

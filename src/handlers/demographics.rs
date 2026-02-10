@@ -43,6 +43,24 @@ struct DemoStats {
     urgency_start: Vec<(String, i64, f64)>,
     /// ペルソナ構成比 (label, count) - AGE_GENDER由来の年齢×性別ペルソナ
     persona_ratio: Vec<(String, i64)>,
+
+    // --- 言語化カード用フィールド ---
+    /// 最多年齢×性別セグメント名
+    target_segment: String,
+    /// そのセグメントの人数
+    target_count: i64,
+    /// そのセグメントの構成比(%)
+    target_pct: f64,
+    /// "今すぐ"層の人数
+    timing_now_count: i64,
+    /// "今すぐ"層の割合(%)
+    timing_now_pct: f64,
+    /// 最多保有資格名
+    top_qualification: String,
+    /// その資格の保有者数
+    top_qual_count: i64,
+    /// 見落としがちなセグメント (name, count, pct)
+    hidden_segments: Vec<(String, i64, f64)>,
 }
 
 impl Default for DemoStats {
@@ -54,6 +72,14 @@ impl Default for DemoStats {
             urgency_gender: Vec::new(),
             urgency_start: Vec::new(),
             persona_ratio: Vec::new(),
+            target_segment: String::new(),
+            target_count: 0,
+            target_pct: 0.0,
+            timing_now_count: 0,
+            timing_now_pct: 0.0,
+            top_qualification: String::new(),
+            top_qual_count: 0,
+            hidden_segments: Vec::new(),
         }
     }
 }
@@ -179,6 +205,12 @@ async fn fetch_demographics(state: &AppState, job_type: &str, prefecture: &str, 
         stats.age_gender.push((age.to_string(), m, f));
     }
 
+    // --- 言語化カード: 資格戦略（qual_map消費前に算出） ---
+    if let Some((qual, count)) = qual_map.iter().max_by_key(|(_, v)| **v) {
+        stats.top_qualification = qual.clone();
+        stats.top_qual_count = *count;
+    }
+
     // 資格分布（上位10）
     let mut qual_list: Vec<(String, i64)> = qual_map.into_iter().collect();
     qual_list.sort_by(|a, b| b.1.cmp(&a.1));
@@ -194,6 +226,17 @@ async fn fetch_demographics(state: &AppState, job_type: &str, prefecture: &str, 
         .collect();
     urg_gender_list.sort_by(|a, b| b.1.cmp(&a.1));
     stats.urgency_gender = urg_gender_list;
+
+    // --- 言語化カード: タイミング分析（urg_start_map消費前に算出） ---
+    if let Some((total_cnt, _, _)) = urg_start_map.get("今すぐ") {
+        stats.timing_now_count = *total_cnt;
+        let start_total: i64 = urg_start_map.values().map(|(c, _, _)| c).sum();
+        stats.timing_now_pct = if start_total > 0 {
+            (*total_cnt as f64 / start_total as f64) * 100.0
+        } else {
+            0.0
+        };
+    }
 
     // 転職希望時期別緊急度: 定義順でソート
     let start_order = ["今すぐ", "1～3ヶ月", "3～6ヶ月", "6ヶ月以上"];
@@ -211,12 +254,125 @@ async fn fetch_demographics(state: &AppState, job_type: &str, prefecture: &str, 
     });
     stats.urgency_start = urg_start_list;
 
+    // --- 言語化カード: ターゲットプロファイル（persona_map消費前に算出） ---
+    if let Some((label, count)) = persona_map.iter().max_by_key(|(_, v)| **v) {
+        stats.target_segment = label.clone();
+        stats.target_count = *count;
+        let total: i64 = persona_map.values().sum();
+        stats.target_pct = if total > 0 {
+            (*count as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+    }
+
+    // --- 言語化カード: 隠れた人材（構成比5%未満かつ100人以上、最大2件） ---
+    {
+        let persona_total: i64 = persona_map.values().sum();
+        let mut hidden: Vec<(String, i64, f64)> = persona_map
+            .iter()
+            .filter_map(|(label, count)| {
+                let pct = if persona_total > 0 {
+                    (*count as f64 / persona_total as f64) * 100.0
+                } else {
+                    0.0
+                };
+                // 構成比0.5%超～5%未満、かつ100人以上を「隠れた人材」とみなす
+                if pct < 5.0 && pct > 0.5 && *count >= 100 {
+                    Some((label.clone(), *count, pct))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        hidden.sort_by(|a, b| b.1.cmp(&a.1));
+        stats.hidden_segments = hidden.into_iter().take(2).collect();
+    }
+
     // ペルソナ構成比（上位10、人数降順）
     let mut persona_list: Vec<(String, i64)> = persona_map.into_iter().collect();
     persona_list.sort_by(|a, b| b.1.cmp(&a.1));
     stats.persona_ratio = persona_list.into_iter().take(10).collect();
 
     stats
+}
+
+/// 4種の言語化カード（ターゲットプロファイル、タイミング、資格戦略、隠れた人材）をHTML文字列として生成
+fn build_verbalization_cards(stats: &DemoStats) -> String {
+    let mut cards = String::new();
+
+    // ターゲットプロファイルカード
+    if !stats.target_segment.is_empty() {
+        cards.push_str(&format!(
+            r#"<div class="stat-card border-l-4 border-cyan-500">
+    <h3 class="text-sm text-cyan-400 mb-1">&#x1F3AF; ターゲットプロファイル</h3>
+    <p class="text-lg font-bold text-white">{}</p>
+    <p class="text-sm text-slate-400">{}人（構成比 {:.1}%）</p>
+</div>"#,
+            stats.target_segment,
+            format_number(stats.target_count),
+            stats.target_pct
+        ));
+    }
+
+    // タイミングカード
+    if stats.timing_now_count > 0 {
+        cards.push_str(&format!(
+            r#"<div class="stat-card border-l-4 border-amber-500">
+    <h3 class="text-sm text-amber-400 mb-1">&#x23F0; 採用タイミング</h3>
+    <p class="text-lg font-bold text-white">「今すぐ」層: {}人</p>
+    <p class="text-sm text-slate-400">全体の{:.1}%が即転職希望</p>
+</div>"#,
+            format_number(stats.timing_now_count),
+            stats.timing_now_pct
+        ));
+    }
+
+    // 資格戦略カード
+    if !stats.top_qualification.is_empty() {
+        cards.push_str(&format!(
+            r#"<div class="stat-card border-l-4 border-purple-500">
+    <h3 class="text-sm text-purple-400 mb-1">&#x1F4DC; 資格戦略</h3>
+    <p class="text-lg font-bold text-white">{}</p>
+    <p class="text-sm text-slate-400">{}人が保有 - 最も多い保有資格</p>
+</div>"#,
+            stats.top_qualification,
+            format_number(stats.top_qual_count)
+        ));
+    }
+
+    // 隠れた人材カード
+    if !stats.hidden_segments.is_empty() {
+        let segments_html: Vec<String> = stats
+            .hidden_segments
+            .iter()
+            .map(|(name, count, pct)| {
+                format!(
+                    "<li>{} ({}人, {:.1}%)</li>",
+                    name,
+                    format_number(*count),
+                    pct
+                )
+            })
+            .collect();
+        cards.push_str(&format!(
+            r#"<div class="stat-card border-l-4 border-green-500">
+    <h3 class="text-sm text-green-400 mb-1">&#x1F48E; 隠れた人材</h3>
+    <p class="text-sm text-slate-300">見落とされやすいセグメント:</p>
+    <ul class="text-sm text-slate-400 list-disc list-inside mt-1">{}</ul>
+</div>"#,
+            segments_html.join("")
+        ));
+    }
+
+    if cards.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        r#"<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">{}</div>"#,
+        cards
+    )
 }
 
 fn render_demographics(job_type: &str, stats: &DemoStats, _location_label: &str) -> String {
@@ -265,8 +421,12 @@ fn render_demographics(job_type: &str, stats: &DemoStats, _location_label: &str)
         }
     }).collect();
 
+    // 言語化カードHTML生成
+    let verbalization_cards = build_verbalization_cards(stats);
+
     include_str!("../../templates/tabs/demographics.html")
         .replace("{{JOB_TYPE}}", job_type)
+        .replace("{{VERBALIZATION_CARDS}}", &verbalization_cards)
         .replace("{{PREF_ROWS}}", &pref_rows)
         .replace("{{AGE_LABELS}}", &format!("[{}]", age_labels.join(",")))
         .replace("{{AGE_MALE_VALUES}}", &format!("[{}]", age_male_vals.join(",")))
