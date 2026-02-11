@@ -239,10 +239,9 @@ struct PostingRow {
     prefecture: String,
     municipality: String,
     employment_type: String,
-    salary_type: String,
     salary_min: i64,
     salary_max: i64,
-    base_salary: i64,
+    expected_annual_income: i64,
     bonus: String,
     annual_holidays: i64,
     distance_km: Option<f64>,
@@ -349,7 +348,7 @@ fn fetch_postings(
 ) -> Vec<PostingRow> {
     let mut sql = String::from(
         "SELECT facility_name, facility_type, prefecture, municipality, employment_type, \
-         salary_type, salary_min, salary_max, base_salary, bonus, annual_holidays \
+         salary_min, salary_max, expected_annual_income, bonus, annual_holidays \
          FROM job_postings WHERE job_type = ? AND prefecture = ?"
     );
     let mut param_values: Vec<String> = vec![job_type.to_string(), pref.to_string()];
@@ -412,7 +411,7 @@ fn fetch_nearby_postings(
 
     let mut sql = String::from(
         "SELECT facility_name, facility_type, prefecture, municipality, employment_type, \
-         salary_type, salary_min, salary_max, base_salary, bonus, annual_holidays, \
+         salary_min, salary_max, expected_annual_income, bonus, annual_holidays, \
          latitude, longitude \
          FROM job_postings WHERE job_type = ? \
          AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?"
@@ -488,6 +487,11 @@ fn haversine(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
     r * c
 }
 
+/// serde_json::Valueから数値を取得（REAL/INTEGER両対応）
+fn value_to_i64(v: &Value) -> i64 {
+    v.as_i64().unwrap_or_else(|| v.as_f64().map(|f| f as i64).unwrap_or(0))
+}
+
 fn row_to_posting(r: &std::collections::HashMap<String, Value>, distance: Option<f64>) -> PostingRow {
     PostingRow {
         facility_name: r.get("facility_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
@@ -495,12 +499,11 @@ fn row_to_posting(r: &std::collections::HashMap<String, Value>, distance: Option
         prefecture: r.get("prefecture").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         municipality: r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         employment_type: r.get("employment_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        salary_type: r.get("salary_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        salary_min: r.get("salary_min").and_then(|v| v.as_i64()).unwrap_or(0),
-        salary_max: r.get("salary_max").and_then(|v| v.as_i64()).unwrap_or(0),
-        base_salary: r.get("base_salary").and_then(|v| v.as_i64()).unwrap_or(0),
+        salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
+        salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
+        expected_annual_income: r.get("expected_annual_income").map(value_to_i64).unwrap_or(0),
         bonus: r.get("bonus").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        annual_holidays: r.get("annual_holidays").and_then(|v| v.as_i64()).unwrap_or(0),
+        annual_holidays: r.get("annual_holidays").map(value_to_i64).unwrap_or(0),
         distance_km: distance,
     }
 }
@@ -716,10 +719,9 @@ fn render_posting_table(
     html.push_str("<th>施設形態</th>");
     html.push_str("<th>エリア</th>");
     html.push_str("<th>雇用形態</th>");
-    html.push_str("<th>給与区分</th>");
     html.push_str(r#"<th class="text-right">月給下限</th>"#);
     html.push_str(r#"<th class="text-right">月給上限</th>"#);
-    html.push_str(r#"<th class="text-right">基本給</th>"#);
+    html.push_str(r#"<th class="text-right">想定年収</th>"#);
     html.push_str("<th>賞与</th>");
     html.push_str(r#"<th class="text-right">年間休日</th>"#);
     if show_distance {
@@ -734,14 +736,14 @@ fn render_posting_table(
         let area = format!("{} {}", p.prefecture, p.municipality);
         let sal_min = if p.salary_min > 0 { format_number(p.salary_min) } else { "-".to_string() };
         let sal_max = if p.salary_max > 0 { format_number(p.salary_max) } else { "-".to_string() };
-        let base = if p.base_salary > 0 { format_number(p.base_salary) } else { "-".to_string() };
+        let annual_income = if p.expected_annual_income > 0 { format_number(p.expected_annual_income) } else { "-".to_string() };
         let holidays = if p.annual_holidays > 0 { p.annual_holidays.to_string() } else { "-".to_string() };
         let bonus = truncate_str(&escape_html(&p.bonus), 20);
 
         html.push_str(&format!(
-            r#"<tr><td class="text-center">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td>{}</td><td class="text-right">{}</td>"#,
-            start_num + i as i64 + 1, fname, ftype_display, area, p.employment_type, p.salary_type,
-            sal_min, sal_max, base, bonus, holidays,
+            r#"<tr><td class="text-center">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td>{}</td><td class="text-right">{}</td>"#,
+            start_num + i as i64 + 1, fname, ftype_display, area, escape_html(&p.employment_type),
+            sal_min, sal_max, annual_income, bonus, holidays,
         ));
         if show_distance {
             let dist = p.distance_km.map(|d| format!("{:.1}km", d)).unwrap_or("-".to_string());
@@ -813,7 +815,7 @@ fn render_report_html(
         let area = format!("{} {}", escape_html(&p.prefecture), escape_html(&p.municipality));
         let sal_min = if p.salary_min > 0 { format!("{}", format_number(p.salary_min)) } else { "-".to_string() };
         let sal_max = if p.salary_max > 0 { format!("{}", format_number(p.salary_max)) } else { "-".to_string() };
-        let base = if p.base_salary > 0 { format!("{}", format_number(p.base_salary)) } else { "-".to_string() };
+        let annual_income = if p.expected_annual_income > 0 { format!("{}", format_number(p.expected_annual_income)) } else { "-".to_string() };
         let holidays = if p.annual_holidays > 0 { p.annual_holidays.to_string() } else { "-".to_string() };
         let bonus = truncate_str(&escape_html(&p.bonus), 20);
         let dist_cell = if show_distance {
@@ -824,9 +826,9 @@ fn render_report_html(
         };
 
         table_rows.push_str(&format!(
-            r#"<tr><td style="text-align:center">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td>{}</td><td class="num">{}</td>{}</tr>"#,
-            i + 1, fname, ftype, area, escape_html(&p.employment_type), escape_html(&p.salary_type),
-            sal_min, sal_max, base, bonus, holidays, dist_cell,
+            r#"<tr><td style="text-align:center">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td>{}</td><td class="num">{}</td>{}</tr>"#,
+            i + 1, fname, ftype, area, escape_html(&p.employment_type),
+            sal_min, sal_max, annual_income, bonus, holidays, dist_cell,
         ));
     }
 
@@ -894,8 +896,8 @@ tr:nth-child(even) {{ background-color: #f8f9fa; }}
 <thead>
 <tr>
     <th>#</th><th>法人・施設名</th><th>施設形態</th><th>エリア</th>
-    <th>雇用形態</th><th>給与区分</th><th>月給下限</th><th>月給上限</th>
-    <th>基本給</th><th>賞与</th><th>年間休日</th>{distance_th}
+    <th>雇用形態</th><th>月給下限</th><th>月給上限</th>
+    <th>想定年収</th><th>賞与</th><th>年間休日</th>{distance_th}
 </tr>
 </thead>
 <tbody>
