@@ -538,10 +538,14 @@ fn build_recruitment_area_card(stats: &MobilityStats) -> String {
         r#"<span class="text-slate-500 text-sm">データなし</span>"#.to_string()
     } else {
         stats.top_inflow_sources.iter()
-            .map(|(name, cnt)| format!(
-                r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm"><span class="text-green-400">&larr;</span> {} <span class="text-slate-400">({}人)</span></span>"#,
-                name, format_number(*cnt)
-            ))
+            .filter(|(_, cnt)| *cnt >= 2) // ノイズ除去
+            .map(|(name, cnt)| {
+                let pct = if stats.inflow > 0 { *cnt as f64 / stats.inflow as f64 * 100.0 } else { 0.0 };
+                format!(
+                    r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm"><span class="text-green-400">&larr;</span> {} <span class="text-slate-400">({}人, {:.0}%)</span></span>"#,
+                    name, format_number(*cnt), pct
+                )
+            })
             .collect::<Vec<_>>()
             .join(" ")
     };
@@ -550,10 +554,14 @@ fn build_recruitment_area_card(stats: &MobilityStats) -> String {
         r#"<span class="text-slate-500 text-sm">データなし</span>"#.to_string()
     } else {
         stats.top_outflow_targets.iter()
-            .map(|(name, cnt)| format!(
-                r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm"><span class="text-red-400">&rarr;</span> {} <span class="text-slate-400">({}人)</span></span>"#,
-                name, format_number(*cnt)
-            ))
+            .filter(|(_, cnt)| *cnt >= 2) // ノイズ除去
+            .map(|(name, cnt)| {
+                let pct = if stats.outflow > 0 { *cnt as f64 / stats.outflow as f64 * 100.0 } else { 0.0 };
+                format!(
+                    r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm"><span class="text-red-400">&rarr;</span> {} <span class="text-slate-400">({}人, {:.0}%)</span></span>"#,
+                    name, format_number(*cnt), pct
+                )
+            })
             .collect::<Vec<_>>()
             .join(" ")
     };
@@ -652,28 +660,44 @@ fn build_flow_kpi(stats: &MobilityStats) -> String {
         "N/A".to_string()
     };
 
-    // 流入元リスト
+    // 流入元リスト（割合表示付き、少数ノイズフィルタ）
+    let inflow_total: i64 = stats.top_inflow_sources.iter().map(|(_, c)| c).sum();
     let inflow_source_html: String = if stats.top_inflow_sources.is_empty() {
         r#"<p class="text-sm text-slate-500">市区町村を選択すると表示</p>"#.to_string()
     } else {
-        stats.top_inflow_sources.iter().take(3).map(|(name, cnt)| {
-            format!(
-                r#"<div class="flex items-center justify-between"><span class="text-sm text-white">{}</span><span class="text-sm text-slate-400">{}人</span></div>"#,
-                name, format_number(*cnt)
-            )
-        }).collect::<Vec<_>>().join("\n")
+        let mut items: Vec<String> = stats.top_inflow_sources.iter().take(3)
+            .filter(|(_, cnt)| *cnt >= 2) // ノイズ除去: 2人未満を除外
+            .map(|(name, cnt)| {
+                let pct = if inflow_total > 0 { *cnt as f64 / inflow_total as f64 * 100.0 } else { 0.0 };
+                format!(
+                    r#"<div class="flex items-center justify-between"><span class="text-sm text-white">{}</span><span class="text-sm text-slate-400">{}人 <span style="color:#10b981;">({:.0}%)</span></span></div>"#,
+                    name, format_number(*cnt), pct
+                )
+            }).collect();
+        if items.is_empty() {
+            items.push(r#"<p class="text-sm text-slate-500">有意な流入データなし</p>"#.to_string());
+        }
+        items.join("\n")
     };
 
-    // 流出先リスト
+    // 流出先リスト（割合表示付き、少数ノイズフィルタ）
+    let outflow_total: i64 = stats.top_outflow_targets.iter().map(|(_, c)| c).sum();
     let outflow_target_html: String = if stats.top_outflow_targets.is_empty() || stats.outflow == 0 {
         r#"<p class="text-sm text-slate-500">流出データなし（地元志向が高いエリアです）</p>"#.to_string()
     } else {
-        stats.top_outflow_targets.iter().take(3).map(|(name, cnt)| {
-            format!(
-                r#"<div class="flex items-center justify-between"><span class="text-sm text-white">{}</span><span class="text-sm text-slate-400">{}人</span></div>"#,
-                name, format_number(*cnt)
-            )
-        }).collect::<Vec<_>>().join("\n")
+        let mut items: Vec<String> = stats.top_outflow_targets.iter().take(3)
+            .filter(|(_, cnt)| *cnt >= 2) // ノイズ除去: 2人未満を除外
+            .map(|(name, cnt)| {
+                let pct = if outflow_total > 0 { *cnt as f64 / outflow_total as f64 * 100.0 } else { 0.0 };
+                format!(
+                    r#"<div class="flex items-center justify-between"><span class="text-sm text-white">{}</span><span class="text-sm text-slate-400">{}人 <span style="color:#ef4444;">({:.0}%)</span></span></div>"#,
+                    name, format_number(*cnt), pct
+                )
+            }).collect();
+        if items.is_empty() {
+            items.push(r#"<p class="text-sm text-slate-500">有意な流出データなし</p>"#.to_string());
+        }
+        items.join("\n")
     };
 
     format!(
@@ -720,7 +744,8 @@ fn build_flow_kpi(stats: &MobilityStats) -> String {
         </div>
         {}
     </div>
-</div>"##,
+</div>
+<div class="text-xs text-slate-500 mt-2 italic">※ 隣接県・広域圏フローのみ表示。広域登録ユーザーのノイズは除外済み（2人未満除外）</div>"##,
         format_number(stats.inflow),
         stats.local_pct,
         format_number(stats.local_count),

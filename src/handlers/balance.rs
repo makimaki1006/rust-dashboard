@@ -218,7 +218,7 @@ fn build_competition_section(stats: &BalanceStats, avg_ratio: f64, prefecture: &
                  prefecture))
     };
 
-    let ratio_display = format!("{:.1}倍", avg_ratio);
+    let ratio_display = format!("{:.1}倍以上", avg_ratio);
     let job_display = if stats.job_count > 0 {
         format!("{}件以上", format_number(stats.job_count))
     } else {
@@ -279,11 +279,11 @@ fn build_share_section(stats: &BalanceStats, total_supply: f64, prefecture: &str
                 <div class="stat-card" style="flex: 1; min-width: 140px;">
                     <div class="text-sm text-slate-400">求人シェア</div>
                     <div class="text-2xl font-bold" style="color: #56B4E9;">{:.4}%</div>
-                    <div class="text-xs text-slate-500">({} / {}件)</div>
+                    <div class="text-xs text-slate-500">({} / {}件以上)</div>
                 </div>
                 <div class="stat-card" style="flex: 1; min-width: 140px;">
                     <div class="text-sm text-slate-400">競争倍率</div>
-                    <div class="text-2xl font-bold" style="color: {};">{:.4}倍</div>
+                    <div class="text-2xl font-bold" style="color: {};">{:.4}倍以上</div>
                     <div class="text-xs" style="color: {};">（{}）</div>
                 </div>
             </div>

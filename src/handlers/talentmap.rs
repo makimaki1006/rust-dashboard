@@ -11,12 +11,26 @@ use crate::geo::pref_name_to_code;
 
 use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, make_location_label};
 
+/// タブ7用クエリパラメータ（地図クリック等から受け取る）
+#[derive(Deserialize, Default)]
+pub struct TalentMapTabQuery {
+    pub municipality: Option<String>,
+}
+
 /// タブ7: 人材地図（コロプレス地図 + 4モード + サイドバー）
 pub async fn tab_talentmap(
     State(state): State<Arc<AppState>>,
     session: Session,
+    Query(params): Query<TalentMapTabQuery>,
 ) -> Html<String> {
-    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+    let (job_type, prefecture, session_muni) = get_session_filters(&session).await;
+
+    // クエリパラメータのmunicipalityがあればそちらを優先（地図クリック時）
+    let municipality = if let Some(ref qm) = params.municipality {
+        if !qm.is_empty() { qm.clone() } else { session_muni }
+    } else {
+        session_muni
+    };
 
     let cache_key = format!("talentmap_{}_{}_{}", job_type, prefecture, municipality);
     if let Some(cached) = state.cache.get(&cache_key) {
@@ -435,13 +449,23 @@ fn build_choropleth_styles(markers: &[MarkerData], selected_muni: &str) -> Strin
 }
 
 fn count_to_color(ratio: f64) -> String {
-    // 薄青(低) → 青(中) → 濃青(高)
+    // 薄い黄緑(低) → 緑(中) → 濃い青緑(高) のヒートマップ配色
     let t = ratio.clamp(0.0, 1.0);
-    let r = (220.0 - t * 190.0) as u8;  // 220→30
-    let g = (235.0 - t * 165.0) as u8;  // 235→70
-    let b = (255.0 - t * 55.0) as u8;   // 255→200
-
-    format!("#{:02x}{:02x}{:02x}", r, g, b)
+    if t < 0.5 {
+        // 薄黄(#ffffcc) → 緑(#41b6c4)
+        let s = t * 2.0;
+        let r = (255.0 - s * 190.0) as u8;  // 255→65
+        let g = (255.0 - s * 73.0) as u8;   // 255→182
+        let b = (204.0 - s * 8.0) as u8;    // 204→196
+        format!("#{:02x}{:02x}{:02x}", r, g, b)
+    } else {
+        // 緑(#41b6c4) → 濃紺(#253494)
+        let s = (t - 0.5) * 2.0;
+        let r = (65.0 - s * 28.0) as u8;    // 65→37
+        let g = (182.0 - s * 130.0) as u8;  // 182→52
+        let b = (196.0 - s * 48.0) as u8;   // 196→148
+        format!("#{:02x}{:02x}{:02x}", r, g, b)
+    }
 }
 
 fn build_markers_json(markers: &[MarkerData]) -> String {
@@ -503,55 +527,87 @@ fn build_sidebar(muni: &str, pref: &str, detail: &Option<MuniDetail>, markers: &
         }
         html.push_str("</div>");
 
-        // 年齢×性別構成（ピラミッド形式）
+        // 年齢×性別構成（EChartsピラミッドチャート）
         if !d.age_gender.is_empty() {
             html.push_str(r##"<div class="mb-3">
                 <div class="text-sm font-bold text-white mb-1">👥 年齢×性別構成</div>"##);
 
-            let max_ag = d.age_gender.iter()
-                .map(|(_, m, f)| (*m).max(*f))
-                .max()
-                .unwrap_or(1)
-                .max(1);
-
-            html.push_str(r##"<div style="font-family: monospace; font-size: 0.7rem;">
-                <div style="display: flex; justify-content: space-between; color: #94a3b8; margin-bottom: 4px;">
-                    <span style="color: #0072B2;">♂男性</span>
-                    <span style="color: #E69F00;">♀女性</span>
-                </div>"##);
-
             let age_order = ["20代", "30代", "40代", "50代", "60代", "70歳以上"];
+            let mut labels = Vec::new();
+            let mut male_vals = Vec::new();
+            let mut female_vals = Vec::new();
+
             for age in &age_order {
                 if let Some((_, male, female)) = d.age_gender.iter().find(|(a, _, _)| a == age) {
-                    let male_bars = ((*male as f64 / max_ag as f64) * 8.0) as usize;
-                    let female_bars = ((*female as f64 / max_ag as f64) * 8.0) as usize;
-                    let male_bar: String = std::iter::repeat('\u{2588}').take(male_bars).collect();
-                    let female_bar: String = std::iter::repeat('\u{2588}').take(female_bars).collect();
-
-                    html.push_str(&format!(
-                        r##"<div style="display: flex; align-items: center; margin: 2px 0; color: #94a3b8;">
-                            <span style="width: 40px; text-align: right; color: #0072B2; font-size: 0.65rem;">{}</span>
-                            <span style="width: 60px; text-align: right; color: #0072B2;">{}</span>
-                            <span style="width: 45px; text-align: center; font-weight: bold; font-size: 0.65rem;">{}</span>
-                            <span style="width: 60px; text-align: left; color: #E69F00;">{}</span>
-                            <span style="width: 40px; text-align: left; color: #E69F00; font-size: 0.65rem;">{}</span>
-                        </div>"##,
-                        format_number(*male), male_bar, age, female_bar, format_number(*female)
-                    ));
+                    labels.push(format!("\"{}\"", age));
+                    male_vals.push(format!("{}", -male)); // 男性は負値（左側）
+                    female_vals.push(format!("{}", female));
                 }
             }
 
             let total_m: i64 = d.age_gender.iter().map(|(_, m, _)| m).sum();
             let total_f: i64 = d.age_gender.iter().map(|(_, _, f)| f).sum();
+
+            // EChartsピラミッド設定
             html.push_str(&format!(
-                r##"<div style="display: flex; justify-content: space-between; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.7rem;">
-                    <span style="color: #0072B2;">計 {}人</span>
-                    <span style="color: #E69F00;">計 {}人</span>
+                r##"<div class="echart" style="height:220px;width:100%;" data-chart-config='{{
+                    "tooltip": {{
+                        "trigger": "axis",
+                        "axisPointer": {{"type": "shadow"}},
+                        "formatter": "function(p){{var r=p[0].axisValue;var s=r;p.forEach(function(i){{s+=\"<br/>\"+i.marker+i.seriesName+\": \"+Math.abs(i.value)+\"人\"}});return s}}"
+                    }},
+                    "legend": {{
+                        "data": ["男性","女性"],
+                        "top": 0,
+                        "textStyle": {{"color":"#94a3b8","fontSize":10}}
+                    }},
+                    "grid": {{"left":"8%","right":"8%","top":"28px","bottom":"4px","containLabel":true}},
+                    "xAxis": {{
+                        "type": "value",
+                        "axisLabel": {{
+                            "formatter": "function(v){{return Math.abs(v)}}"
+                        }},
+                        "splitLine": {{"lineStyle":{{"color":"rgba(255,255,255,0.05)"}}}}
+                    }},
+                    "yAxis": {{
+                        "type": "category",
+                        "data": [{}],
+                        "axisTick": {{"show":false}},
+                        "axisLabel": {{"fontSize":10}}
+                    }},
+                    "series": [
+                        {{
+                            "name": "男性",
+                            "type": "bar",
+                            "stack": "total",
+                            "data": [{}],
+                            "itemStyle": {{"color":"#0072B2","borderRadius":[4,0,0,4]}},
+                            "barWidth": 16
+                        }},
+                        {{
+                            "name": "女性",
+                            "type": "bar",
+                            "stack": "total",
+                            "data": [{}],
+                            "itemStyle": {{"color":"#E69F00","borderRadius":[0,4,4,0]}},
+                            "barWidth": 16
+                        }}
+                    ]
+                }}'></div>"##,
+                labels.join(","),
+                male_vals.join(","),
+                female_vals.join(",")
+            ));
+
+            html.push_str(&format!(
+                r##"<div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.7rem;">
+                    <span style="color: #0072B2;">♂ 計 {}人</span>
+                    <span style="color: #E69F00;">♀ 計 {}人</span>
                 </div>"##,
                 format_number(total_m), format_number(total_f)
             ));
 
-            html.push_str("</div></div>");
+            html.push_str("</div>");
         }
 
         // 雇用形態分布
