@@ -24,6 +24,8 @@
             try {
                 var configStr = el.getAttribute('data-chart-config');
                 var config = JSON.parse(configStr);
+                // JSON文字列中の"function(...){...}"をJavaScript関数に変換
+                reviveFunctions(config);
                 var chart = echarts.init(el, 'dark');
                 // 背景色をnavy-900に合わせる
                 config.backgroundColor = config.backgroundColor || 'transparent';
@@ -32,6 +34,27 @@
                 new ResizeObserver(function() { chart.resize(); }).observe(el);
             } catch (e) {
                 console.warn('[app.js] ECharts初期化エラー:', e.message, el);
+            }
+        });
+    }
+
+    // JSON内の"function(...){...}"文字列を実際のJS関数に変換（再帰）
+    // 注意: data-chart-configはサーバー側Rustコードから生成された信頼済みデータのみ。
+    // ユーザー入力を含まないため、Function()コンストラクタの使用は安全。
+    function reviveFunctions(obj) {
+        if (!obj || typeof obj !== 'object') return;
+        var fnPattern = /^function\s*\(([^)]*)\)\s*\{([\s\S]*)\}$/;
+        Object.keys(obj).forEach(function(key) {
+            var val = obj[key];
+            if (typeof val === 'string' && fnPattern.test(val)) {
+                try {
+                    var m = val.match(fnPattern);
+                    obj[key] = new Function(m[1], m[2]);
+                } catch(e) { /* 変換失敗時は文字列のまま */ }
+            } else if (Array.isArray(val)) {
+                val.forEach(function(item) { reviveFunctions(item); });
+            } else if (typeof val === 'object' && val !== null) {
+                reviveFunctions(val);
             }
         });
     }

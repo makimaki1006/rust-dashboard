@@ -228,15 +228,18 @@ pub async fn segment_overview(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let db = match &state.local_db {
         Some(db) => db,
         None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
     };
 
-    let pref = params.prefecture.as_deref().unwrap_or("");
-    let muni = params.municipality.as_deref().unwrap_or("");
+    // クエリパラメータが空ならsessionから取得（グローバルフィルタ変更対応）
+    let pref = params.prefecture.as_deref()
+        .filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni = params.municipality.as_deref()
+        .filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
     let emp = params.employment_type.as_deref().unwrap_or("");
     let ftypes = parse_facility_types(params.facility_type.as_deref().unwrap_or(""));
 
@@ -414,15 +417,17 @@ pub async fn segment_tier3(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let db = match &state.local_db {
         Some(db) => db,
         None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
     };
 
-    let pref = params.prefecture.as_deref().unwrap_or("");
-    let muni = params.municipality.as_deref().unwrap_or("");
+    let pref = params.prefecture.as_deref()
+        .filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni = params.municipality.as_deref()
+        .filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
     let emp = params.employment_type.as_deref().unwrap_or("");
     let ftypes = parse_facility_types(params.facility_type.as_deref().unwrap_or(""));
 
@@ -721,7 +726,7 @@ pub async fn segment_tags(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
     let seg_job = match map_job_type_to_segment(&job_type) {
         Some(j) => j,
         None => return Html(no_segment_data_html(&job_type)),
@@ -732,8 +737,8 @@ pub async fn segment_tags(
         None => return Html(r#"<p class="text-red-400 text-sm">セグメントDBが利用できません</p>"#.to_string()),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     let emp = params.employment_type.as_deref().unwrap_or("");
     let emp_type = if emp.is_empty() { "全て" } else { emp };
@@ -856,7 +861,7 @@ pub async fn segment_text_features(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
     let seg_job = match map_job_type_to_segment(&job_type) {
         Some(j) => j,
         None => return Html(no_segment_data_html(&job_type)),
@@ -867,8 +872,8 @@ pub async fn segment_text_features(
         None => return Html(r#"<p class="text-red-400 text-sm">セグメントDBが利用できません</p>"#.to_string()),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     let emp = params.employment_type.as_deref().unwrap_or("");
     let emp_type = if emp.is_empty() { "全て" } else { emp };
@@ -1316,7 +1321,7 @@ pub async fn segment_salary_compare(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let seg_db = match &state.segment_db {
         Some(db) => db,
@@ -1328,8 +1333,8 @@ pub async fn segment_salary_compare(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     let emp = params.employment_type.as_deref().unwrap_or("");
     let emp_type = if emp.is_empty() { "全て" } else { emp };
@@ -1455,7 +1460,7 @@ pub async fn segment_job_desc_insights(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let seg_db = match &state.segment_db {
         Some(db) => db,
@@ -1467,8 +1472,8 @@ pub async fn segment_job_desc_insights(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     // 仕事内容カテゴリの分布を取得
     let emp = params.employment_type.as_deref().unwrap_or("");
@@ -1636,7 +1641,7 @@ pub async fn segment_age_decade(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let seg_db = match &state.segment_db {
         Some(db) => db,
@@ -1648,8 +1653,8 @@ pub async fn segment_age_decade(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     let emp = params.employment_type.as_deref().unwrap_or("");
     let emp_type = if emp.is_empty() { "全て" } else { emp };
@@ -1824,7 +1829,7 @@ pub async fn segment_gender_lifecycle(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let seg_db = match &state.segment_db {
         Some(db) => db,
@@ -1836,8 +1841,8 @@ pub async fn segment_gender_lifecycle(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     let emp = params.employment_type.as_deref().unwrap_or("");
     let emp_type = if emp.is_empty() { "全て" } else { emp };
@@ -2070,7 +2075,7 @@ pub async fn segment_exp_qual(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let seg_db = match &state.segment_db {
         Some(db) => db,
@@ -2082,8 +2087,8 @@ pub async fn segment_exp_qual(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     let emp = params.employment_type.as_deref().unwrap_or("");
     let emp_type = if emp.is_empty() { "全て" } else { emp };
@@ -2261,7 +2266,7 @@ pub async fn segment_work_schedule(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let seg_db = match &state.segment_db {
         Some(db) => db,
@@ -2273,8 +2278,8 @@ pub async fn segment_work_schedule(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     let emp = params.employment_type.as_deref().unwrap_or("");
     let emp_type = if emp.is_empty() { "全て" } else { emp };
@@ -2564,7 +2569,7 @@ pub async fn segment_holidays(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let seg_db = match &state.segment_db {
         Some(db) => db,
@@ -2576,8 +2581,8 @@ pub async fn segment_holidays(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     let emp = params.employment_type.as_deref().unwrap_or("");
     let emp_type = if emp.is_empty() { "全て" } else { emp };
@@ -2828,7 +2833,7 @@ pub async fn segment_salary_shift(
     session: Session,
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
     let seg_db = match &state.segment_db {
         Some(db) => db,
@@ -2840,8 +2845,8 @@ pub async fn segment_salary_shift(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
-    let pref_raw = params.prefecture.as_deref().unwrap_or("");
-    let muni_raw = params.municipality.as_deref().unwrap_or("");
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
 
     let emp = params.employment_type.as_deref().unwrap_or("");
     let emp_type = if emp.is_empty() { "全て" } else { emp };

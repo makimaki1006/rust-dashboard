@@ -922,25 +922,37 @@ fn build_urgency_chart(data: &[(String, i64, f64)], mode: &str) -> String {
 
 // ===== RARITY API エンドポイント =====
 
-#[derive(Deserialize)]
-pub struct RarityQuery {
-    #[serde(default)]
-    pub age: Vec<String>,
-    #[serde(default)]
-    pub gender: Vec<String>,
-    #[serde(default)]
-    pub qualification: Vec<String>,
+/// HTMLフォームのチェックボックス(同名パラメータ重複: age=30代&age=40代)をパースする
+/// axum::extract::Queryはserde_urlencodedを使用しVec<String>に対応しないため手動パース
+fn parse_multi_value_query(query_str: &str) -> HashMap<String, Vec<String>> {
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for pair in query_str.split('&') {
+        if let Some((key, val)) = pair.split_once('=') {
+            let key_decoded = urlencoding::decode(key).unwrap_or_default().to_string();
+            let val_decoded = urlencoding::decode(val).unwrap_or_default().to_string();
+            if !val_decoded.is_empty() {
+                map.entry(key_decoded).or_default().push(val_decoded);
+            }
+        }
+    }
+    map
 }
 
 /// RARITY検索APIハンドラー
 pub async fn api_rarity(
     State(state): State<Arc<AppState>>,
     session: Session,
-    Query(query): Query<RarityQuery>,
+    raw_query: axum::extract::RawQuery,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
 
-    if query.age.is_empty() && query.gender.is_empty() && query.qualification.is_empty() {
+    let query_str = raw_query.0.unwrap_or_default();
+    let params_map = parse_multi_value_query(&query_str);
+    let age_list = params_map.get("age").cloned().unwrap_or_default();
+    let gender_list = params_map.get("gender").cloned().unwrap_or_default();
+    let qualification_list = params_map.get("qualification").cloned().unwrap_or_default();
+
+    if age_list.is_empty() && gender_list.is_empty() && qualification_list.is_empty() {
         return Html(r##"<p class="text-slate-500 text-sm">条件を選択して検索してください</p>"##.to_string());
     }
 
@@ -957,19 +969,19 @@ pub async fn api_rarity(
     }
 
     // 年代フィルタ
-    if !query.age.is_empty() {
-        let placeholders: Vec<&str> = query.age.iter().map(|_| "?").collect();
+    if !age_list.is_empty() {
+        let placeholders: Vec<&str> = age_list.iter().map(|_| "?").collect();
         conditions.push(format!("category1 IN ({})", placeholders.join(",")));
-        for a in &query.age {
+        for a in &age_list {
             params.push(Value::String(a.clone()));
         }
     }
 
     // 性別フィルタ
-    if !query.gender.is_empty() {
-        let placeholders: Vec<&str> = query.gender.iter().map(|_| "?").collect();
+    if !gender_list.is_empty() {
+        let placeholders: Vec<&str> = gender_list.iter().map(|_| "?").collect();
         conditions.push(format!("category2 IN ({})", placeholders.join(",")));
-        for g in &query.gender {
+        for g in &gender_list {
             params.push(Value::String(g.clone()));
         }
     }
@@ -1009,10 +1021,10 @@ pub async fn api_rarity(
 
     // 資格フィルタ処理: 資格が選択されていればさらにフィルタ
     // （簡略実装: 資格フィルタはDB側で完全にはできないため、バッジ表示のみ）
-    let qual_badge = if !query.qualification.is_empty() {
+    let qual_badge = if !qualification_list.is_empty() {
         format!(
             r##"<span class="px-2 py-1 rounded text-xs" style="background-color: rgba(168, 85, 247, 0.2); color: #c084fc;">資格: {}</span>"##,
-            query.qualification.join(", ")
+            qualification_list.join(", ")
         )
     } else { String::new() };
 
