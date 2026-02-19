@@ -1,0 +1,277 @@
+{
+  "_meta": {
+    "title": "competitive.rs 拡張API仕様書",
+    "version": "1.0",
+    "generated_by": "data-scientist-v2",
+    "date": "2026-02-16",
+    "description": "salary_analysis.json / facility_type_mapping.json / prefecture_clusters.json のデータをRust側で活用するためのAPI設計。既存のAnalysisData構造体の拡張と新規エンドポイントの提案。"
+  },
+
+  "existing_analysis_data_extension": {
+    "_comment": "既存のAnalysisData構造体にフィールドを追加して、salary_analysis.jsonの統計を組み込む",
+    "struct_name": "AnalysisData",
+    "new_fields": {
+      "inexperience_salary_gap": {
+        "type": "i64",
+        "description": "未経験OK vs 経験者向けの月給下限差（経験者 - 未経験OK）",
+        "source": "salary_analysis.json > inexperience_comparison > {job_type} > salary_gap",
+        "usage": "KPIカードに「未経験待遇差: +23,000円」のように表示"
+      },
+      "inexperienced_salary_median": {
+        "type": "i64",
+        "description": "未経験OK求人の月給下限中央値",
+        "source": "salary_analysis.json > inexperience_comparison > {job_type} > inexperienced_ok > salary_min > median"
+      },
+      "experienced_salary_median": {
+        "type": "i64",
+        "description": "経験者向け求人の月給下限中央値",
+        "source": "salary_analysis.json > inexperience_comparison > {job_type} > experienced_only > salary_min > median"
+      },
+      "facility_category_salary": {
+        "type": "Vec<(String, i64, i64)>",
+        "description": "(大カテゴリ名, 件数, 月給中央値) のベクタ",
+        "source": "salary_analysis.json > facility_category_salary > {category} > salary_min > median",
+        "usage": "水平バーチャート: 施設形態別の給与水準比較"
+      }
+    }
+  },
+
+  "new_api_endpoints": [
+    {
+      "path": "/api/competitive/salary_comparison",
+      "method": "GET",
+      "handler": "comp_salary_comparison",
+      "description": "未経験OK vs 経験者の給与差カードHTML（HTMXパーシャル）",
+      "query_params": {
+        "prefecture": {"type": "String", "optional": true},
+        "municipality": {"type": "String", "optional": true}
+      },
+      "response_type": "Html<String>",
+      "response_example_html": "<div class=\"grid grid-cols-1 md:grid-cols-2 gap-4\">\n  <!-- 未経験 vs 経験者カード -->\n  <div class=\"stat-card\">\n    <h4 class=\"text-sm text-slate-400 mb-3\">未経験OK vs 経験者 給与比較</h4>\n    <div class=\"flex items-center justify-between mb-4\">\n      <div class=\"text-center\">\n        <div class=\"text-xs text-emerald-400\">未経験OK</div>\n        <div class=\"text-2xl font-bold text-white\">223,000円</div>\n        <div class=\"text-xs text-slate-500\">中央値 / 181,989件</div>\n      </div>\n      <div class=\"text-center\">\n        <div class=\"text-lg font-bold text-amber-400\">+23,000円</div>\n        <div class=\"text-xs text-slate-500\">経験者プレミアム</div>\n      </div>\n      <div class=\"text-center\">\n        <div class=\"text-xs text-amber-400\">経験者向け</div>\n        <div class=\"text-2xl font-bold text-white\">246,000円</div>\n        <div class=\"text-xs text-slate-500\">中央値 / 110,590件</div>\n      </div>\n    </div>\n    <!-- EChartsゲージチャート -->\n    <div class=\"echart\" style=\"height:200px;\" data-chart-config='{...}'></div>\n  </div>\n\n  <!-- 施設形態別給与水準チャート -->\n  <div class=\"stat-card\">\n    <h4 class=\"text-sm text-slate-400 mb-3\">施設形態別 月給水準</h4>\n    <div class=\"echart\" style=\"height:300px;\" data-chart-config='{...}'></div>\n  </div>\n</div>",
+      "data_source": {
+        "primary": "ローカルSQLiteから直接クエリ（既存パターン踏襲）",
+        "alternative": "salary_analysis.jsonをstartup時にロードしてAppStateに保持",
+        "recommendation": "SQLite直接クエリ推奨。JSONプリコンピュートは全国統計のキャッシュとして補助的に活用"
+      },
+      "sql_queries": [
+        {
+          "name": "未経験OK月給統計",
+          "sql": "SELECT salary_min FROM job_postings {where_clause} AND inexperienced_ok = 1 AND salary_min >= 50000 AND salary_min <= 2000000 ORDER BY salary_min",
+          "note": "中央値はRust側でソート済みベクタの中央要素"
+        },
+        {
+          "name": "経験者向け月給統計",
+          "sql": "SELECT salary_min FROM job_postings {where_clause} AND inexperienced_ok = 0 AND salary_min >= 50000 AND salary_min <= 2000000 ORDER BY salary_min"
+        }
+      ],
+      "echart_config": {
+        "type": "gauge (対比型)",
+        "description": "左右対称のゲージで未経験OKと経験者の給与差を視覚化",
+        "config_template": {
+          "series": [
+            {
+              "type": "gauge",
+              "startAngle": 180,
+              "endAngle": 0,
+              "min": 150000,
+              "max": 400000,
+              "pointer": {"show": false},
+              "progress": {"show": true, "width": 18},
+              "data": [
+                {"value": 223000, "name": "未経験OK", "itemStyle": {"color": "#10b981"}},
+                {"value": 246000, "name": "経験者", "itemStyle": {"color": "#f59e0b"}}
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "/api/competitive/facility_salary",
+      "method": "GET",
+      "handler": "comp_facility_salary",
+      "description": "施設形態(大カテゴリ)別の給与統計チャートHTML（HTMXパーシャル）",
+      "query_params": {
+        "employment_type": {"type": "String", "optional": true, "default": "正職員"}
+      },
+      "response_type": "Html<String>",
+      "data_flow": {
+        "step1": "facility_type_mapping.json の raw_to_major でfacility_type → 大カテゴリキー変換",
+        "step2": "SQLでjob_postingsから salary_min を取得",
+        "step3": "Rust側で大カテゴリ別にグルーピング・中央値計算",
+        "step4": "ECharts水平バーチャートとして出力"
+      },
+      "sql_query": "SELECT facility_type, salary_min FROM job_postings WHERE job_type = ? AND salary_min >= 50000 AND salary_min <= 2000000 AND employment_type = ?",
+      "rust_processing": {
+        "description": "facility_typeから大カテゴリを抽出(スペース前)、HashMap<String, Vec<i64>>に集約、各カテゴリの中央値を算出",
+        "code_sketch": "let major = ft.split(' ').next().unwrap_or(\"病院・クリニック\");\ncategory_salaries.entry(major.to_string()).or_default().push(salary_min);"
+      },
+      "echart_config": {
+        "type": "bar (horizontal)",
+        "description": "大カテゴリ9種を月給中央値でソートした水平バー",
+        "config_template": {
+          "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+          "xAxis": {"type": "value", "axisLabel": {"color": "#94a3b8", "formatter": "{value}円"}},
+          "yAxis": {"type": "category", "data": ["保育園・幼稚園", "介護・福祉事業所", "..."], "inverse": true, "axisLabel": {"color": "#94a3b8", "fontSize": 11}},
+          "series": [
+            {
+              "type": "bar",
+              "data": [215000, 228000, "..."],
+              "label": {"show": true, "position": "right", "formatter": "{c}円", "color": "#e2e8f0"},
+              "itemStyle": {"color": {"type": "linear", "colorStops": [{"offset": 0, "color": "#06b6d4"}, {"offset": 1, "color": "#3b82f6"}]}, "borderRadius": [0, 4, 4, 0]}
+            }
+          ],
+          "grid": {"left": "25%", "right": "15%"}
+        }
+      }
+    },
+    {
+      "path": "/api/competitive/prefecture_cluster",
+      "method": "GET",
+      "handler": "comp_prefecture_cluster",
+      "description": "地域クラスタリング結果の表示（概要タブまたは競合タブに統合可能）",
+      "response_type": "Html<String>",
+      "data_source": {
+        "file": "python_scripts/data/analysis_results/prefecture_clusters.json",
+        "loading": "AppState初期化時にJSONファイルをロードし、メモリに保持",
+        "struct_definition": {
+          "PrefectureCluster": {
+            "label": "String",
+            "center": "HashMap<String, f64>",
+            "prefectures": "Vec<String>",
+            "size": "usize"
+          },
+          "ClusterData": {
+            "optimal_k": "usize",
+            "best_silhouette": "f64",
+            "clusters": "HashMap<String, PrefectureCluster>"
+          }
+        }
+      },
+      "response_example_html": "<div class=\"stat-card\">\n  <h4 class=\"text-sm text-slate-400 mb-3\">地域クラスタ分析</h4>\n  <div class=\"grid grid-cols-1 md:grid-cols-3 gap-3\">\n    <div class=\"bg-slate-800/50 rounded-lg p-3 border border-blue-500/30\">\n      <div class=\"text-sm font-bold text-blue-400 mb-1\">大都市圏・高給与</div>\n      <div class=\"text-xs text-slate-400 mb-2\">6県 | 平均月給: 254,800円</div>\n      <div class=\"flex flex-wrap gap-1\">\n        <span class=\"px-2 py-0.5 bg-blue-900/50 text-blue-300 text-xs rounded\">東京都</span>\n        <span class=\"px-2 py-0.5 bg-blue-900/50 text-blue-300 text-xs rounded\">大阪府</span>\n        ...\n      </div>\n    </div>\n    <!-- 他クラスタも同様 -->\n  </div>\n  <div class=\"mt-3 text-xs text-slate-500\">K-Means (k=3, silhouette=0.211)</div>\n</div>",
+      "usage_recommendations": [
+        {
+          "tab": "概要タブ (overview.rs)",
+          "where": "3層比較パネルの下に配置",
+          "trigger": "タブ初期表示時にHTMX getで取得",
+          "value": "選択中の都道府県がどのクラスタに属するかをハイライト表示"
+        },
+        {
+          "tab": "競合調査タブ (competitive.rs)",
+          "where": "分析パネル内",
+          "trigger": "分析ボタン押下時に表示",
+          "value": "同クラスタ内の他県との比較情報を提供"
+        }
+      ]
+    }
+  ],
+
+  "existing_render_analysis_extension": {
+    "_comment": "既存のrender_analysis_html_with_scope関数に以下のセクションを追加",
+    "new_sections": [
+      {
+        "position": "KPIサマリー(grid-cols-4)の後、チャート2列(grid-cols-2)の前",
+        "content": "未経験OK vs 経験者 給与比較カード",
+        "html_template": "<div class=\"stat-card mb-4\">\n  <h4 class=\"text-sm text-slate-400 mb-3\">💰 未経験OK vs 経験者 月給比較</h4>\n  <div class=\"grid grid-cols-3 gap-4 text-center\">\n    <div>\n      <div class=\"text-xs text-emerald-400\">未経験OK</div>\n      <div class=\"text-xl font-bold text-white\">{{INEX_SALARY_MEDIAN}}円</div>\n      <div class=\"text-xs text-slate-500\">中央値 / {{INEX_COUNT}}件</div>\n    </div>\n    <div>\n      <div class=\"text-xs text-slate-400\">経験者プレミアム</div>\n      <div class=\"text-2xl font-bold {{GAP_COLOR}}\">{{GAP_SIGN}}{{SALARY_GAP}}円</div>\n    </div>\n    <div>\n      <div class=\"text-xs text-amber-400\">経験者向け</div>\n      <div class=\"text-xl font-bold text-white\">{{EXP_SALARY_MEDIAN}}円</div>\n      <div class=\"text-xs text-slate-500\">中央値 / {{EXP_COUNT}}件</div>\n    </div>\n  </div>\n</div>",
+        "required_data": {
+          "INEX_SALARY_MEDIAN": "未経験OK月給中央値",
+          "EXP_SALARY_MEDIAN": "経験者月給中央値",
+          "SALARY_GAP": "差分(絶対値)",
+          "GAP_SIGN": "+/-",
+          "GAP_COLOR": "正ならtext-amber-400、負ならtext-emerald-400",
+          "INEX_COUNT": "未経験OK件数",
+          "EXP_COUNT": "経験者件数"
+        }
+      },
+      {
+        "position": "施設形態TOP10バーチャートの後",
+        "content": "施設形態別給与水準チャート",
+        "html_template": "<div class=\"stat-card\">\n  <h4 class=\"text-sm text-slate-400 mb-2\">施設形態別 月給中央値</h4>\n  <div class=\"echart\" style=\"height:350px;\" data-chart-config='{{FACILITY_SALARY_CHART}}'></div>\n</div>",
+        "data_generation": {
+          "step1": "fetch_analysis_filtered内で施設形態別salary_minを集計",
+          "step2": "大カテゴリ抽出: facility_type.split(' ').next()",
+          "step3": "空文字→「病院・クリニック」変換",
+          "step4": "各カテゴリの中央値を計算してソート",
+          "sql": "SELECT facility_type, salary_min FROM job_postings {where_clause} AND salary_min >= 50000 AND salary_min <= 2000000"
+        }
+      }
+    ]
+  },
+
+  "appstate_extension": {
+    "_comment": "AppStateに分析JSONをロードして保持する場合の設計",
+    "new_fields": {
+      "facility_mapping": {
+        "type": "Option<serde_json::Value>",
+        "loaded_from": "python_scripts/data/analysis_results/facility_type_mapping.json",
+        "usage": "raw_to_majorマッピングのO(1)ルックアップ"
+      },
+      "salary_analysis": {
+        "type": "Option<serde_json::Value>",
+        "loaded_from": "python_scripts/data/analysis_results/salary_analysis.json",
+        "usage": "全国統計のプリコンピュートキャッシュ（地域別はSQLiteクエリ）"
+      },
+      "prefecture_clusters": {
+        "type": "Option<serde_json::Value>",
+        "loaded_from": "python_scripts/data/analysis_results/prefecture_clusters.json",
+        "usage": "地域クラスタ表示"
+      }
+    },
+    "loading_code_sketch": "// main.rs の startup で\nlet facility_mapping = std::fs::read_to_string(\"python_scripts/data/analysis_results/facility_type_mapping.json\")\n    .ok()\n    .and_then(|s| serde_json::from_str(&s).ok());\nlet salary_analysis = std::fs::read_to_string(\"python_scripts/data/analysis_results/salary_analysis.json\")\n    .ok()\n    .and_then(|s| serde_json::from_str(&s).ok());\nlet prefecture_clusters = std::fs::read_to_string(\"python_scripts/data/analysis_results/prefecture_clusters.json\")\n    .ok()\n    .and_then(|s| serde_json::from_str(&s).ok());"
+  },
+
+  "implementation_priority": [
+    {
+      "priority": 1,
+      "item": "AnalysisData拡張 + render_analysis_html内の未経験vs経験者カード",
+      "effort": "small",
+      "files_changed": ["competitive.rs"],
+      "description": "既存のfetch_analysis_filtered関数にSQL2本追加、render_analysis_html_with_scopeにHTMLセクション追加。既存パターンの踏襲で最小変更量。"
+    },
+    {
+      "priority": 2,
+      "item": "施設形態別給与水準チャート追加",
+      "effort": "medium",
+      "files_changed": ["competitive.rs"],
+      "description": "施設形態→大カテゴリ変換ロジック（スペース前分離）を追加。facility_type_mapping.jsonのraw_to_majorは不要（SQLiteから直接計算可能）。"
+    },
+    {
+      "priority": 3,
+      "item": "地域クラスタ表示",
+      "effort": "medium",
+      "files_changed": ["lib.rs (AppState)", "main.rs (loading)", "competitive.rs or overview.rs (rendering)"],
+      "description": "prefecture_clusters.jsonをAppStateにロードし、HTMLカードとして表示。選択中都道府県のハイライトに対応。"
+    }
+  ],
+
+  "facility_type_major_extraction_logic": {
+    "_comment": "competitive.rs内で大カテゴリを抽出するRustコードスケッチ。facility_type_mapping.jsonのロード不要。",
+    "code": "fn extract_major_category(facility_type: &str) -> &str {\n    if facility_type.is_empty() {\n        return \"病院・クリニック\";\n    }\n    facility_type.split(' ').next().unwrap_or(\"病院・クリニック\")\n}",
+    "categories": {
+      "介護・福祉事業所": "kaigo_fukushi",
+      "美容・サロン・ジム": "beauty_salon",
+      "薬局・ドラッグストア": "pharmacy",
+      "代替医療・リラクゼーション": "alternative_medicine",
+      "病院・クリニック": "hospital_clinic",
+      "歯科診療所・技工所": "dental",
+      "訪問看護ステーション": "home_nursing",
+      "その他（企業・学校等）": "other_corporate",
+      "保育園・幼稚園": "nursery_kindergarten"
+    }
+  },
+
+  "chart_color_palette": {
+    "_comment": "大カテゴリ別のチャート色（既存のTailwind色に合わせた設計）",
+    "colors": {
+      "kaigo_fukushi": "#3b82f6",
+      "beauty_salon": "#ec4899",
+      "pharmacy": "#22c55e",
+      "alternative_medicine": "#f59e0b",
+      "hospital_clinic": "#ef4444",
+      "dental": "#06b6d4",
+      "home_nursing": "#8b5cf6",
+      "other_corporate": "#64748b",
+      "nursery_kindergarten": "#f97316"
+    }
+  }
+}

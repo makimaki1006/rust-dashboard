@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::auth::SESSION_JOB_TYPE_KEY;
+use crate::models::job_seeker::PREFECTURE_ORDER;
 use crate::AppState;
 
 #[derive(Deserialize)]
@@ -122,20 +123,24 @@ pub async fn get_prefectures(
             .unwrap_or_else(|| "介護職".to_string())
     };
 
-    let sql = "SELECT DISTINCT prefecture FROM job_seeker_data WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture != '' ORDER BY prefecture";
+    let sql = "SELECT DISTINCT prefecture FROM job_seeker_data WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture != ''";
     let params_vec = vec![Value::String(job_type)];
 
-    let prefs = match state.turso.query(sql, &params_vec).await {
+    let mut prefs = match state.turso.query(sql, &params_vec).await {
         Ok(rows) => rows
             .iter()
             .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
             .collect::<Vec<_>>(),
         Err(_) => Vec::new(),
     };
+    // JIS北→南順にソート
+    prefs.sort_by_key(|p| {
+        PREFECTURE_ORDER.iter().position(|&o| o == p.as_str()).unwrap_or(99)
+    });
 
     let html: String = prefs
         .iter()
-        .map(|p| format!(r#"<option value="{p}">{p}</option>"#))
+        .map(|p| super::competitive::build_option(p, p))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -181,7 +186,7 @@ pub async fn get_municipalities_cascade(
 
     let html: String = munis
         .iter()
-        .map(|m| format!(r#"<option value="{m}">{m}</option>"#))
+        .map(|m| super::competitive::build_option(m, m))
         .collect::<Vec<_>>()
         .join("\n");
 

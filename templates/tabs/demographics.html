@@ -1,108 +1,127 @@
-<!-- タブ2: 人口動態 パーシャルHTML -->
+<!-- タブ2: ペルソナ分析 パーシャルHTML -->
 <div class="space-y-6">
-    <h2 class="text-xl font-bold text-white">人口動態 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+    <h2 class="text-xl font-bold text-white">👥 ペルソナ分析 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
 
-    <!-- 言語化カード（ターゲットプロファイル、タイミング、資格戦略、隠れた人材） -->
+    <!-- 言語化カード（ターゲット、タイミング、資格戦略、隠れた人材） -->
     {{VERBALIZATION_CARDS}}
 
-    <div class="grid-charts">
-        <!-- 年齢×性別ピラミッド -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">年齢層 x 性別分布</h3>
-            <div class="echart" style="height:350px;" data-chart-config='{
-                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-                "legend": {"data": ["男性", "女性"], "top": 4},
-                "xAxis": {"type": "category", "data": {{AGE_LABELS}}},
-                "yAxis": {"type": "value", "name": "人数"},
-                "series": [
-                    {"name": "男性", "type": "bar", "data": {{AGE_MALE_VALUES}}, "itemStyle": {"color": "#0ea5e9", "borderRadius": [4,4,0,0]}},
-                    {"name": "女性", "type": "bar", "data": {{AGE_FEMALE_VALUES}}, "itemStyle": {"color": "#ec4899", "borderRadius": [4,4,0,0]}}
-                ]
-            }'></div>
+    <!-- 1行目: 全ペルソナ内訳 + 横棒グラフ -->
+    <div class="flex flex-col md:flex-row gap-4">
+        <!-- 左: 全ペルソナ内訳リスト -->
+        <div class="stat-card flex-1" style="min-width: 300px;">
+            <div class="text-sm font-semibold text-slate-400 mb-3">全ペルソナ内訳（100%）</div>
+            <div style="max-height: 350px; overflow-y: auto;">
+                {{PERSONA_LIST}}
+            </div>
         </div>
-
-        <!-- 資格分布 -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">保有資格分布（上位10）</h3>
-            <div class="echart" style="height:350px;" data-chart-config='{
-                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-                "xAxis": {"type": "value"},
-                "yAxis": {"type": "category", "data": {{QUAL_LABELS}}, "inverse": true},
-                "series": [{"type": "bar", "data": {{QUAL_VALUES}}, "itemStyle": {"color": "#8b5cf6", "borderRadius": [0,4,4,0]}, "barWidth": "60%"}],
-                "grid": {"left": "30%"}
-            }'></div>
+        <!-- 右: ペルソナ構成比横棒グラフ -->
+        <div class="stat-card flex-1" style="min-width: 400px;">
+            <div class="text-sm font-semibold text-slate-400 mb-3">ペルソナ構成比（横棒グラフ）</div>
+            {{PERSONA_BAR_CHART}}
         </div>
     </div>
 
-    <!-- 緊急度×性別 / 転職希望時期別緊急度 -->
-    <div class="grid-charts">
-        <!-- 緊急度×性別チャート（2軸: 棒=人数、折れ線=平均スコア） -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">緊急度 x 性別</h3>
-            <div class="echart" style="height:350px;" data-chart-config='{
-                "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
-                "legend": {"data": ["人数", "平均スコア"], "top": 4},
-                "xAxis": {"type": "category", "data": {{URG_GENDER_LABELS}}},
-                "yAxis": [
-                    {"type": "value", "name": "人数", "position": "left"},
-                    {"type": "value", "name": "平均スコア", "position": "right", "min": 0, "max": 5, "splitNumber": 5}
-                ],
-                "series": [
-                    {"name": "人数", "type": "bar", "yAxisIndex": 0, "data": {{URG_GENDER_COUNTS}}, "itemStyle": {"color": "#06b6d4", "borderRadius": [4,4,0,0]}, "barWidth": "40%"},
-                    {"name": "平均スコア", "type": "line", "yAxisIndex": 1, "data": {{URG_GENDER_SCORES}}, "lineStyle": {"color": "#f59e0b", "width": 3}, "itemStyle": {"color": "#f59e0b"}, "symbol": "circle", "symbolSize": 8}
-                ]
-            }'></div>
-        </div>
-
-        <!-- 転職希望時期別緊急度チャート（2軸: 棒=人数、折れ線=平均スコア） -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">転職希望時期別 緊急度</h3>
-            <div class="echart" style="height:350px;" data-chart-config='{
-                "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
-                "legend": {"data": ["人数", "平均スコア"], "top": 4},
-                "xAxis": {"type": "category", "data": {{URG_START_LABELS}}, "axisLabel": {"rotate": 15}},
-                "yAxis": [
-                    {"type": "value", "name": "人数", "position": "left"},
-                    {"type": "value", "name": "平均スコア", "position": "right", "min": 0, "max": 5, "splitNumber": 5}
-                ],
-                "series": [
-                    {"name": "人数", "type": "bar", "yAxisIndex": 0, "data": {{URG_START_COUNTS}}, "itemStyle": {"color": "#8b5cf6", "borderRadius": [4,4,0,0]}, "barWidth": "40%"},
-                    {"name": "平均スコア", "type": "line", "yAxisIndex": 1, "data": {{URG_START_SCORES}}, "lineStyle": {"color": "#ef4444", "width": 3}, "itemStyle": {"color": "#ef4444"}, "symbol": "circle", "symbolSize": 8}
-                ]
-            }'></div>
-        </div>
-    </div>
-
-    <!-- ペルソナ構成比（年齢×性別、上位10） -->
+    <!-- 2行目: 資格詳細（全資格一覧） -->
     <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-3">ペルソナ構成比（年齢 x 性別、上位10）</h3>
-        <div class="echart" style="height:400px;" data-chart-config='{
-            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}, "formatter": "{b}: {c}%"},
-            "xAxis": {"type": "value", "name": "構成比 (%)", "max": 100},
-            "yAxis": {"type": "category", "data": {{PERSONA_LABELS}}, "inverse": true, "axisLabel": {"fontSize": 11}},
-            "series": [{"type": "bar", "data": {{PERSONA_PCT}}, "itemStyle": {"color": {"type": "linear", "x": 0, "y": 0, "x2": 1, "y2": 0, "colorStops": [{"offset": 0, "color": "#06b6d4"}, {"offset": 1, "color": "#8b5cf6"}]}, "borderRadius": [0,4,4,0]}, "barWidth": "55%", "label": {"show": true, "position": "right", "formatter": "{c}%", "fontSize": 11, "color": "#cbd5e1"}}],
-            "grid": {"left": "25%", "right": "12%"}
-        }'></div>
+        <div class="text-sm font-semibold text-slate-400 mb-3">資格詳細（全資格一覧）</div>
+        <div style="max-height: 350px; overflow-y: auto;">
+            {{QUALIFICATION_LIST}}
+        </div>
     </div>
 
-    <!-- 都道府県ランキング -->
-    <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-3">都道府県別求職者数ランキング（上位15）</h3>
-        <div style="overflow-x:auto;">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th class="text-center" style="width:50px">順位</th>
-                        <th>都道府県</th>
-                        <th class="text-right">合計</th>
-                        <th class="text-right">男性</th>
-                        <th class="text-right">女性</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {{PREF_ROWS}}
-                </tbody>
-            </table>
+    <!-- 3行目: 年齢×性別クロス分析 -->
+    <div class="text-sm font-semibold text-slate-400 mt-2 mb-3">年齢×性別クロス分析</div>
+    <div class="flex flex-col md:flex-row gap-4">
+        <!-- 左: 男女比ドーナツ -->
+        <div class="stat-card flex-1">
+            {{GENDER_PIE}}
         </div>
+        <!-- 右: 年齢層×性別 stacked bar -->
+        <div class="stat-card flex-1">
+            {{AGE_GENDER_STACKED_BAR}}
+        </div>
+    </div>
+
+    <!-- 4行目: KPIカード3枚 -->
+    <div class="flex flex-wrap gap-4">
+        {{KPI_CARDS}}
+    </div>
+
+    <!-- 5行目: 年齢・性別×就業状態別内訳 Top 10 -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-slate-400 mb-3">年齢・性別×就業状態別内訳 Top 10</div>
+        {{EMPLOYMENT_BREAKDOWN_CHART}}
+    </div>
+
+    <!-- 6行目: 保有資格ペルソナ（主要資格Top10 男女別） -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-slate-400 mb-3">保有資格ペルソナ（主要資格Top10 男女別）</div>
+        {{QUAL_GENDER_CHART}}
+    </div>
+
+    <!-- 7行目: ペルソナシェア（年齢×性別）横棒 + バッジ -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-slate-400 mb-3">ペルソナシェア（年齢×性別）</div>
+        <div class="text-xs text-slate-500 mb-2">この地域の人材構成比（年齢×性別）</div>
+        {{PERSONA_SHARE_CHART}}
+        {{PERSONA_SHARE_BADGES}}
+    </div>
+
+    <!-- 8行目: 希望勤務地数・資格保有数（年齢×性別） -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-slate-400 mb-3">希望勤務地数・資格保有数（年齢×性別）</div>
+        <div class="text-xs text-slate-500 mb-3">年齢×性別ごとの平均値</div>
+        {{AGE_GENDER_STATS_LIST}}
+    </div>
+
+    <!-- 9行目: 人材組み合わせ分析（RARITY） -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-white mb-3">🎯 人材組み合わせ分析</div>
+        <div class="text-xs mb-3" style="color: #6366F1;">年代・性別・資格を選択して検索</div>
+        <form hx-get="/api/rarity" hx-target="#rarity-results" hx-swap="innerHTML">
+            <!-- 年代 -->
+            <div class="p-2 rounded mb-2" style="background-color: rgba(59, 130, 246, 0.05);">
+                <div class="text-xs font-semibold text-slate-400 mb-1">年代（複数選択可）</div>
+                <div class="flex gap-4 flex-wrap">
+                    {{RARITY_AGE_CHECKBOXES}}
+                </div>
+            </div>
+            <!-- 性別 -->
+            <div class="p-2 rounded mb-2" style="background-color: rgba(34, 197, 94, 0.05);">
+                <div class="text-xs font-semibold text-slate-400 mb-1">性別（複数選択可）</div>
+                <div class="flex gap-4">
+                    <label class="flex items-center gap-1 text-sm text-white cursor-pointer"><input type="checkbox" name="gender" value="男性" class="accent-green-500"> 男性</label>
+                    <label class="flex items-center gap-1 text-sm text-white cursor-pointer"><input type="checkbox" name="gender" value="女性" class="accent-green-500"> 女性</label>
+                </div>
+            </div>
+            <!-- 資格 -->
+            <div class="p-4 rounded mb-3" style="background-color: rgba(168, 85, 247, 0.05);">
+                <div class="text-sm font-semibold text-slate-400 mb-3">資格（複数選択可）{{RARITY_QUAL_COUNT}}</div>
+                <div style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+                    {{RARITY_QUAL_CHECKBOXES}}
+                </div>
+            </div>
+            <div class="flex gap-2 mb-3">
+                <button type="submit" class="px-4 py-1.5 rounded text-sm font-semibold text-white" style="background-color: #6366F1;">🔍 検索</button>
+                <button type="reset" class="px-4 py-1.5 rounded text-sm border border-slate-600 text-slate-400">🗑️ クリア</button>
+            </div>
+        </form>
+        <div id="rarity-results">
+            <p class="text-slate-500 text-sm">条件を選択して検索してください</p>
+        </div>
+    </div>
+
+    <!-- 10行目: 緊急度×性別クロス分析 -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-white mb-3">🚨 緊急度×性別クロス分析</div>
+        <div class="text-xs text-slate-500 mb-3">性別ごとの転職緊急度を分析（棒グラフ: 人数、折れ線: 平均スコア）</div>
+        {{URG_GENDER_CHART}}
+    </div>
+
+    <!-- 11行目: 転職希望時期別緊急度 -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-white mb-3">📅 転職希望時期別緊急度</div>
+        <div class="text-xs text-slate-500 mb-3">転職希望時期ごとの緊急度を分析（棒グラフ: 人数、折れ線: 平均スコア）</div>
+        {{URG_START_CHART}}
     </div>
 </div>

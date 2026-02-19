@@ -1,74 +1,82 @@
-// ECharts初期化ヘルパー
-
-// Okabe-Itoカラーパレット（色弱対応）
-var COLOR_PALETTE = ['#0072B2', '#E69F00', '#CC79A7', '#009E73', '#F0E442', '#D55E00', '#56B4E9'];
-
-// ダークテーマ共通設定
-var DARK_THEME = {
-    backgroundColor: 'transparent',
-    textStyle: { color: '#e2e8f0' },
-    legend: { textStyle: { color: '#94a3b8' } },
-    tooltip: {
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-        borderColor: 'rgba(148, 163, 184, 0.22)',
-        textStyle: { color: '#f8fafc' }
-    },
-    xAxis: {
-        axisLine: { lineStyle: { color: '#334155' } },
-        axisLabel: { color: '#94a3b8' },
-        splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.08)' } }
-    },
-    yAxis: {
-        axisLine: { lineStyle: { color: '#334155' } },
-        axisLabel: { color: '#94a3b8' },
-        splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.08)' } }
-    }
-};
-
 /**
- * コンテナ内の全 .echart 要素を初期化
- * data-chart-config 属性のJSONからオプションを読み込む
+ * charts.js - EChartsダークテーマカスタム + ヘルパー関数
+ *
+ * navy-900背景に最適化されたダークテーマを登録。
+ * 数値フォーマットヘルパーを提供。
  */
-function initECharts(container) {
-    container.querySelectorAll('.echart').forEach(function(el) {
-        var configStr = el.getAttribute('data-chart-config');
-        if (!configStr) return;
+(function() {
+    'use strict';
 
-        try {
-            var config = JSON.parse(configStr);
-
-            // 既存インスタンスがあれば破棄
-            var existing = echarts.getInstanceByDom(el);
-            if (existing) existing.dispose();
-
-            var chart = echarts.init(el, null, { renderer: 'canvas' });
-
-            // ダークテーマをマージ
-            var option = mergeDeep({}, DARK_THEME, config);
-            if (!option.color) option.color = COLOR_PALETTE;
-
-            chart.setOption(option);
-        } catch (e) {
-            console.error('ECharts init error:', e, configStr);
-        }
-    });
-}
-
-/**
- * ディープマージユーティリティ
- */
-function mergeDeep(target) {
-    for (var i = 1; i < arguments.length; i++) {
-        var source = arguments[i];
-        if (!source) continue;
-        for (var key in source) {
-            if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-                target[key] = target[key] || {};
-                mergeDeep(target[key], source[key]);
-            } else {
-                target[key] = source[key];
-            }
-        }
+    // ダークテーマのカスタマイズ（ECharts組み込みdarkテーマの上書き）
+    // echarts.init(dom, 'dark')使用時に適用される
+    if (typeof echarts !== 'undefined' && echarts.registerTheme) {
+        echarts.registerTheme('dark', {
+            backgroundColor: 'transparent',
+            textStyle: {
+                color: '#e2e8f0'
+            },
+            title: {
+                textStyle: { color: '#f8fafc' },
+                subtextStyle: { color: '#94a3b8' }
+            },
+            legend: {
+                textStyle: { color: '#cbd5e1' }
+            },
+            tooltip: {
+                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                borderColor: '#334155',
+                textStyle: { color: '#e2e8f0' }
+            },
+            categoryAxis: {
+                axisLine: { lineStyle: { color: '#334155' } },
+                axisTick: { lineStyle: { color: '#475569' } },
+                axisLabel: { color: '#94a3b8' },
+                splitLine: { lineStyle: { color: '#1e293b' } }
+            },
+            valueAxis: {
+                axisLine: { lineStyle: { color: '#334155' } },
+                axisTick: { lineStyle: { color: '#475569' } },
+                axisLabel: { color: '#94a3b8' },
+                splitLine: { lineStyle: { color: '#1e293b' } }
+            },
+            // カラーパレット（Wong配色ベース: 色覚バリアフリー対応）
+            color: [
+                '#0072B2', '#E69F00', '#009E73', '#D55E00',
+                '#CC79A7', '#56B4E9', '#F0E442', '#999999'
+            ]
+        });
     }
-    return target;
-}
+
+    // 数値フォーマットヘルパー
+    window.ChartHelpers = {
+        // カンマ区切り
+        formatNumber: function(num) {
+            if (num == null || isNaN(num)) return '-';
+            return Number(num).toLocaleString('ja-JP');
+        },
+
+        // 円表示（例: 280,000円）
+        formatYen: function(num) {
+            if (num == null || isNaN(num)) return '-';
+            return Number(num).toLocaleString('ja-JP') + '円';
+        },
+
+        // 万円表示（例: 28.0万円）
+        formatManYen: function(num) {
+            if (num == null || isNaN(num)) return '-';
+            return (Number(num) / 10000).toFixed(1) + '万円';
+        },
+
+        // パーセント表示（例: 45.2%）
+        formatPercent: function(num, digits) {
+            if (num == null || isNaN(num)) return '-';
+            return Number(num).toFixed(digits != null ? digits : 1) + '%';
+        },
+
+        // EChartsインスタンスを安全に取得
+        getInstance: function(domOrId) {
+            var el = typeof domOrId === 'string' ? document.getElementById(domOrId) : domOrId;
+            return el ? echarts.getInstanceByDom(el) : null;
+        }
+    };
+})();

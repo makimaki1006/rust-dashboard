@@ -1,35 +1,100 @@
-<!-- タブ7: 人材マップ パーシャルHTML -->
+<!-- タブ7: 人材地図 パーシャルHTML -->
 <div class="space-y-6">
-    <h2 class="text-xl font-bold text-white">人材マップ <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+    <h2 class="text-xl font-bold text-white">📍 人材地図 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
 
-    <div class="grid-charts">
-        <!-- 都道府県別人材密度チャート -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求職者数（上位15）</h3>
-            <div class="echart" style="height:400px;" data-chart-config='{
-                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-                "xAxis": {"type": "value"},
-                "yAxis": {"type": "category", "data": {{PREF_LABELS}}, "inverse": true},
-                "series": [{"type": "bar", "data": {{PREF_VALUES}}, "itemStyle": {"color": "#10b981", "borderRadius": [0,4,4,0]}, "barWidth": "60%"}],
-                "grid": {"left": "25%", "right": "5%"}
-            }'></div>
+    <!-- フィルタパネル -->
+    <div class="stat-card">
+        <!-- フィルタ行1: 属性フィルタ -->
+        <div class="flex items-center gap-4 flex-wrap mb-3">
+            <span class="text-sm font-bold text-white">フィルタ:</span>
+            <select id="tm-workstyle" class="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600">
+                <option value="">雇用区分: 全て</option>
+                <option value="正職員" {{WS_SEL_SEI}}>正職員</option>
+                <option value="パート" {{WS_SEL_PART}}>パート</option>
+                <option value="その他" {{WS_SEL_OTHER}}>その他</option>
+            </select>
+            <select id="tm-age" class="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600">
+                <option value="">年代: 全て</option>
+                <option value="20代" {{AGE_SEL_20}}>20代</option>
+                <option value="30代" {{AGE_SEL_30}}>30代</option>
+                <option value="40代" {{AGE_SEL_40}}>40代</option>
+                <option value="50代以上" {{AGE_SEL_50}}>50代以上</option>
+            </select>
+            <select id="tm-gender" class="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600">
+                <option value="">性別: 全て</option>
+                <option value="男性" {{GENDER_SEL_M}}>男性</option>
+                <option value="女性" {{GENDER_SEL_F}}>女性</option>
+            </select>
         </div>
 
-        <!-- テーブル -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求職者数ランキング</h3>
-            <div style="overflow-x:auto;">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th class="text-center" style="width:50px">順位</th>
-                            <th>都道府県</th>
-                            <th class="text-right">求職者数</th>
-                        </tr>
-                    </thead>
-                    <tbody>{{DENSITY_ROWS}}</tbody>
-                </table>
+        <div style="border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0;"></div>
+
+        <!-- フィルタ行2: 表示モード -->
+        <div class="flex items-center gap-4 flex-wrap mb-3">
+            <span class="text-sm font-bold text-white">表示モード:</span>
+            <label class="flex items-center gap-1 text-sm text-white cursor-pointer">
+                <input type="radio" name="tm-mode" value="basic" {{MODE_BASIC}} class="accent-blue-500"> 基本表示
+            </label>
+            <label class="flex items-center gap-1 text-sm text-white cursor-pointer">
+                <input type="radio" name="tm-mode" value="inflow" {{MODE_INFLOW}} class="accent-blue-500"> 流入元
+            </label>
+            <label class="flex items-center gap-1 text-sm text-white cursor-pointer">
+                <input type="radio" name="tm-mode" value="balance" {{MODE_BALANCE}} class="accent-blue-500"> 流出/流入バランス
+            </label>
+            <label class="flex items-center gap-1 text-sm text-white cursor-pointer">
+                <input type="radio" name="tm-mode" value="competing" {{MODE_COMPETING}} class="accent-blue-500"> 競合地域
+            </label>
+        </div>
+
+        <div style="border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0;"></div>
+
+        <!-- フィルタ行3: 地図コントロール -->
+        <div class="flex items-center gap-4">
+            <label class="flex items-center gap-1 text-sm text-white cursor-pointer">
+                <input type="checkbox" id="tm-polygons" checked class="accent-blue-500"> ポリゴン表示
+            </label>
+            <label class="flex items-center gap-1 text-sm text-white cursor-pointer">
+                <input type="checkbox" id="tm-markers" checked class="accent-blue-500"> マーカー表示
+            </label>
+            <label class="flex items-center gap-1 text-sm text-white cursor-pointer">
+                <input type="checkbox" id="tm-flows" class="accent-blue-500"> フロー表示
+            </label>
+        </div>
+    </div>
+
+    <!-- 地図 + サイドバー -->
+    <div class="flex flex-col md:flex-row gap-4">
+        <!-- 左: Leaflet地図 (70%) -->
+        <div class="stat-card" style="flex: 7; min-height: 500px; padding: 0; overflow: hidden;">
+            <div id="talentmap-leaflet" class="leaflet-map" style="height: 520px; width: 100%;"
+                data-lat="{{MAP_LAT}}" data-lng="{{MAP_LNG}}" data-zoom="{{MAP_ZOOM}}"
+                data-geojson-url="{{GEOJSON_URL}}"
+                data-choropleth-styles='{{CHOROPLETH_STYLES}}'
+                data-markers='{{MARKERS_JSON}}'
+                data-flows='{{FLOWS_JSON}}'
+                data-mode="{{MAP_MODE}}"
+                data-selected-muni="{{SELECTED_MUNI}}">
             </div>
+        </div>
+
+        <!-- 右: サイドバー (30%) -->
+        <div class="stat-card" style="flex: 3; min-width: 280px; max-height: 540px; overflow-y: auto;">
+            {{SIDEBAR_CONTENT}}
+        </div>
+    </div>
+
+    <!-- 凡例 + データ概要 -->
+    <div class="flex flex-col md:flex-row gap-4">
+        <!-- 凡例 -->
+        <div class="stat-card" style="flex: 1;">
+            <div class="text-sm font-bold text-white mb-2">凡例（{{MODE_LABEL}}）</div>
+            {{LEGEND_ITEMS}}
+        </div>
+
+        <!-- データ概要 -->
+        <div class="stat-card" style="flex: 1;">
+            <div class="text-sm font-bold text-white mb-2">データ概要</div>
+            {{DATA_SUMMARY}}
         </div>
     </div>
 </div>

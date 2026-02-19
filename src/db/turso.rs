@@ -240,3 +240,102 @@ impl TursoClient {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // テスト6: libsql:// → https:// URL変換
+    #[test]
+    fn test_url_conversion_libsql() {
+        let client = TursoClient::new("libsql://mydb.turso.io", "token");
+        assert_eq!(client.url, "https://mydb.turso.io/v2/pipeline");
+    }
+
+    // テスト6逆証明: https:// → 二重変換しない
+    #[test]
+    fn test_url_no_double_conversion() {
+        let client = TursoClient::new("https://mydb.turso.io", "token");
+        assert_eq!(client.url, "https://mydb.turso.io/v2/pipeline");
+    }
+
+    // テスト7: 末尾/あり → 二重スラッシュにならない
+    #[test]
+    fn test_url_trailing_slash() {
+        let client = TursoClient::new("libsql://mydb.turso.io/", "token");
+        assert_eq!(client.url, "https://mydb.turso.io/v2/pipeline");
+    }
+
+    // テスト8: SQL引数の型変換 (text)
+    #[test]
+    fn test_convert_params_text() {
+        let params = vec![Value::String("hello".to_string())];
+        let args = TursoClient::convert_params(&params);
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].arg_type, "text");
+        assert_eq!(args[0].value, Value::String("hello".to_string()));
+    }
+
+    // テスト8逆証明: NULL引数 → null型
+    #[test]
+    fn test_convert_params_null() {
+        let params = vec![Value::Null];
+        let args = TursoClient::convert_params(&params);
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].arg_type, "null");
+    }
+
+    // テスト9: SQL引数の型変換 (integer)
+    #[test]
+    fn test_convert_params_integer() {
+        let params = vec![serde_json::json!(42)];
+        let args = TursoClient::convert_params(&params);
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].arg_type, "integer");
+        assert_eq!(args[0].value, Value::String("42".to_string()));
+    }
+
+    // テスト10: レスポンスJSON解析（正常）
+    #[test]
+    fn test_parse_pipeline_response_normal() {
+        let json = r#"{"results":[{"response":{"type":"execute","result":{"cols":[{"name":"cnt"}],"rows":[[{"type":"integer","value":"5"}]]}}}]}"#;
+        let resp: PipelineResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.results.is_some());
+        let results = resp.results.unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    // テスト10逆証明: 空rows → 空Vec
+    #[test]
+    fn test_parse_pipeline_response_empty_rows() {
+        let json = r#"{"results":[{"response":{"type":"execute","result":{"cols":[{"name":"cnt"}],"rows":[]}}}]}"#;
+        let resp: PipelineResponse = serde_json::from_str(json).unwrap();
+        let results = resp.results.unwrap();
+        let result = results[0].response.as_ref().unwrap().result.as_ref().unwrap();
+        assert_eq!(result.rows.as_ref().unwrap().len(), 0);
+    }
+
+    // テスト13: query_scalar 単一値取得 - 空入力でNull
+    #[test]
+    fn test_empty_url_client_creation() {
+        let client = TursoClient::new("", "");
+        assert_eq!(client.url, "/v2/pipeline");
+        assert!(client.auth_token.is_empty());
+    }
+
+    // テスト15: convert_params float
+    #[test]
+    fn test_convert_params_float() {
+        let params = vec![serde_json::json!(3.14)];
+        let args = TursoClient::convert_params(&params);
+        assert_eq!(args[0].arg_type, "float");
+    }
+
+    // テスト: convert_params boolean → text変換
+    #[test]
+    fn test_convert_params_boolean_fallback() {
+        let params = vec![Value::Bool(true)];
+        let args = TursoClient::convert_params(&params);
+        assert_eq!(args[0].arg_type, "text");
+    }
+}

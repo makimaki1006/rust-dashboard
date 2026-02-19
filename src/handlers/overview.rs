@@ -61,7 +61,27 @@ pub async fn tab_overview(
 
     let stats = fetch_national_stats(&state, &job_type, &prefecture, &municipality).await;
     let location_label = make_location_label(&prefecture, &municipality);
-    let html = render_overview(&job_type, &stats, &location_label, &prefecture);
+
+    // Turso接続失敗チェック: 全データが0の場合、エラーバナーを追加
+    let total = stats.male_count + stats.female_count;
+    let turso_error_banner = if total == 0 {
+        // Turso接続テスト
+        match state.turso.test_connection().await {
+            Ok(_) => String::new(), // 接続はOKだがデータなし
+            Err(e) => format!(
+                r#"<div class="bg-red-900/60 border border-red-700 text-red-200 px-4 py-3 rounded-lg mb-4">
+                    <p class="font-bold">⚠️ データベース接続エラー</p>
+                    <p class="text-sm mt-1">Tursoへの接続に失敗しました。環境変数 TURSO_DATABASE_URL を確認してください。</p>
+                    <p class="text-xs text-red-300 mt-1">エラー: {}</p>
+                </div>"#,
+                e.replace('<', "&lt;").replace('>', "&gt;")
+            ),
+        }
+    } else {
+        String::new()
+    };
+
+    let html = format!("{}{}", turso_error_banner, render_overview(&job_type, &stats, &location_label, &prefecture));
 
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
@@ -146,7 +166,12 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
           AND row_type IN ('SUMMARY', 'AGE_GENDER', 'GAP', 'RESIDENCE_FLOW'){location_filter}"
     );
     let rows = match state.turso.query(&sql, &params).await {
-        Ok(r) => r,
+        Ok(r) => {
+            if r.is_empty() {
+                tracing::warn!("Turso query returned 0 rows for job_type={}, pref={}, muni={}", job_type, prefecture, municipality);
+            }
+            r
+        }
         Err(e) => {
             tracing::error!("Turso query failed: {e}");
             return NatStats::default();
@@ -441,16 +466,16 @@ fn build_comparison_section(stats: &NatStats, prefecture: &str, location_label: 
     <div class="flex items-center gap-2 text-sm">
         <span class="w-16 text-slate-400 shrink-0">全国</span>
         <div class="flex-1 bg-slate-700 rounded h-5 overflow-hidden flex">
-            <div class="bg-sky-500 h-full" style="width: {nat_male_pct}%"></div>
-            <div class="bg-pink-500 h-full" style="width: {nat_female_pct}%"></div>
+            <div style="background:#0072B2" class="h-full" style="width: {nat_male_pct}%"></div>
+            <div style="background:#E69F00" class="h-full" style="width: {nat_female_pct}%"></div>
         </div>
         <span class="w-16 text-right text-slate-300 text-xs">&#9794;{nat_male_pct:.0}%</span>
     </div>
     <div class="flex items-center gap-2 text-sm mt-1">
         <span class="w-16 text-cyan-400 shrink-0 truncate" title="{region_label}">{region_label_short}</span>
         <div class="flex-1 bg-slate-700 rounded h-5 overflow-hidden flex">
-            <div class="bg-sky-500 h-full" style="width: {reg_male_pct}%"></div>
-            <div class="bg-pink-500 h-full" style="width: {reg_female_pct}%"></div>
+            <div style="background:#0072B2" class="h-full" style="width: {reg_male_pct}%"></div>
+            <div style="background:#E69F00" class="h-full" style="width: {reg_female_pct}%"></div>
         </div>
         <span class="w-16 text-right text-slate-300 text-xs">&#9794;{reg_male_pct:.0}%</span>
     </div>
@@ -467,7 +492,7 @@ fn build_comparison_section(stats: &NatStats, prefecture: &str, location_label: 
         reg_female_pct = 100.0 - reg_male_pct,
     );
 
-    // 各指標の横棒バー生成
+    // NiceGUI版に合わせた3指標のみ
     let desired_bar = bar_row(
         "平均希望勤務地数",
         stats.national_avg_desired_areas,
@@ -489,23 +514,15 @@ fn build_comparison_section(stats: &NatStats, prefecture: &str, location_label: 
         region_label,
         "",
     );
-    let age_bar = bar_row(
-        "平均年齢",
-        stats.national_avg_age,
-        stats.avg_age,
-        region_label,
-        "歳",
-    );
 
     // カード全体を組み立て
     format!(
         r#"<div class="stat-card border-l-4 border-cyan-600">
-    <h3 class="text-sm text-slate-400 mb-4">&#x1f4ca; 3層比較 <span class="text-cyan-400 text-xs">全国 vs {region_label}</span></h3>
+    <h3 class="text-sm text-slate-400 mb-4">&#x1f4ca; 全国 vs {region_label} 比較</h3>
     <div class="space-y-5">
         {desired_bar}
         {distance_bar}
         {qual_bar}
-        {age_bar}
         {gender_html}
     </div>
 </div>"#,
@@ -513,12 +530,11 @@ fn build_comparison_section(stats: &NatStats, prefecture: &str, location_label: 
         desired_bar = desired_bar,
         distance_bar = distance_bar,
         qual_bar = qual_bar,
-        age_bar = age_bar,
         gender_html = gender_html,
     )
 }
 
-/// 採用課題診断メッセージを生成
+/// 採用課題診断メッセージを生成（issues配列形式）
 fn build_diagnosis_section(stats: &NatStats, prefecture: &str) -> String {
     // 都道府県未選択（全国モード）の場合は空
     if prefecture.is_empty() {
@@ -527,37 +543,71 @@ fn build_diagnosis_section(stats: &NatStats, prefecture: &str) -> String {
 
     let total_people = stats.male_count + stats.female_count;
 
-    // 診断ロジック
-    let (message, diag_type) = if stats.supply_count > 0 {
-        let demand_supply_ratio = stats.demand_count as f64 / stats.supply_count as f64;
+    // 診断ロジック → issues配列形式
+    struct Issue {
+        label: String,
+        detail: String,
+    }
+
+    let mut issues: Vec<Issue> = Vec::new();
+    let mut message = String::new();
+    let mut diag_type = "info";
+
+    if stats.supply_count > 0 {
+        let demand_supply_ratio = stats.demand_count as f64 / stats.supply_count.max(1) as f64;
         if demand_supply_ratio > 2.0 {
-            (
-                "競争過多: 求職者に対して求人が少ない地域です".to_string(),
-                "warning",
-            )
-        } else if stats.outflow > stats.inflow {
-            (
-                "人材流出: 他地域への流出が多い地域です".to_string(),
-                "info",
-            )
+            message = "競争過多: 求職者に対して求人が少ない地域です".to_string();
+            diag_type = "warning";
+            issues.push(Issue {
+                label: "需給ギャップ".to_string(),
+                detail: format!("需給比率 {:.1}倍 — 求人に対して求職者が過剰です", demand_supply_ratio),
+            });
+        } else if demand_supply_ratio < 0.5 {
+            message = "人材不足: 求人に対して求職者が少ない地域です".to_string();
+            diag_type = "warning";
+            issues.push(Issue {
+                label: "人材不足".to_string(),
+                detail: format!("需給比率 {:.1}倍 — 求職者の確保が課題です", demand_supply_ratio),
+            });
         } else {
-            (
-                "バランス型: 需給が比較的安定した地域です".to_string(),
-                "info",
-            )
+            message = "バランス型: 需給が比較的安定した地域です".to_string();
         }
-    } else if stats.outflow > stats.inflow && total_people > 0 {
-        // GAPデータがない場合でもフローで判定
-        (
-            "人材流出: 他地域への流出が多い地域です".to_string(),
-            "info",
+    }
+
+    if stats.outflow > stats.inflow && total_people > 0 {
+        issues.push(Issue {
+            label: "人材流出".to_string(),
+            detail: "他地域への流出が流入を上回っています".to_string(),
+        });
+        if message.is_empty() {
+            message = "人材流出: 他地域への流出が多い地域です".to_string();
+        }
+    }
+
+    if total_people > 0 {
+        let female_ratio = stats.female_count as f64 / total_people as f64 * 100.0;
+        if female_ratio > 80.0 {
+            issues.push(Issue {
+                label: "性別偏り".to_string(),
+                detail: format!("女性比率 {:.0}% — 男性人材の獲得に工夫が必要です", female_ratio),
+            });
+        }
+    }
+
+    if message.is_empty() {
+        message = "バランス型: 需給が比較的安定した地域です".to_string();
+    }
+
+    // issues HTMLを構築（最大3件）
+    let issues_html: String = issues.iter().take(3).map(|issue| {
+        format!(
+            r#"<div class="flex items-start gap-2 mt-2">
+                <span class="text-xs px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 shrink-0">{}</span>
+                <span class="text-xs text-slate-400">{}</span>
+            </div>"#,
+            issue.label, issue.detail
         )
-    } else {
-        (
-            "バランス型: 需給が比較的安定した地域です".to_string(),
-            "info",
-        )
-    };
+    }).collect();
 
     // カードの左ボーダー色を診断タイプで分岐
     let border_color = if diag_type == "warning" {
@@ -573,12 +623,14 @@ fn build_diagnosis_section(stats: &NatStats, prefecture: &str) -> String {
 
     format!(
         r#"<div class="stat-card border-l-4 {border_color}">
-    <h3 class="text-sm {label_color} mb-1">&#x1f4cb; 採用課題診断</h3>
+    <h3 class="text-sm {label_color} mb-1">&#x1F3AF; 採用課題診断</h3>
     <p class="text-sm text-slate-300">{message}</p>
+    {issues_html}
 </div>"#,
         border_color = border_color,
         label_color = label_color,
         message = message,
+        issues_html = issues_html,
     )
 }
 
@@ -616,9 +668,6 @@ fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefe
         .replace("{{FEMALE_COUNT}}", &format_number(stats.female_count))
         .replace("{{MALE_PCT}}", &format!("{:.0}", male_pct))
         .replace("{{FEMALE_PCT}}", &format!("{:.0}", female_pct))
-        .replace("{{AVG_DESIRED_AREAS}}", &format!("{:.1}", stats.avg_desired_areas))
-        .replace("{{AVG_QUALIFICATIONS}}", &format!("{:.1}", stats.avg_qualifications))
-        .replace("{{AVG_DISTANCE_KM}}", &format!("{:.1}", stats.avg_distance_km))
         .replace("{{MALE_COUNT_RAW}}", &stats.male_count.to_string())
         .replace("{{FEMALE_COUNT_RAW}}", &stats.female_count.to_string())
         .replace("{{AGE_LABELS}}", &format!("[{}]", age_labels.join(",")))
@@ -668,4 +717,106 @@ pub fn get_f64(row: &HashMap<String, Value>, key: &str) -> f64 {
                 .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
         })
         .unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // format_number テスト
+    #[test]
+    fn test_format_number_basic() {
+        assert_eq!(format_number(0), "0");
+        assert_eq!(format_number(1), "1");
+        assert_eq!(format_number(999), "999");
+        assert_eq!(format_number(1000), "1,000");
+        assert_eq!(format_number(1234567), "1,234,567");
+    }
+
+    #[test]
+    fn test_format_number_negative() {
+        assert_eq!(format_number(-1234), "-1,234");
+    }
+
+    // build_location_filter テスト
+    #[test]
+    fn test_build_location_filter_empty() {
+        let mut params = Vec::new();
+        let clause = build_location_filter("", "", &mut params);
+        assert!(clause.is_empty());
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn test_build_location_filter_prefecture_only() {
+        let mut params = Vec::new();
+        let clause = build_location_filter("東京都", "", &mut params);
+        assert!(clause.contains("prefecture = ?"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_build_location_filter_both() {
+        let mut params = Vec::new();
+        let clause = build_location_filter("東京都", "新宿区", &mut params);
+        assert!(clause.contains("prefecture = ?"));
+        assert!(clause.contains("municipality = ?"));
+        assert_eq!(params.len(), 2);
+    }
+
+    // get_str テスト
+    #[test]
+    fn test_get_str_exists() {
+        let mut map = HashMap::new();
+        map.insert("name".to_string(), Value::String("Alice".to_string()));
+        assert_eq!(get_str(&map, "name"), "Alice");
+    }
+
+    #[test]
+    fn test_get_str_missing() {
+        let map = HashMap::new();
+        assert_eq!(get_str(&map, "name"), "");
+    }
+
+    // get_i64 テスト
+    #[test]
+    fn test_get_i64_integer() {
+        let mut map = HashMap::new();
+        map.insert("count".to_string(), serde_json::json!(42));
+        assert_eq!(get_i64(&map, "count"), 42);
+    }
+
+    #[test]
+    fn test_get_i64_float_conversion() {
+        let mut map = HashMap::new();
+        map.insert("count".to_string(), serde_json::json!(42.9));
+        assert_eq!(get_i64(&map, "count"), 42);
+    }
+
+    #[test]
+    fn test_get_i64_string_parse() {
+        let mut map = HashMap::new();
+        map.insert("count".to_string(), Value::String("100".to_string()));
+        assert_eq!(get_i64(&map, "count"), 100);
+    }
+
+    #[test]
+    fn test_get_i64_missing() {
+        let map = HashMap::new();
+        assert_eq!(get_i64(&map, "count"), 0);
+    }
+
+    // get_f64 テスト
+    #[test]
+    fn test_get_f64_float() {
+        let mut map = HashMap::new();
+        map.insert("score".to_string(), serde_json::json!(3.14));
+        assert!((get_f64(&map, "score") - 3.14).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_get_f64_missing() {
+        let map = HashMap::new();
+        assert_eq!(get_f64(&map, "score"), 0.0);
+    }
 }

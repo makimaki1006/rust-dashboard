@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}ダッシュボード - ジョブメドレー求職者分析{% endblock %}
+{% block title %}ダッシュボード - 求職者データ分析{% endblock %}
 
 {% block body %}
 <!-- ヘッダー -->
 <header class="bg-navy-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
     <div class="flex items-center gap-4">
-        <h1 class="text-lg font-bold text-white">求職者データ分析</h1>
+        <h1 class="text-lg font-bold text-white">job_ap_analyzer_gui</h1>
+        <span class="text-slate-400 text-sm">🔧</span>
         <select id="job-type-select"
             hx-get="/api/set-job-type"
             hx-target="#content"
@@ -20,7 +21,7 @@
         </select>
     </div>
     <div class="flex items-center gap-4">
-        <span class="text-slate-400 text-sm">{{ user_email }}</span>
+        <span class="text-slate-400 text-sm">ログイン: {{ user_email }}</span>
         <a href="/logout" class="text-slate-400 hover:text-white text-sm transition">ログアウト</a>
     </div>
 </header>
@@ -29,35 +30,35 @@
 <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto">
     <button class="tab-btn active" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
         hx-on::after-request="setActiveTab(this)">
-        市場概況
+        📊 市場概況
     </button>
     <button class="tab-btn" hx-get="/tab/demographics" hx-target="#content" hx-swap="innerHTML"
         hx-on::after-request="setActiveTab(this)">
-        人口動態
+        👥 人材属性
     </button>
     <button class="tab-btn" hx-get="/tab/mobility" hx-target="#content" hx-swap="innerHTML"
         hx-on::after-request="setActiveTab(this)">
-        人材移動
+        🗺️ 地域・移動パターン
     </button>
     <button class="tab-btn" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
         hx-on::after-request="setActiveTab(this)">
-        需給バランス
+        ⚖️ 需給バランス
     </button>
     <button class="tab-btn" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
         hx-on::after-request="setActiveTab(this)">
-        働き方
+        📈 雇用形態分析
     </button>
     <button class="tab-btn" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
         hx-on::after-request="setActiveTab(this)">
-        求人マップ
+        🗺️ 求人地図
     </button>
     <button class="tab-btn" hx-get="/tab/talentmap" hx-target="#content" hx-swap="innerHTML"
         hx-on::after-request="setActiveTab(this)">
-        人材マップ
+        📍 人材地図
     </button>
     <button class="tab-btn" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
         hx-on::after-request="setActiveTab(this)">
-        競合調査
+        🔍 競合調査
     </button>
 </nav>
 

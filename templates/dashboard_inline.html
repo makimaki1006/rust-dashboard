@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ダッシュボード - ジョブメドレー求職者分析</title>
+    <title>ダッシュボード - 求職者データ分析</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -19,11 +19,13 @@
 <body class="bg-navy-900 text-slate-100 min-h-screen">
     <header class="bg-navy-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
         <div class="flex items-center gap-4">
-            <h1 class="text-lg font-bold text-white">求職者データ分析</h1>
+            <h1 class="text-lg font-bold text-white">job_ap_analyzer_gui</h1>
+            <span class="text-slate-400 text-sm">🔧</span>
             <select id="job-type-select"
                 class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
                 {{JOB_OPTIONS}}
             </select>
+            <span class="text-slate-400 text-sm">📍</span>
             <select id="pref-select"
                 class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
                 <option value="">全国</option>
@@ -31,33 +33,37 @@
             </select>
             <select id="muni-select"
                 class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
-                <option value="">全市区町村</option>
+                <option value="">すべて</option>
                 {{MUNI_OPTIONS}}
             </select>
         </div>
         <div class="flex items-center gap-4">
-            <span class="text-slate-400 text-sm">{{USER_EMAIL}}</span>
+            <span class="text-slate-400 text-sm">ログイン: {{USER_EMAIL}}</span>
             <a href="/logout" class="text-slate-400 hover:text-white text-sm transition">ログアウト</a>
         </div>
     </header>
 
+    {{TURSO_WARNING}}
+
     <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto">
         <button class="tab-btn active" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">市場概況</button>
+            onclick="setActiveTab(this)">📊 市場概況</button>
         <button class="tab-btn" hx-get="/tab/demographics" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">人口動態</button>
+            onclick="setActiveTab(this)">👥 人材属性</button>
         <button class="tab-btn" hx-get="/tab/mobility" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">人材移動</button>
+            onclick="setActiveTab(this)">🗺️ 地域・移動パターン</button>
         <button class="tab-btn" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">需給バランス</button>
+            onclick="setActiveTab(this)">⚖️ 需給バランス</button>
         <button class="tab-btn" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">働き方</button>
+            onclick="setActiveTab(this)">📈 雇用形態分析</button>
         <button class="tab-btn" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">求人マップ</button>
+            onclick="setActiveTab(this)">🗺️ 求人地図</button>
         <button class="tab-btn" hx-get="/tab/talentmap" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">人材マップ</button>
+            onclick="setActiveTab(this)">📍 人材地図</button>
         <button class="tab-btn" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">競合調査</button>
+            onclick="setActiveTab(this)">🔍 競合調査</button>
+        <button class="tab-btn" hx-get="/tab/segment" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">🎯 セグメント分析</button>
     </nav>
 
     <main id="content" class="p-6">
@@ -94,6 +100,7 @@
                     tmp.insertAdjacentHTML('afterbegin', optionHtml);
                     while (tmp.firstChild) { selectEl.appendChild(tmp.firstChild); }
                 }
+                selectEl.selectedIndex = 0;
             }
 
             // 職種切り替え
@@ -109,7 +116,7 @@
                         return fetch('/api/prefectures?job_type=' + encodeURIComponent(jt));
                     }).then(function(r) { return r.text(); }).then(function(html) {
                         safeSetOptions(document.getElementById('pref-select'), html, '全国');
-                        safeSetOptions(document.getElementById('muni-select'), '', '全市区町村');
+                        safeSetOptions(document.getElementById('muni-select'), '', 'すべて');
                         reloadActiveTab();
                     });
                 });
@@ -131,7 +138,7 @@
                             return Promise.resolve({ text: function() { return ''; } });
                         }
                     }).then(function(r) { return r.text(); }).then(function(html) {
-                        safeSetOptions(document.getElementById('muni-select'), html, '全市区町村');
+                        safeSetOptions(document.getElementById('muni-select'), html, 'すべて');
                         reloadActiveTab();
                     });
                 });

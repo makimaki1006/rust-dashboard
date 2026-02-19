@@ -1,69 +1,86 @@
-<!-- タブ3: 人材移動 パーシャルHTML -->
+<!-- タブ3: 地域・移動パターン パーシャルHTML -->
 <div class="space-y-6">
-    <h2 class="text-xl font-bold text-white">人材移動 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+    <h2 class="text-xl font-bold text-white">🗺️ 地域・移動パターン <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
 
-    <!-- 流入・流出 KPI -->
-    {{FLOW_KPI_SECTION}}
-
-    <!-- 採用圏分析カード -->
+    <!-- 採用圏言語化カード（都道府県選択時のみ） -->
     {{RECRUITMENT_AREA_CARD}}
 
-    <!-- 距離統計 -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card">
-            <div class="stat-value text-orange-400">{{AVG_DISTANCE}}<span class="text-lg">km</span></div>
-            <div class="stat-label">平均移動距離</div>
+    <!-- カード1: 人材フロー分析 KPI -->
+    <div class="stat-card">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-xl">📊</span>
+            <span class="text-lg font-semibold text-white">人材フロー分析</span>
         </div>
-        <div class="stat-card">
-            <div class="stat-value text-slate-300">{{DISTANCE_Q25}}<span class="text-lg">km</span></div>
-            <div class="stat-label">25パーセンタイル</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value text-cyan-400">{{DISTANCE_MEDIAN}}<span class="text-lg">km</span></div>
-            <div class="stat-label">中央値</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value text-purple-400">{{DISTANCE_Q75}}<span class="text-lg">km</span></div>
-            <div class="stat-label">75パーセンタイル</div>
-        </div>
+        <p class="text-sm text-slate-500 mb-4">選択エリアへの就職希望者の流入・流出を分析</p>
+        {{FLOW_KPI_SECTION}}
     </div>
 
-    <div class="grid-charts">
-        <!-- 移動型分布 -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">移動型分布</h3>
-            <div class="echart" style="height:320px;" data-chart-config='{
-                "tooltip": {"trigger": "item", "formatter": "{b}: {c}人 ({d}%)"},
-                "series": [{
-                    "type": "pie",
-                    "radius": ["40%", "70%"],
-                    "center": ["50%", "52%"],
-                    "itemStyle": {"borderRadius": 6, "borderColor": "#0f172a", "borderWidth": 2},
-                    "label": {"show": true, "color": "#e2e8f0", "fontSize": 12, "formatter": "{b}\n{d}%"},
-                    "data": [
-                        {{MOBILITY_PIE_DATA}}
-                    ]
-                }]
-            }'></div>
+    <!-- カード2: 居住地→希望地フロー Top10 -->
+    <div class="stat-card">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-xl">🔀</span>
+            <span class="text-lg font-semibold text-white">居住地→希望地フロー</span>
         </div>
-
-        <!-- 都道府県間フロー -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">都道府県間 主要移動フロー（上位10）</h3>
-            <div style="overflow-x:auto;">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th class="text-center" style="width:50px">順位</th>
-                            <th>居住地</th>
-                            <th class="text-center" style="width:40px"></th>
-                            <th>希望勤務地</th>
-                            <th class="text-right">人数</th>
-                        </tr>
-                    </thead>
-                    <tbody>{{FLOW_ROWS}}</tbody>
-                </table>
+        <p class="text-sm text-slate-500 mb-4">現住所からどこへ移動したいかの流れを可視化</p>
+        <div class="flex flex-col md:flex-row gap-4">
+            <!-- 都道府県フローTop10 -->
+            <div class="flex-1 p-4 rounded-lg" style="border: 1px solid rgba(255,255,255,0.1); background-color: rgba(255,255,255,0.03);">
+                <div class="text-sm font-semibold text-white mb-2">都道府県間の移動フロー Top10</div>
+                {{PREF_FLOW_LIST}}
+            </div>
+            <!-- 市区町村フローTop10 -->
+            <div class="flex-1 p-4 rounded-lg" style="border: 1px solid rgba(255,255,255,0.1); background-color: rgba(255,255,255,0.03);">
+                <div class="text-sm font-semibold text-white mb-2">市区町村間の移動フロー Top10</div>
+                {{MUNI_FLOW_LIST}}
             </div>
         </div>
     </div>
+
+    <!-- カード3: 地域サマリー -->
+    {{REGION_SUMMARY_SECTION}}
+
+    <!-- カード4: 移動パターン分布（棒グラフ） -->
+    <div class="stat-card">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-xl">🚗</span>
+            <span class="text-lg font-semibold text-white">移動パターン分布</span>
+        </div>
+        <p class="text-sm text-slate-500 mb-4">居住地から希望勤務地までの移動距離の傾向</p>
+        {{MOBILITY_BAR_CHART}}
+        {{MOBILITY_PCT_BADGES}}
+    </div>
+
+    <!-- カード5: 距離統計 -->
+    <div class="stat-card">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-base">📏</span>
+            <span class="text-sm font-semibold text-white">移動距離の統計</span>
+        </div>
+        <div class="flex flex-wrap gap-4">
+            <div class="flex-1 p-3 rounded-lg min-w-[120px]" style="background-color: rgba(20, 184, 166, 0.1);">
+                <div class="text-xs text-slate-400">25%点</div>
+                <div class="flex items-end gap-1">
+                    <span class="text-lg font-bold" style="color: #14b8a6;">{{DISTANCE_Q25}}</span>
+                    <span class="text-xs text-slate-400">km</span>
+                </div>
+            </div>
+            <div class="flex-1 p-3 rounded-lg min-w-[120px]" style="background-color: rgba(99, 102, 241, 0.1);">
+                <div class="text-xs text-slate-400">中央値</div>
+                <div class="flex items-end gap-1">
+                    <span class="text-lg font-bold" style="color: #6366F1;">{{DISTANCE_MEDIAN}}</span>
+                    <span class="text-xs text-slate-400">km</span>
+                </div>
+            </div>
+            <div class="flex-1 p-3 rounded-lg min-w-[120px]" style="background-color: rgba(236, 72, 153, 0.1);">
+                <div class="text-xs text-slate-400">75%点</div>
+                <div class="flex items-end gap-1">
+                    <span class="text-lg font-bold" style="color: #ec4899;">{{DISTANCE_Q75}}</span>
+                    <span class="text-xs text-slate-400">km</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- カード6: 資格別定着率 -->
+    {{RETENTION_SECTION}}
 </div>

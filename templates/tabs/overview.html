@@ -1,6 +1,6 @@
 <!-- タブ1: 市場概況 パーシャルHTML -->
 <div class="space-y-6">
-    <h2 class="text-xl font-bold text-white">市場概況 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+    <h2 class="text-xl font-bold text-white">📊 総合概要 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
 
     <!-- 採用課題診断カード（都道府県選択時のみ表示） -->
     {{DIAGNOSIS_SECTION}}
@@ -12,7 +12,7 @@
     <div class="grid-stats">
         <div class="stat-card">
             <div class="stat-value text-blue-400">{{TOTAL_COUNT}}</div>
-            <div class="stat-label">求職者数（全国）</div>
+            <div class="stat-label">求職者数</div>
         </div>
         <div class="stat-card">
             <div class="stat-value text-amber-400">{{AVG_AGE}}<span class="text-lg">歳</span></div>
@@ -20,27 +20,11 @@
         </div>
         <div class="stat-card">
             <div class="stat-value">
-                <span class="text-cyan-400">{{MALE_COUNT}}</span>
+                <span style="color: #0072B2">{{MALE_COUNT}}</span>
                 <span class="text-slate-500 text-lg mx-1">/</span>
-                <span class="text-pink-400">{{FEMALE_COUNT}}</span>
+                <span style="color: #E69F00">{{FEMALE_COUNT}}</span>
             </div>
             <div class="stat-label">男性 / 女性</div>
-        </div>
-    </div>
-
-    <!-- 指標カード -->
-    <div class="grid-stats">
-        <div class="stat-card">
-            <div class="stat-value text-green-400">{{AVG_DESIRED_AREAS}}</div>
-            <div class="stat-label">平均希望勤務地数</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value text-purple-400">{{AVG_QUALIFICATIONS}}</div>
-            <div class="stat-label">平均保有資格数</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value text-orange-400">{{AVG_DISTANCE_KM}}<span class="text-lg">km</span></div>
-            <div class="stat-label">平均移動距離</div>
         </div>
     </div>
 
@@ -59,16 +43,16 @@
                     "itemStyle": {"borderRadius": 6, "borderColor": "#0f172a", "borderWidth": 2},
                     "label": {"show": true, "color": "#e2e8f0", "fontSize": 13, "formatter": "{b}\n{d}%"},
                     "data": [
-                        {"value": {{MALE_COUNT_RAW}}, "name": "男性", "itemStyle": {"color": "#0ea5e9"}},
-                        {"value": {{FEMALE_COUNT_RAW}}, "name": "女性", "itemStyle": {"color": "#ec4899"}}
+                        {"value": {{MALE_COUNT_RAW}}, "name": "男性", "itemStyle": {"color": "#0072B2"}},
+                        {"value": {{FEMALE_COUNT_RAW}}, "name": "女性", "itemStyle": {"color": "#E69F00"}}
                     ]
                 }]
             }'></div>
         </div>
 
-        <!-- 年齢層分布（棒グラフ） -->
+        <!-- 年齢帯別分布（棒グラフ） -->
         <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">年齢層分布</h3>
+            <h3 class="text-sm text-slate-400 mb-3">年齢帯別分布</h3>
             <div class="echart" style="height:320px;" data-chart-config='{
                 "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
                 "xAxis": {"type": "category", "data": {{AGE_LABELS}}},
@@ -76,16 +60,16 @@
                 "series": [{
                     "type": "bar",
                     "data": {{AGE_VALUES}},
-                    "itemStyle": {"color": "#3b82f6", "borderRadius": [4, 4, 0, 0]},
+                    "itemStyle": {"color": "#0072B2", "borderRadius": [4, 4, 0, 0]},
                     "barWidth": "50%"
                 }]
             }'></div>
         </div>
     </div>
 
-    <!-- 年齢層 x 性別（グループ棒グラフ） -->
+    <!-- 年齢帯 x 性別（グループ棒グラフ） -->
     <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-3">年齢層 x 性別</h3>
+        <h3 class="text-sm text-slate-400 mb-3">年齢帯 x 性別</h3>
         <div class="echart" style="height:360px;" data-chart-config='{
             "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
             "legend": {"data": ["男性", "女性"], "top": 4},
@@ -96,13 +80,13 @@
                     "name": "男性",
                     "type": "bar",
                     "data": {{AGE_MALE_VALUES}},
-                    "itemStyle": {"color": "#0ea5e9", "borderRadius": [4, 4, 0, 0]}
+                    "itemStyle": {"color": "#0072B2", "borderRadius": [4, 4, 0, 0]}
                 },
                 {
                     "name": "女性",
                     "type": "bar",
                     "data": {{AGE_FEMALE_VALUES}},
-                    "itemStyle": {"color": "#ec4899", "borderRadius": [4, 4, 0, 0]}
+                    "itemStyle": {"color": "#E69F00", "borderRadius": [4, 4, 0, 0]}
                 }
             ]
         }'></div>

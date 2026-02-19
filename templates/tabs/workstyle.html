@@ -1,37 +1,90 @@
-<!-- タブ5: 働き方 パーシャルHTML -->
+<!-- タブ5: 雇用形態分析 パーシャルHTML -->
 <div class="space-y-6">
-    <h2 class="text-xl font-bold text-white">働き方分析 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+    <h2 class="text-xl font-bold text-white">📈 雇用形態クロス分析 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
 
-    <div class="grid-charts">
-        <!-- 働き方分布 -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">希望勤務形態</h3>
-            <div class="echart" style="height:350px;" data-chart-config='{
+    <!-- 雇用形態分布ドーナツ + KPIカード -->
+    <div class="flex flex-col md:flex-row gap-4">
+        <div class="stat-card flex-1">
+            <h3 class="text-sm text-slate-400 mb-3">雇用形態分布</h3>
+            <div class="echart" style="height:300px;" data-chart-config='{
                 "tooltip": {"trigger": "item", "formatter": "{b}: {c}人 ({d}%)"},
+                "legend": {"orient": "horizontal", "bottom": "0%"},
                 "series": [{
                     "type": "pie",
                     "radius": ["40%", "70%"],
-                    "center": ["50%", "52%"],
+                    "center": ["50%", "48%"],
+                    "avoidLabelOverlap": true,
                     "itemStyle": {"borderRadius": 6, "borderColor": "#0f172a", "borderWidth": 2},
                     "label": {"show": true, "color": "#e2e8f0", "fontSize": 12, "formatter": "{b}\n{d}%"},
                     "data": [{{WS_PIE_DATA}}]
                 }]
             }'></div>
         </div>
+        <!-- KPIカード -->
+        <div class="flex flex-col gap-2" style="flex: 0 0 220px;">
+            {{WS_KPI_CARDS}}
+        </div>
+    </div>
 
-        <!-- 緊急度×性別 -->
+    <!-- 雇用形態 × 年代 スタック棒グラフ -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">雇用形態 × 年代</h3>
+        <div class="echart" style="height:350px;" data-chart-config='{
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "legend": {"data": ["正職員", "パート", "その他"], "top": "0%", "itemGap": 15},
+            "grid": {"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true},
+            "xAxis": {"type": "category", "data": ["20代", "30代", "40代", "50代", "60代", "70歳以上"]},
+            "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
+            "series": [{{AGE_CROSS_SERIES}}]
+        }'></div>
+    </div>
+
+    <div class="grid-charts">
+        <!-- 雇用形態 × 性別 グループ棒グラフ -->
         <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">転職緊急度 x 性別</h3>
-            <div class="echart" style="height:350px;" data-chart-config='{
+            <h3 class="text-sm text-slate-400 mb-3">雇用形態 × 性別</h3>
+            <div class="echart" style="height:300px;" data-chart-config='{
                 "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-                "legend": {"data": ["男性", "女性"], "top": 4},
-                "xAxis": {"type": "category", "data": {{URG_LABELS}}},
-                "yAxis": {"type": "value", "name": "人数"},
+                "legend": {"data": ["男性", "女性"], "top": "0%", "itemGap": 15},
+                "grid": {"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true},
+                "xAxis": {"type": "category", "data": ["正職員", "パート", "その他"]},
+                "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
                 "series": [
-                    {"name": "男性", "type": "bar", "stack": "total", "data": {{URG_MALE_VALUES}}, "itemStyle": {"color": "#0ea5e9"}},
-                    {"name": "女性", "type": "bar", "stack": "total", "data": {{URG_FEMALE_VALUES}}, "itemStyle": {"color": "#ec4899"}}
+                    {"name": "男性", "type": "bar", "data": {{GENDER_MALE_DATA}}, "itemStyle": {"color": "#0072B2"}, "label": {"show": true, "position": "inside", "formatter": "{c}%", "color": "#fff"}},
+                    {"name": "女性", "type": "bar", "data": {{GENDER_FEMALE_DATA}}, "itemStyle": {"color": "#E69F00"}, "label": {"show": true, "position": "inside", "formatter": "{c}%", "color": "#fff"}}
                 ]
             }'></div>
         </div>
+
+        <!-- 雇用形態 × 就業状態 スタック棒グラフ -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">雇用形態 × 就業状態</h3>
+            <div class="echart" style="height:300px;" data-chart-config='{
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "legend": {"data": ["就業中", "離職中", "在学中"], "top": "0%", "itemGap": 15},
+                "grid": {"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true},
+                "xAxis": {"type": "category", "data": ["正職員", "パート", "その他"]},
+                "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
+                "series": [{{EMP_CROSS_SERIES}}]
+            }'></div>
+        </div>
+    </div>
+
+    <!-- 雇用形態 × 移動パターン -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">雇用形態 × 移動パターン</h3>
+        <p class="text-xs text-slate-500 mb-3">希望勤務地からの移動距離傾向を雇用形態別に分析</p>
+        {{MOBILITY_SECTION}}
+    </div>
+
+    <!-- 統計的解釈の注意 -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">統計的解釈の注意</h3>
+        <ul class="space-y-1 text-sm text-slate-400">
+            <li>• 効果量（Cramer's V）: すべての分析で小〜微小（0.07〜0.17）</li>
+            <li>• 統計的有意性: サンプルサイズが大きいため、わずかな差でも有意になる</li>
+            <li>• 実務的示唆: 単一属性での予測精度は低い（61〜68%程度）</li>
+            <li>• 推奨: 「予測」より「傾向把握→戦略立案」に活用すべき</li>
+        </ul>
     </div>
 </div>

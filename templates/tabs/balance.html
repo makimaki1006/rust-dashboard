@@ -1,47 +1,63 @@
 <!-- タブ4: 需給バランス パーシャルHTML -->
 <div class="space-y-6">
-    <h2 class="text-xl font-bold text-white">需給バランス <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+    <h2 class="text-xl font-bold text-white">⚖️ 需給バランス <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
 
-    <div class="grid-charts">
-        <!-- 都道府県別求職者供給 -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求職者供給数（上位15）</h3>
-            <div class="echart" style="height:400px;" data-chart-config='{
-                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-                "xAxis": {"type": "value"},
-                "yAxis": {"type": "category", "data": {{PREF_LABELS}}, "inverse": true},
-                "series": [{"type": "bar", "data": {{PREF_VALUES}}, "itemStyle": {"color": "#3b82f6", "borderRadius": [0,4,4,0]}, "barWidth": "60%"}],
-                "grid": {"left": "25%", "right": "5%"}
-            }'></div>
-        </div>
+    <!-- 競争環境言語化カード（都道府県選択時のみ） -->
+    {{COMPETITION_SECTION}}
 
-        <!-- 競争プロファイル -->
-        <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">競争プロファイル</h3>
-            <div class="echart" style="height:400px;" data-chart-config='{
-                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-                "xAxis": {"type": "value"},
-                "yAxis": {"type": "category", "data": {{COMP_LABELS}}, "inverse": true},
-                "series": [{"type": "bar", "data": {{COMP_VALUES}}, "itemStyle": {"color": "#f59e0b", "borderRadius": [0,4,4,0]}, "barWidth": "60%"}],
-                "grid": {"left": "35%", "right": "5%"}
-            }'></div>
-        </div>
+    <!-- 選択地域表示 -->
+    <div class="flex items-center gap-1">
+        <span class="text-slate-400 text-sm">📍 選択中:</span>
+        {{LOCATION_DISPLAY}}
     </div>
 
-    <!-- 都道府県別需給テーブル -->
+    <!-- 5つのKPIカード -->
+    <div class="flex flex-wrap gap-4">
+        {{GAP_KPI_CARDS}}
+    </div>
+
+    <!-- 求人・求職者シェア比較 -->
+    {{SHARE_SECTION}}
+
+    <!-- 需要超過ランキング Top 10 -->
     <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-3">都道府県別 求職者供給ランキング</h3>
-        <div style="overflow-x:auto;">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th class="text-center" style="width:50px">順位</th>
-                        <th>都道府県</th>
-                        <th class="text-right">供給数</th>
-                    </tr>
-                </thead>
-                <tbody>{{GAP_ROWS}}</tbody>
-            </table>
+        <div class="flex items-baseline gap-2 mb-2">
+            <h3 class="text-lg font-bold text-white">需要超過ランキング Top 10</h3>
+            <span class="text-slate-400 text-sm">（{{PREF_LABEL}}内）</span>
         </div>
+        <p class="text-xs text-slate-500 mb-4">働きたい人が住んでいる求職者より多い市区町村（人材流入傾向）</p>
+        {{SHORTAGE_CHART}}
+    </div>
+
+    <!-- 供給超過ランキング Top 10 -->
+    <div class="stat-card">
+        <div class="flex items-baseline gap-2 mb-2">
+            <h3 class="text-lg font-bold text-white">供給超過ランキング Top 10</h3>
+            <span class="text-slate-400 text-sm">（{{PREF_LABEL}}内）</span>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">住んでいる求職者が働きたい人より多い市区町村（人材流出傾向）</p>
+        {{SURPLUS_CHART}}
+    </div>
+
+    <!-- 需給比率ランキング Top 10 -->
+    <div class="stat-card">
+        <div class="flex items-baseline gap-2 mb-2">
+            <h3 class="text-lg font-bold text-white">需給比率ランキング Top 10</h3>
+            <span class="text-slate-400 text-sm">（{{PREF_LABEL}}内）</span>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">需要/供給の比率が高い市区町村（採用競争激化）</p>
+        {{RATIO_CHART}}
+    </div>
+
+    <!-- 指標の説明 -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">指標の説明</h3>
+        <ul class="space-y-1 text-sm text-slate-400">
+            <li>• 総需要: 地域内で必要とされる人材数</li>
+            <li>• 総供給: 地域内で利用可能な人材数</li>
+            <li>• 平均比率: 需要 ÷ 供給の平均（比率が高いほど人材獲得が困難）</li>
+            <li>• 不足地域: 需要 > 供給の市区町村数（採用難易度が高い地域）</li>
+            <li>• 過剰地域: 供給 > 需要の市区町村数（人材が余剰している地域）</li>
+        </ul>
     </div>
 </div>

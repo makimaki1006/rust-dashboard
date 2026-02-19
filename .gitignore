@@ -1,11 +1,31 @@
-# Database files
-data/*.db
-
 # Build artifacts
 target/
+*.exe
 
 # Environment
 .env
 
+# Uncompressed database files (use .gz versions)
+data/*.db
+
+# Uncompressed GeoJSON (decompressed from data/geojson_gz/ at startup)
+static/geojson/
+
+# Old git backup
+.git_backup/
+
 # OS files
+.DS_Store
+Thumbs.db
 nul
+
+# Windows-specific cargo config
+.cargo/
+
+# Scripts (development only)
+scripts/
+build_release.bat
+
+# Dev docs
+GAP_ANALYSIS.md
+STATUS.md
