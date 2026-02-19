@@ -1411,7 +1411,7 @@ pub async fn segment_salary_compare(
                 r#"<div class="stat-card"><h4 class="text-sm font-bold text-slate-300 mb-2">軸{} {}</h4>
                 <table class="w-full text-sm"><thead><tr class="text-slate-400 text-xs">
                 <th class="text-left py-1">セグメント</th><th class="text-right">件数</th>
-                <th class="text-right">下限平均</th><th class="text-right">上限平均</th>
+                <th class="text-right">月給下限</th><th class="text-right">月給上限</th>
                 <th class="text-right">休日平均</th></tr></thead><tbody>"#,
                 escape_html(axis), escape_html(axis_label)
             ));
@@ -1436,6 +1436,7 @@ pub async fn segment_salary_compare(
         r##"<div class="space-y-4">
     <h3 class="text-lg font-bold text-white">💰 セグメント別給与比較 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">{tables}</div>
+    <p class="text-xs text-slate-500 italic">※ 月給は求人票記載の月給額（税込）。年収目安 = 月給 × 12〜14（賞与含む）</p>
 </div>"##,
         scope = escape_html(&scope_label),
         job_type = escape_html(&job_type),

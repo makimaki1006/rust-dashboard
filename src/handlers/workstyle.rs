@@ -58,8 +58,17 @@ async fn fetch_workstyle(state: &AppState, job_type: &str, prefecture: &str, mun
     let mut params = vec![Value::String(job_type.to_string())];
     let location_filter = build_location_filter(prefecture, municipality, &mut params);
 
+    // [WORKAROUND] municipalityをSELECTに追加: WORKSTYLE_MOBILITYデータの重複排除に必要
+    // 背景: Python側generate_mapcomplete_complete_sheets.pyのWORKSTYLE_MOBILITY生成で
+    // pref_flow（ResidenceFlow）の細粒度行を直接ループしているため、
+    // 同一(municipality, workstyle, mobility_type)の組み合わせがN重複してDBに格納されている。
+    // また、countがmobility_typeに依存せず同一市区町村内で全mobility_typeが同じ値になるバグもある。
+    // Python側の修正(groupby集約)は済んでいるがCSV再生成・DB再投入が未実施のため、
+    // Rust側で暫定的に重複排除を行う。
+    // → Python側修正: generate_mapcomplete_complete_sheets.py の WORKSTYLE_MOBILITY セクション
+    // → 本ワークアラウンドは再投入完了後に除去可能（ただし残しても無害）
     let sql = format!(
-        "SELECT row_type, category1, category2, count, percentage \
+        "SELECT row_type, category1, category2, count, percentage, municipality \
         FROM job_seeker_data \
         WHERE job_type = ? \
           AND row_type IN ('WORKSTYLE_DISTRIBUTION', 'WORKSTYLE_AGE_CROSS', \
@@ -81,6 +90,10 @@ async fn fetch_workstyle(state: &AppState, job_type: &str, prefecture: &str, mun
     let mut age_cross_counts: HashMap<(String, String), i64> = HashMap::new();
     let mut gender_cross_counts: HashMap<(String, String), i64> = HashMap::new();
     let mut emp_cross_counts: HashMap<(String, String), i64> = HashMap::new();
+    // [WORKAROUND] WORKSTYLE_MOBILITY重複排除用
+    // (municipality, workstyle, mobility_type) → count で重複排除し、
+    // その後 (workstyle, mobility_type) で市区町村横断集約する
+    let mut mobility_dedup: HashMap<(String, String, String), i64> = HashMap::new();
 
     for row in &rows {
         let row_type = get_str(row, "row_type");
@@ -111,11 +124,23 @@ async fn fetch_workstyle(state: &AppState, job_type: &str, prefecture: &str, mun
             }
             "WORKSTYLE_MOBILITY" => {
                 if !cat1.is_empty() && !cat2.is_empty() {
-                    stats.mobility.push((cat1, cat2, cnt));
+                    // [WORKAROUND] 重複排除: 同一(municipality, workstyle, mobility_type)は
+                    // 最初の1件のみ保持。N重複しているが全て同じcount値なのでor_insertで十分。
+                    let muni = get_str(row, "municipality");
+                    mobility_dedup.entry((muni, cat1, cat2)).or_insert(cnt);
                 }
             }
             _ => {}
         }
+    }
+
+    // [WORKAROUND] 重複排除後、(workstyle, mobility_type)で市区町村横断集約
+    let mut mobility_agg: HashMap<(String, String), i64> = HashMap::new();
+    for ((_, ws, mob), cnt) in mobility_dedup {
+        *mobility_agg.entry((ws, mob)).or_insert(0) += cnt;
+    }
+    for ((ws, mob), cnt) in mobility_agg {
+        stats.mobility.push((ws, mob, cnt));
     }
 
     let mut ws_list: Vec<(String, i64)> = ws_map.into_iter().collect();
@@ -271,8 +296,9 @@ fn build_mobility_section(stats: &WorkstyleStats) -> String {
     let mut ws_totals: HashMap<&str, i64> = HashMap::new();
     let mut mob_totals: HashMap<&str, i64> = HashMap::new();
 
+    // [WORKAROUND] fetch_workstyleで重複排除済みだが、安全のため加算方式で集約
     for (ws, mob, cnt) in &stats.mobility {
-        mob_map.insert((ws.as_str(), mob.as_str()), *cnt);
+        *mob_map.entry((ws.as_str(), mob.as_str())).or_insert(0) += cnt;
         *ws_totals.entry(ws.as_str()).or_insert(0) += cnt;
         *mob_totals.entry(mob.as_str()).or_insert(0) += cnt;
     }
