@@ -513,9 +513,31 @@ fn render_demographics(job_type: &str, prefecture: &str, municipality: &str, sta
         format!(" - 全{}種類・取得者数順", stats.qual_options.len())
     } else { String::new() };
 
-    // セクション10-11: 緊急度
-    let urg_gender_chart = build_urgency_chart(&stats.urgency_gender, "gender");
-    let urg_start_chart = build_urgency_chart(&stats.urgency_start, "start");
+    // セクション10-11: 緊急度（DBにデータがない場合はセクション全体を非表示）
+    let urg_gender_section = if stats.urgency_gender.is_empty() {
+        String::new()
+    } else {
+        let chart = build_urgency_chart(&stats.urgency_gender, "gender");
+        format!(
+            r#"<div class="stat-card">
+                <div class="text-sm font-semibold text-white mb-3">🚨 緊急度×性別クロス分析</div>
+                <div class="text-xs text-slate-500 mb-3">性別ごとの転職緊急度を分析（棒グラフ: 人数、折れ線: 平均スコア）</div>
+                {chart}
+            </div>"#
+        )
+    };
+    let urg_start_section = if stats.urgency_start.is_empty() {
+        String::new()
+    } else {
+        let chart = build_urgency_chart(&stats.urgency_start, "start");
+        format!(
+            r#"<div class="stat-card">
+                <div class="text-sm font-semibold text-white mb-3">📅 転職希望時期別緊急度</div>
+                <div class="text-xs text-slate-500 mb-3">転職希望時期ごとの緊急度を分析（棒グラフ: 人数、折れ線: 平均スコア）</div>
+                {chart}
+            </div>"#
+        )
+    };
 
     include_str!("../../templates/tabs/demographics.html")
         .replace("{{JOB_TYPE}}", job_type)
@@ -535,8 +557,8 @@ fn render_demographics(job_type: &str, prefecture: &str, municipality: &str, sta
         .replace("{{RARITY_AGE_CHECKBOXES}}", &rarity_age_checkboxes)
         .replace("{{RARITY_QUAL_CHECKBOXES}}", &rarity_qual_checkboxes)
         .replace("{{RARITY_QUAL_COUNT}}", &rarity_qual_count)
-        .replace("{{URG_GENDER_CHART}}", &urg_gender_chart)
-        .replace("{{URG_START_CHART}}", &urg_start_chart)
+        .replace("{{URG_GENDER_SECTION}}", &urg_gender_section)
+        .replace("{{URG_START_SECTION}}", &urg_start_section)
 }
 
 // ===== 言語化カード =====

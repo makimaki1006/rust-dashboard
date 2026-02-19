@@ -111,17 +111,7 @@
         </div>
     </div>
 
-    <!-- 10行目: 緊急度×性別クロス分析 -->
-    <div class="stat-card">
-        <div class="text-sm font-semibold text-white mb-3">🚨 緊急度×性別クロス分析</div>
-        <div class="text-xs text-slate-500 mb-3">性別ごとの転職緊急度を分析（棒グラフ: 人数、折れ線: 平均スコア）</div>
-        {{URG_GENDER_CHART}}
-    </div>
-
-    <!-- 11行目: 転職希望時期別緊急度 -->
-    <div class="stat-card">
-        <div class="text-sm font-semibold text-white mb-3">📅 転職希望時期別緊急度</div>
-        <div class="text-xs text-slate-500 mb-3">転職希望時期ごとの緊急度を分析（棒グラフ: 人数、折れ線: 平均スコア）</div>
-        {{URG_START_CHART}}
-    </div>
+    <!-- 緊急度チャート: DBにデータがない場合は非表示 -->
+    {{URG_GENDER_SECTION}}
+    {{URG_START_SECTION}}
 </div>

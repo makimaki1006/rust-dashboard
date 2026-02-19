@@ -269,7 +269,8 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
     }).collect();
 
     // ===== 雇用形態×移動パターン =====
-    let mobility_section = build_mobility_section(stats);
+    // [一時非表示] CSV再生成後に復活: let mobility_section = build_mobility_section(stats);
+    let _mobility_section = build_mobility_section(stats);
 
     include_str!("../../templates/tabs/workstyle.html")
         .replace("{{JOB_TYPE}}", job_type)
@@ -280,7 +281,9 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
         .replace("{{GENDER_MALE_DATA}}", &format!("[{}]", gender_male.join(",")))
         .replace("{{GENDER_FEMALE_DATA}}", &format!("[{}]", gender_female.join(",")))
         .replace("{{EMP_CROSS_SERIES}}", &emp_series.join(","))
-        .replace("{{MOBILITY_SECTION}}", &mobility_section)
+        // [一時非表示] WORKSTYLE_MOBILITYデータ未修正のため空文字（CSV再生成・再インポート後に復活）
+        // 復活時: .replace("{{MOBILITY_CARD}}", &format!(r#"<div class=\"stat-card\">...{{MOBILITY_SECTION}}...</div>"#))
+        .replace("{{MOBILITY_CARD}}", "")
 }
 
 fn build_mobility_section(stats: &WorkstyleStats) -> String {
