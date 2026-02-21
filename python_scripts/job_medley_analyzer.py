@@ -1120,6 +1120,9 @@ def detect_experience_qualification(row: pd.Series) -> dict:
     # ────────────────────────────────
     # 資格要否判定（v2.4大幅拡張）
     # ────────────────────────────────
+    # 資格名が応募要件に明示的に記載されているか（他の判定で参照するため先に計算）
+    qual_name_in_req = bool(re.search(r'(' + _QUAL_NAMES + r')', req))
+
     no_qual_patterns = [
         r'無資格.{0,3}(可|OK|歓迎|の方|でも)',
         r'資格.{0,3}(不問|なし.{0,3}可|不要|なくても|問いません|問わず)',
@@ -1139,8 +1142,6 @@ def detect_experience_qualification(row: pd.Series) -> dict:
         # 具体的な資格名 + 必須系キーワード
         r'(' + _QUAL_NAMES + r').{0,5}(必須|必要|要|お持ちの方|以上|保有)',
     ]
-    # 資格名が応募要件に明示的に記載されている場合も資格必須と推定
-    qual_name_in_req = bool(re.search(r'(' + _QUAL_NAMES + r')', req))
 
     no_qual = any(re.search(p, combined) for p in no_qual_patterns)
     req_qual = any(re.search(p, combined) for p in requires_qual_patterns)
