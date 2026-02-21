@@ -33,6 +33,7 @@ async fn main() {
     decompress_geojson_if_needed();
     decompress_db_if_needed(&config.local_db_path);
     decompress_db_if_needed(&config.segment_db_path);
+    decompress_db_if_needed(&config.geocoded_db_path);
 
     let local_db = match LocalDb::new(&config.local_db_path) {
         Ok(db) => {
@@ -56,6 +57,17 @@ async fn main() {
         }
     };
 
+    let geocoded_db = match LocalDb::new(&config.geocoded_db_path) {
+        Ok(db) => {
+            tracing::info!("Geocoded postings SQLite loaded: {}", config.geocoded_db_path);
+            Some(db)
+        }
+        Err(e) => {
+            tracing::warn!("Geocoded postings SQLite not available: {e}");
+            None
+        }
+    };
+
     let cache = AppCache::new(config.cache_ttl_secs, 100);
     let rate_limiter = RateLimiter::new(config.rate_limit_max_attempts, config.rate_limit_lockout_secs);
 
@@ -64,6 +76,7 @@ async fn main() {
         turso,
         local_db,
         segment_db,
+        geocoded_db,
         cache,
         rate_limiter,
     });

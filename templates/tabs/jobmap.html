@@ -1,46 +1,104 @@
-<!-- タブ6: 求人地図 パーシャルHTML -->
-<div class="space-y-6">
-    <h2 class="text-xl font-bold text-white">🗺️ 求人地図 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+<div class="space-y-4">
+  <h2 class="text-xl font-bold text-white">🗺️ 求人地図
+    <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span>
+  </h2>
 
-    <div class="stat-card">
-        <div class="flex items-start gap-3 mb-4">
-            <span class="text-2xl">ℹ️</span>
-            <div>
-                <p class="text-sm text-slate-300">Googleのセキュリティ制限により、求人地図は外部ウィンドウで表示されます。</p>
-                <p class="text-xs text-slate-500 mt-1">下のボタンをクリックすると、別ウィンドウでインタラクティブな求人地図が開きます。</p>
-            </div>
-        </div>
+  <!-- フィルタバー -->
+  <div class="stat-card">
+    <div class="flex flex-wrap items-end gap-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">都道府県</label>
+        <select id="jm-pref" name="prefecture"
+                class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600"
+                hx-get="/api/jobmap/municipalities"
+                hx-target="#jm-muni"
+                hx-swap="innerHTML"
+                hx-include="this">
+          {{PREFECTURE_OPTIONS}}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">市区町村</label>
+        <select id="jm-muni" name="municipality"
+                class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+          <option value="">-- 市区町村 --</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">半径 (km)</label>
+        <input type="number" id="jm-radius" value="10" min="1" max="100" step="1"
+               class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 w-20">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">雇用形態</label>
+        <select id="jm-emp" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+          <option value="全て選択">全て選択</option>
+          <option value="正職員">正職員</option>
+          <option value="契約職員">契約職員</option>
+          <option value="パート・アルバイト">パート・アルバイト</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">給与区分</label>
+        <select id="jm-salary-type" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+          <option value="どちらも">どちらも</option>
+          <option value="月給">月給</option>
+          <option value="時給">時給</option>
+        </select>
+      </div>
+      <button id="jm-search-btn" onclick="postingMap.search()"
+              class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded px-4 py-1.5 transition-colors">
+        🔍 検索
+      </button>
+      <span id="jm-count" class="text-gray-400 text-sm ml-2"></span>
+    </div>
+  </div>
 
-        <div class="flex items-center gap-4">
-            <a href="https://job-medley-map.onrender.com/?job_type={{JOB_TYPE}}"
-               target="_blank"
-               rel="noopener noreferrer"
-               class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition inline-flex items-center gap-2">
-                🗺️ 求人地図を開く
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-            </a>
-        </div>
+  <!-- メインコンテンツ: 地図 + 詳細パネル -->
+  <div class="flex gap-0" style="height: calc(100vh - 280px); min-height: 400px;">
+    <!-- 地図 -->
+    <div id="jm-map-container" class="flex-1 relative rounded-l-lg overflow-hidden border border-gray-700">
+      <div id="jm-map" style="width:100%; height:100%; z-index:1;"></div>
+      <!-- SVG接続線レイヤー -->
+      <svg id="jm-connection-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999;"></svg>
     </div>
 
-    <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-3">機能説明</h3>
-        <ul class="space-y-2 text-sm text-slate-300">
-            <li class="flex items-center gap-2">
-                <span class="text-blue-400">📍</span>
-                マーカー表示: 求人がある施設の位置をマーカーで表示
-            </li>
-            <li class="flex items-center gap-2">
-                <span class="text-green-400">🎨</span>
-                色分け: 給与水準・雇用形態による色分け表示
-            </li>
-            <li class="flex items-center gap-2">
-                <span class="text-amber-400">🔍</span>
-                フィルタ機能: 職種・地域・雇用形態で絞り込み
-            </li>
-            <li class="flex items-center gap-2">
-                <span class="text-purple-400">📋</span>
-                詳細表示: マーカークリックで求人詳細を確認
-            </li>
-        </ul>
+    <!-- 詳細パネル (初期非表示) -->
+    <div id="jm-details-panel" class="hidden bg-gray-800 border border-gray-700 rounded-r-lg overflow-y-auto"
+         style="width: 380px; max-width: 50%;">
+      <div class="flex items-center justify-between p-2 border-b border-gray-700 sticky top-0 bg-gray-800 z-10">
+        <span class="text-sm font-medium text-gray-300">📋 求人詳細</span>
+        <button onclick="postingMap.closePanel()" class="text-gray-400 hover:text-white text-lg">&times;</button>
+      </div>
+      <div id="jm-details-container" class="p-2 space-y-2">
+        <p class="text-gray-500 text-sm text-center py-4">マーカーをクリックで詳細表示</p>
+      </div>
     </div>
+  </div>
+
+  <!-- ピン統計パネル -->
+  <div id="jm-pinned-stats" class="stat-card hidden">
+    <div class="flex items-center justify-between mb-2">
+      <span id="jm-stats-title" class="text-sm font-medium text-gray-300">📍 ピン止め統計</span>
+      <button onclick="postingMap.toggleStats()" id="jm-stats-toggle" class="text-xs text-gray-400 hover:text-white">折りたたむ</button>
+    </div>
+    <div id="jm-stats-content" class="text-sm grid grid-cols-2 gap-2"></div>
+  </div>
 </div>
+
+<script src="/static/js/postingmap.js"></script>
+<script>
+  // 初期化（タブ切り替え・DOMContentLoaded両対応）
+  (function() {
+    function tryInit() {
+      if (typeof postingMap !== 'undefined' && document.getElementById('jm-map')) {
+        postingMap.init();
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', tryInit);
+    } else {
+      setTimeout(tryInit, 50);
+    }
+  })();
+</script>

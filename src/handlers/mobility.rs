@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
+use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
 use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, build_location_filter, make_location_label};
@@ -101,6 +102,10 @@ pub async fn tab_mobility(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    if !has_turso_data(&job_type) {
+        return Html(render_no_turso_data(&job_type, "地域・移動パターン"));
+    }
 
     let cache_key = format!("mobility_{}_{}_{}", job_type, prefecture, municipality);
     if let Some(cached) = state.cache.get(&cache_key) {

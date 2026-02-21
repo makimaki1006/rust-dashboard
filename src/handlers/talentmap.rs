@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
+use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 use crate::geo::pref_name_to_code;
 
@@ -24,6 +25,10 @@ pub async fn tab_talentmap(
     Query(params): Query<TalentMapTabQuery>,
 ) -> Html<String> {
     let (job_type, prefecture, session_muni) = get_session_filters(&session).await;
+
+    if !has_turso_data(&job_type) {
+        return Html(render_no_turso_data(&job_type, "人材地図"));
+    }
 
     // クエリパラメータのmunicipalityがあればそちらを優先（地図クリック時）
     let municipality = if let Some(ref qm) = params.municipality {

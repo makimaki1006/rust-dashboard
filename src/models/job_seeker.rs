@@ -26,18 +26,55 @@ pub const PREFECTURE_ORDER: [&str; 47] = [
     "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
 ];
 
-/// サポートされる職種一覧
-pub const JOB_TYPES: [&str; 12] = [
+/// サポートされる職種一覧（NiceGUI 12職種 + 求人データのみ6職種）
+pub const JOB_TYPES: [&str; 18] = [
+    // NiceGUI 12職種（人口データ+求人データ両方あり）
     "介護職",
     "看護師",
     "保育士",
-    "歯科衛生士",
+    "栄養士",
+    "生活相談員",
     "理学療法士",
     "作業療法士",
+    "ケアマネジャー",
+    "サービス管理責任者",
+    "サービス提供責任者",
+    "学童支援",
+    "調理師、調理スタッフ",
+    // 求人データのみの6職種（Turso人口データなし）
+    "薬剤師",
     "言語聴覚士",
-    "柔道整復師",
-    "あん摩マッサージ指圧師",
-    "鍼灸師",
-    "管理栄養士",
-    "栄養士",
+    "児童指導員",
+    "児童発達支援管理責任者",
+    "生活支援員",
+    "幼稚園教諭",
 ];
+
+/// Turso人口データが存在する職種（NiceGUI 12職種）
+pub const TURSO_JOB_TYPES: [&str; 12] = [
+    "介護職", "看護師", "保育士", "栄養士",
+    "生活相談員", "理学療法士", "作業療法士", "ケアマネジャー",
+    "サービス管理責任者", "サービス提供責任者", "学童支援", "調理師、調理スタッフ",
+];
+
+/// 指定職種にTurso人口データがあるかチェック
+pub fn has_turso_data(job_type: &str) -> bool {
+    TURSO_JOB_TYPES.contains(&job_type)
+}
+
+/// Tursoデータなし職種向けのメッセージHTML
+pub fn render_no_turso_data(job_type: &str, tab_name: &str) -> String {
+    format!(
+        r#"<div class="p-8 text-center">
+        <div class="bg-blue-900/30 border border-blue-700 rounded-lg p-6 max-w-lg mx-auto">
+            <p class="text-blue-300 text-lg font-medium mb-2">求職者データなし</p>
+            <p class="text-gray-300">
+                「<span class="text-white font-medium">{job_type}</span>」の{tab_name}データは現在準備中です。
+            </p>
+            <p class="text-gray-400 text-sm mt-3">
+                求人地図タブでは求人情報を確認できます。
+            </p>
+        </div>
+    </div>"#
+    )
+}

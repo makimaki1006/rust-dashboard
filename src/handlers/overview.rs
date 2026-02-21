@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::auth::{SESSION_JOB_TYPE_KEY, SESSION_PREFECTURE_KEY, SESSION_MUNICIPALITY_KEY};
+use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
 /// セッションから共通フィルタ値を取得するヘルパー
@@ -51,6 +52,10 @@ pub async fn tab_overview(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    if !has_turso_data(&job_type) {
+        return Html(render_no_turso_data(&job_type, "市場概況"));
+    }
 
     let cache_key = format!("overview_{}_{}_{}", job_type, prefecture, municipality);
     if let Some(cached) = state.cache.get(&cache_key) {

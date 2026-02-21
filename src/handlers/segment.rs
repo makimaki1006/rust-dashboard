@@ -37,6 +37,7 @@ fn map_job_type_to_segment(job_type: &str) -> Option<&str> {
         "児童指導員" => Some("児童指導員"),
         "児童発達支援管理責任者" => Some("児童発達支援管理責任者"),
         "生活支援員" => Some("生活支援員"),
+        "幼稚園教諭" => Some("幼稚園教諭"),
         _ => None,
     }
 }

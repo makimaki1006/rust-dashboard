@@ -31,6 +31,7 @@ pub struct AppState {
     pub turso: TursoClient,
     pub local_db: Option<db::local_sqlite::LocalDb>,
     pub segment_db: Option<db::local_sqlite::LocalDb>,
+    pub geocoded_db: Option<db::local_sqlite::LocalDb>,
     pub cache: AppCache,
     pub rate_limiter: auth::session::RateLimiter,
 }
@@ -51,6 +52,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/tab/balance", get(handlers::balance::tab_balance))
         .route("/tab/workstyle", get(handlers::workstyle::tab_workstyle))
         .route("/tab/jobmap", get(handlers::jobmap::tab_jobmap))
+        .route("/api/jobmap/markers", get(handlers::jobmap::jobmap_markers))
+        .route("/api/jobmap/detail/{id}", get(handlers::jobmap::jobmap_detail))
+        .route("/api/jobmap/stats", post(handlers::jobmap::jobmap_stats))
+        .route("/api/jobmap/municipalities", get(handlers::jobmap::jobmap_municipalities))
         .route(
             "/tab/talentmap",
             get(handlers::talentmap::tab_talentmap),
@@ -509,12 +514,22 @@ async fn api_status(
 
     let segment_db_ok = state.segment_db.is_some();
 
+    let geocoded_db_ok = state.geocoded_db.is_some();
+    let geocoded_db_count = if let Some(db) = &state.geocoded_db {
+        db.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
     axum::response::Json(serde_json::json!({
         "turso_connected": turso_ok,
         "turso_url": turso_url_masked,
         "local_db_loaded": local_db_ok,
         "local_db_rows": local_db_count,
         "segment_db_loaded": segment_db_ok,
+        "geocoded_db_loaded": geocoded_db_ok,
+        "geocoded_db_rows": geocoded_db_count,
         "status": if turso_ok && local_db_ok { "healthy" } else { "degraded" }
     }))
 }

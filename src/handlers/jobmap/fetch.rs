@@ -1,0 +1,336 @@
+use serde_json::Value;
+
+use crate::db::local_sqlite::LocalDb;
+
+/// マーカー表示用の軽量データ
+pub(crate) struct MarkerRow {
+    pub(crate) id: i64,
+    pub(crate) lat: f64,
+    pub(crate) lng: f64,
+    pub(crate) facility_name: String,
+    pub(crate) service_type: String,
+    pub(crate) employment_type: String,
+    pub(crate) salary_type: String,
+    pub(crate) salary_min: i64,
+    pub(crate) salary_max: i64,
+}
+
+/// 詳細カード用の全カラムデータ
+#[allow(dead_code)]
+pub(crate) struct DetailRow {
+    pub(crate) id: i64,
+    pub(crate) job_type: String,
+    pub(crate) prefecture: String,
+    pub(crate) municipality: String,
+    pub(crate) facility_name: String,
+    pub(crate) service_type: String,
+    pub(crate) employment_type: String,
+    pub(crate) salary_type: String,
+    pub(crate) salary_min: i64,
+    pub(crate) salary_max: i64,
+    pub(crate) salary_detail: String,
+    pub(crate) headline: String,
+    pub(crate) job_description: String,
+    pub(crate) requirements: String,
+    pub(crate) benefits: String,
+    pub(crate) working_hours: String,
+    pub(crate) holidays: String,
+    pub(crate) education_training: String,
+    pub(crate) access: String,
+    pub(crate) special_holidays: String,
+    pub(crate) tags: String,
+    pub(crate) tier3_label_short: String,
+    pub(crate) exp_qual_segment: String,
+    pub(crate) lat: f64,
+    pub(crate) lng: f64,
+}
+
+fn value_to_i64(v: &Value) -> i64 {
+    match v {
+        Value::Number(n) => n.as_i64().unwrap_or(0),
+        Value::String(s) => s.parse::<i64>().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn value_to_f64(v: &Value) -> f64 {
+    match v {
+        Value::Number(n) => n.as_f64().unwrap_or(0.0),
+        Value::String(s) => s.parse::<f64>().unwrap_or(0.0),
+        _ => 0.0,
+    }
+}
+
+fn value_to_str(v: Option<&Value>) -> String {
+    v.and_then(|v| v.as_str()).unwrap_or("").to_string()
+}
+
+/// Bounding Box + ジオコードDBからマーカーデータを取得
+pub(crate) fn fetch_markers(
+    db: &LocalDb,
+    job_type: &str,
+    prefecture: &str,
+    municipality: &str,
+    employment_type: &str,
+    salary_type: &str,
+    lat: f64,
+    lng: f64,
+    radius_km: f64,
+) -> Vec<MarkerRow> {
+    let lat_delta = radius_km / 111.0;
+    let lng_delta = radius_km / (111.0 * lat.to_radians().cos().abs().max(0.01));
+    let lat_min = lat - lat_delta;
+    let lat_max = lat + lat_delta;
+    let lng_min = lng - lng_delta;
+    let lng_max = lng + lng_delta;
+
+    let mut sql = String::from(
+        "SELECT id, lat, lng, facility_name, service_type, employment_type, \
+         salary_type, salary_min, salary_max \
+         FROM postings WHERE job_type = ? \
+         AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?",
+    );
+    let mut param_values: Vec<String> = vec![
+        job_type.to_string(),
+        lat_min.to_string(),
+        lat_max.to_string(),
+        lng_min.to_string(),
+        lng_max.to_string(),
+    ];
+
+    if !prefecture.is_empty() {
+        sql.push_str(" AND prefecture = ?");
+        param_values.push(prefecture.to_string());
+    }
+    if !municipality.is_empty() {
+        sql.push_str(" AND municipality = ?");
+        param_values.push(municipality.to_string());
+    }
+    if !employment_type.is_empty() && employment_type != "全て選択" {
+        sql.push_str(" AND employment_type = ?");
+        param_values.push(employment_type.to_string());
+    }
+    if !salary_type.is_empty() && salary_type != "どちらも" {
+        sql.push_str(" AND salary_type = ?");
+        param_values.push(salary_type.to_string());
+    }
+    sql.push_str(" LIMIT 2000");
+
+    let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = match db.query(&sql, &params) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("fetch_markers failed: {e}");
+            return Vec::new();
+        }
+    };
+
+    rows.iter()
+        .map(|r| MarkerRow {
+            id: r.get("id").map(value_to_i64).unwrap_or(0),
+            lat: r.get("lat").map(value_to_f64).unwrap_or(0.0),
+            lng: r.get("lng").map(value_to_f64).unwrap_or(0.0),
+            facility_name: value_to_str(r.get("facility_name")),
+            service_type: value_to_str(r.get("service_type")),
+            employment_type: value_to_str(r.get("employment_type")),
+            salary_type: value_to_str(r.get("salary_type")),
+            salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
+            salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
+        })
+        .collect()
+}
+
+/// 都道府県指定でマーカーを取得（半径なし・Bounding Boxなし）
+pub(crate) fn fetch_markers_by_pref(
+    db: &LocalDb,
+    job_type: &str,
+    prefecture: &str,
+    municipality: &str,
+    employment_type: &str,
+    salary_type: &str,
+) -> Vec<MarkerRow> {
+    let mut sql = String::from(
+        "SELECT id, lat, lng, facility_name, service_type, employment_type, \
+         salary_type, salary_min, salary_max \
+         FROM postings WHERE job_type = ? AND prefecture = ? AND lat IS NOT NULL",
+    );
+    let mut param_values: Vec<String> = vec![job_type.to_string(), prefecture.to_string()];
+
+    if !municipality.is_empty() {
+        sql.push_str(" AND municipality = ?");
+        param_values.push(municipality.to_string());
+    }
+    if !employment_type.is_empty() && employment_type != "全て選択" {
+        sql.push_str(" AND employment_type = ?");
+        param_values.push(employment_type.to_string());
+    }
+    if !salary_type.is_empty() && salary_type != "どちらも" {
+        sql.push_str(" AND salary_type = ?");
+        param_values.push(salary_type.to_string());
+    }
+    sql.push_str(" LIMIT 2000");
+
+    let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = match db.query(&sql, &params) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("fetch_markers_by_pref failed: {e}");
+            return Vec::new();
+        }
+    };
+
+    rows.iter()
+        .map(|r| MarkerRow {
+            id: r.get("id").map(value_to_i64).unwrap_or(0),
+            lat: r.get("lat").map(value_to_f64).unwrap_or(0.0),
+            lng: r.get("lng").map(value_to_f64).unwrap_or(0.0),
+            facility_name: value_to_str(r.get("facility_name")),
+            service_type: value_to_str(r.get("service_type")),
+            employment_type: value_to_str(r.get("employment_type")),
+            salary_type: value_to_str(r.get("salary_type")),
+            salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
+            salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
+        })
+        .collect()
+}
+
+/// 求人詳細を1件取得
+pub(crate) fn fetch_detail(db: &LocalDb, posting_id: i64) -> Option<DetailRow> {
+    let rows = db
+        .query(
+            "SELECT id, job_type, prefecture, municipality, facility_name, service_type, \
+             employment_type, salary_type, salary_min, salary_max, salary_detail, \
+             headline, job_description, requirements, benefits, working_hours, \
+             holidays, education_training, access, special_holidays, tags, \
+             tier3_label_short, exp_qual_segment, lat, lng \
+             FROM postings WHERE id = ?",
+            &[&posting_id as &dyn rusqlite::types::ToSql],
+        )
+        .ok()?;
+
+    let r = rows.first()?;
+    Some(DetailRow {
+        id: r.get("id").map(value_to_i64).unwrap_or(0),
+        job_type: value_to_str(r.get("job_type")),
+        prefecture: value_to_str(r.get("prefecture")),
+        municipality: value_to_str(r.get("municipality")),
+        facility_name: value_to_str(r.get("facility_name")),
+        service_type: value_to_str(r.get("service_type")),
+        employment_type: value_to_str(r.get("employment_type")),
+        salary_type: value_to_str(r.get("salary_type")),
+        salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
+        salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
+        salary_detail: value_to_str(r.get("salary_detail")),
+        headline: value_to_str(r.get("headline")),
+        job_description: value_to_str(r.get("job_description")),
+        requirements: value_to_str(r.get("requirements")),
+        benefits: value_to_str(r.get("benefits")),
+        working_hours: value_to_str(r.get("working_hours")),
+        holidays: value_to_str(r.get("holidays")),
+        education_training: value_to_str(r.get("education_training")),
+        access: value_to_str(r.get("access")),
+        special_holidays: value_to_str(r.get("special_holidays")),
+        tags: value_to_str(r.get("tags")),
+        tier3_label_short: value_to_str(r.get("tier3_label_short")),
+        exp_qual_segment: value_to_str(r.get("exp_qual_segment")),
+        lat: r.get("lat").map(value_to_f64).unwrap_or(0.0),
+        lng: r.get("lng").map(value_to_f64).unwrap_or(0.0),
+    })
+}
+
+/// 都道府県→市区町村カスケード用データ取得
+pub(crate) fn fetch_municipalities(
+    db: &LocalDb,
+    job_type: &str,
+    prefecture: &str,
+) -> Vec<String> {
+    let rows = db
+        .query(
+            "SELECT DISTINCT municipality FROM postings \
+             WHERE job_type = ? AND prefecture = ? AND municipality != '' \
+             ORDER BY municipality",
+            &[
+                &job_type as &dyn rusqlite::types::ToSql,
+                &prefecture as &dyn rusqlite::types::ToSql,
+            ],
+        )
+        .unwrap_or_default();
+
+    rows.iter()
+        .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .collect()
+}
+
+/// 都道府県の中心座標を取得（municipality_geocode テーブルから）
+pub(crate) fn get_pref_center(
+    local_db: &LocalDb,
+    prefecture: &str,
+) -> Option<(f64, f64)> {
+    let rows = local_db
+        .query(
+            "SELECT AVG(latitude) as lat, AVG(longitude) as lng \
+             FROM municipality_geocode WHERE prefecture = ?",
+            &[&prefecture as &dyn rusqlite::types::ToSql],
+        )
+        .ok()?;
+    let r = rows.first()?;
+    let lat = r.get("lat").and_then(|v| v.as_f64())?;
+    let lng = r.get("lng").and_then(|v| v.as_f64())?;
+    if lat == 0.0 || lng == 0.0 {
+        return None;
+    }
+    Some((lat, lng))
+}
+
+/// 市区町村の中心座標を取得
+pub(crate) fn get_muni_center(
+    local_db: &LocalDb,
+    prefecture: &str,
+    municipality: &str,
+) -> Option<(f64, f64)> {
+    let rows = local_db
+        .query(
+            "SELECT latitude, longitude FROM municipality_geocode \
+             WHERE prefecture = ? AND municipality = ?",
+            &[
+                &prefecture as &dyn rusqlite::types::ToSql,
+                &municipality as &dyn rusqlite::types::ToSql,
+            ],
+        )
+        .ok()?;
+    let r = rows.first()?;
+    let lat = r.get("latitude").and_then(|v| v.as_f64())?;
+    let lng = r.get("longitude").and_then(|v| v.as_f64())?;
+    Some((lat, lng))
+}
+
+/// 指定職種がgeocode_dbに存在するかチェック
+pub(crate) fn has_job_type_data(db: &LocalDb, job_type: &str) -> bool {
+    let rows = db.query(
+        "SELECT 1 FROM postings WHERE job_type = ? LIMIT 1",
+        &[&job_type as &dyn rusqlite::types::ToSql],
+    );
+    matches!(rows, Ok(ref r) if !r.is_empty())
+}
+
+/// 都道府県一覧取得
+pub(crate) fn fetch_prefectures(db: &LocalDb, job_type: &str) -> Vec<String> {
+    let rows = db
+        .query(
+            "SELECT DISTINCT prefecture FROM postings WHERE job_type = ? ORDER BY prefecture",
+            &[&job_type as &dyn rusqlite::types::ToSql],
+        )
+        .unwrap_or_default();
+
+    rows.iter()
+        .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .collect()
+}
