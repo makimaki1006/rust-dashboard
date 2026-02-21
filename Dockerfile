@@ -40,6 +40,7 @@ COPY static/js/ static/js/
 COPY data/geojson_gz/ data/geojson_gz/
 COPY data/job_postings_minimal.db.gz data/job_postings_minimal.db.gz
 COPY data/segment_summary.db.gz data/segment_summary.db.gz
+COPY data/geocoded_postings.db.gz data/geocoded_postings.db.gz
 
 EXPOSE 9216
 
