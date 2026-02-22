@@ -166,17 +166,26 @@
 
 <script src="/static/js/postingmap.js"></script>
 <script>
-  // 初期化（タブ切り替え・DOMContentLoaded両対応）
+  // 初期化（HTMX タブ切り替え・DOMContentLoaded 両対応）
+  // 本番環境ではHTMXスワップ後のレイアウト確定に時間がかかる場合がある
   (function() {
+    var maxRetries = 10;
+    var retryCount = 0;
     function tryInit() {
       if (typeof postingMap !== 'undefined' && document.getElementById('jm-map')) {
         postingMap.init();
+        return;
+      }
+      retryCount++;
+      if (retryCount < maxRetries) {
+        setTimeout(tryInit, 100 * retryCount);
       }
     }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', tryInit);
     } else {
-      setTimeout(tryInit, 50);
+      // HTMX経由: 段階的リトライ（100ms, 200ms, 300ms...）
+      setTimeout(tryInit, 100);
     }
   })();
 </script>

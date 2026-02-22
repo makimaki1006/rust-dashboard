@@ -38,13 +38,23 @@ var postingMap = (function() {
     iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
   });
 
+  function ensureInit() {
+    if (!initialized || !map) {
+      init();
+    }
+  }
+
   function init() {
     if (initialized && map) {
       map.invalidateSize();
       return;
     }
     var el = document.getElementById('jm-map');
-    if (!el || el.offsetHeight === 0) return;
+    if (!el) return;
+    // HTMX読み込み直後はoffsetHeightが0の場合がある → 最小高さを強制設定
+    if (el.offsetHeight === 0) {
+      el.style.minHeight = '400px';
+    }
 
     map = L.map('jm-map', {
       center: [36.5, 137.0],
@@ -109,6 +119,9 @@ var postingMap = (function() {
   }
 
   function search() {
+    // マップ未初期化の場合は遅延初期化
+    ensureInit();
+
     var pref = document.getElementById('jm-pref').value;
     if (!pref) {
       document.getElementById('jm-count').textContent = '都道府県を選択してください';
