@@ -58,6 +58,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/tab/jobmap", get(handlers::jobmap::tab_jobmap))
         .route("/api/jobmap/markers", get(handlers::jobmap::jobmap_markers))
         .route("/api/jobmap/detail/{id}", get(handlers::jobmap::jobmap_detail))
+        .route("/api/jobmap/detail-json/{id}", get(handlers::jobmap::jobmap_detail_json))
         .route("/api/jobmap/stats", post(handlers::jobmap::jobmap_stats))
         .route("/api/jobmap/municipalities", get(handlers::jobmap::jobmap_municipalities))
         .route("/api/jobmap/region/summary", get(handlers::jobmap::region_summary))

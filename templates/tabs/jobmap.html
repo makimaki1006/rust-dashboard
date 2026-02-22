@@ -50,28 +50,106 @@
               class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded px-4 py-1.5 transition-colors">
         🔍 検索
       </button>
+      <button id="jm-region-btn" onclick="postingMap.openRegionDashboard()" disabled
+              class="bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm rounded px-3 py-1.5 transition-colors">
+        📊 地域分析
+      </button>
       <span id="jm-count" class="text-gray-400 text-sm ml-2"></span>
     </div>
   </div>
 
-  <!-- メインコンテンツ: 地図 + 詳細パネル -->
-  <div class="flex gap-0" style="height: calc(100vh - 280px); min-height: 400px;">
+  <!-- ピン止めカード表示項目 -->
+  <div class="stat-card">
+    <div class="flex justify-between items-center">
+      <span class="text-sm text-gray-300 font-medium">📌 ピン止め表示項目</span>
+      <button onclick="postingMap.togglePinFields()" class="text-xs text-gray-400 hover:text-white">
+        <span id="jm-pin-fields-arrow">▶</span>
+      </button>
+    </div>
+    <div id="jm-pin-fields-list" class="hidden mt-2">
+      <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="facility" checked> 法人・施設名</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="service"> 診療科目</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="access" checked> アクセス</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="emp"> 雇用形態</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="salaryType"> 給与区分</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="salary" checked> 給与範囲</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="salaryDetail"> 給与備考</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="benefits"> 待遇</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="training"> 教育体制</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="worktime"> 勤務時間</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="holiday"> 休日</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="longHoliday"> 長期休暇</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="requirements"> 応募要件</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="jobContent"> 仕事内容</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="jobPosition"> 募集職種</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="tags"> タグ</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="segment"> セグメント</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- メインコンテンツ: 地図 + リサイズ + 詳細パネル -->
+  <div id="jm-main-container" class="flex gap-0" style="height: calc(100vh - 340px); min-height: 400px;">
     <!-- 地図 -->
-    <div id="jm-map-container" class="flex-1 relative rounded-l-lg overflow-hidden border border-gray-700">
+    <div id="jm-map-container" class="flex-1 relative rounded-l-lg overflow-hidden border border-gray-700" style="min-width: 300px;">
       <div id="jm-map" style="width:100%; height:100%; z-index:1;"></div>
       <!-- SVG接続線レイヤー -->
       <svg id="jm-connection-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999;"></svg>
     </div>
 
+    <!-- リサイズハンドル -->
+    <div id="jm-resize-handle" class="hidden w-1.5 bg-gray-600 hover:bg-blue-500 cursor-col-resize flex-shrink-0 transition-colors rounded" title="ドラッグで幅調整"></div>
+
     <!-- 詳細パネル (初期非表示) -->
-    <div id="jm-details-panel" class="hidden bg-gray-800 border border-gray-700 rounded-r-lg overflow-y-auto"
+    <div id="jm-details-panel" class="hidden bg-gray-800 border border-gray-700 rounded-r-lg flex flex-col"
          style="width: 380px; max-width: 50%;">
-      <div class="flex items-center justify-between p-2 border-b border-gray-700 sticky top-0 bg-gray-800 z-10">
+      <div class="flex items-center justify-between p-2 border-b border-gray-700 flex-shrink-0">
         <span class="text-sm font-medium text-gray-300">📋 求人詳細</span>
         <button onclick="postingMap.closePanel()" class="text-gray-400 hover:text-white text-lg">&times;</button>
       </div>
-      <div id="jm-details-container" class="p-2 space-y-2">
-        <p class="text-gray-500 text-sm text-center py-4">マーカーをクリックで詳細表示</p>
+      <!-- 詳細カード（横スクロール） -->
+      <div id="jm-details-container" class="p-2 flex flex-row gap-3 overflow-x-auto flex-1">
+        <p class="text-gray-500 text-sm text-center py-4 flex-shrink-0 w-full">マーカーをクリックで詳細表示</p>
+      </div>
+      <!-- 地域分析ダッシュボード -->
+      <div id="jm-region-dashboard" class="hidden border-t border-gray-700 p-2 overflow-y-auto" style="max-height: 50%;">
+        <div class="flex justify-between items-center mb-2">
+          <span id="jm-region-title" class="text-sm font-medium text-gray-300">📊 地域分析</span>
+          <button onclick="postingMap.closeRegionDashboard()" class="text-gray-400 hover:text-white text-lg">&times;</button>
+        </div>
+        <!-- アコーディオン: 求職者サマリー -->
+        <div class="mb-2">
+          <button onclick="postingMap.toggleRegionSection('summary')" class="w-full flex justify-between items-center text-xs text-gray-300 bg-gray-700/50 rounded px-2 py-1 hover:bg-gray-700">
+            <span>👤 求職者サマリー</span>
+            <span id="jm-region-arrow-summary">▶</span>
+          </button>
+          <div id="jm-region-content-summary" class="hidden mt-1"></div>
+        </div>
+        <!-- アコーディオン: 年齢×性別 -->
+        <div class="mb-2">
+          <button onclick="postingMap.toggleRegionSection('age_gender')" class="w-full flex justify-between items-center text-xs text-gray-300 bg-gray-700/50 rounded px-2 py-1 hover:bg-gray-700">
+            <span>📊 年齢×性別</span>
+            <span id="jm-region-arrow-age_gender">▶</span>
+          </button>
+          <div id="jm-region-content-age_gender" class="hidden mt-1"></div>
+        </div>
+        <!-- アコーディオン: 求人統計 -->
+        <div class="mb-2">
+          <button onclick="postingMap.toggleRegionSection('posting_stats')" class="w-full flex justify-between items-center text-xs text-gray-300 bg-gray-700/50 rounded px-2 py-1 hover:bg-gray-700">
+            <span>📋 求人統計</span>
+            <span id="jm-region-arrow-posting_stats">▶</span>
+          </button>
+          <div id="jm-region-content-posting_stats" class="hidden mt-1"></div>
+        </div>
+        <!-- アコーディオン: セグメント -->
+        <div class="mb-2">
+          <button onclick="postingMap.toggleRegionSection('segments')" class="w-full flex justify-between items-center text-xs text-gray-300 bg-gray-700/50 rounded px-2 py-1 hover:bg-gray-700">
+            <span>🏷️ セグメント分析</span>
+            <span id="jm-region-arrow-segments">▶</span>
+          </button>
+          <div id="jm-region-content-segments" class="hidden mt-1"></div>
+        </div>
       </div>
     </div>
   </div>

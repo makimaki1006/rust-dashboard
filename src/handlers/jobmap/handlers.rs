@@ -195,6 +195,42 @@ pub async fn jobmap_municipalities(
     Html(options)
 }
 
+/// 求人詳細JSON API（ピンカード用、全フィールド返却）
+pub async fn jobmap_detail_json(
+    State(state): State<Arc<AppState>>,
+    Path(posting_id): Path<i64>,
+) -> Json<serde_json::Value> {
+    let geocoded_db = match &state.geocoded_db {
+        Some(db) => db,
+        None => return Json(serde_json::json!({})),
+    };
+
+    match fetch::fetch_detail(geocoded_db, posting_id) {
+        Some(d) => Json(serde_json::json!({
+            "facility_name": d.facility_name,
+            "service_type": d.service_type,
+            "access": d.access,
+            "employment_type": d.employment_type,
+            "salary_type": d.salary_type,
+            "salary_min": d.salary_min,
+            "salary_max": d.salary_max,
+            "salary_detail": d.salary_detail,
+            "headline": d.headline,
+            "job_description": d.job_description,
+            "requirements": d.requirements,
+            "benefits": d.benefits,
+            "working_hours": d.working_hours,
+            "holidays": d.holidays,
+            "education_training": d.education_training,
+            "special_holidays": d.special_holidays,
+            "tags": d.tags,
+            "tier3_label_short": d.tier3_label_short,
+            "exp_qual_segment": d.exp_qual_segment,
+        })),
+        None => Json(serde_json::json!({})),
+    }
+}
+
 fn markers_to_json(
     markers: &[fetch::MarkerRow],
     center: Option<(f64, f64)>,

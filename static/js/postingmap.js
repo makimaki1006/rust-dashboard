@@ -1,7 +1,8 @@
 /**
  * postingmap.js — 求人地図（Tab 6）
  * GAS Map.html からの移植・改修版
- * Leaflet マーカー + 詳細カード + ピン留め + 給与統計
+ * Leaflet 標準ピンマーカー + 横スクロール詳細カード + ピン留め + 給与統計
+ * + チェックボックス表示制御 + 地域分析ダッシュボード + リサイズハンドル
  *
  * セキュリティ: innerHTML使用箇所はサーバーサイドでescapeHTML済みデータのみ。
  * ピンカードの表示内容は escapeHtml() 関数でサニタイズ済み。
@@ -15,19 +16,27 @@ var postingMap = (function() {
   var pinnedCards = [];      // {element, markerLat, markerLng, line, markerInfo, data}
   var connectionSvg = null;
   var initialized = false;
+  var detailJsonCache = {};  // id -> 詳細JSONキャッシュ
+  var regionSectionsLoaded = {}; // セクション名 -> ロード済みフラグ
+  var lastSearchMuni = '';   // 最後に検索した市区町村
+  var lastSearchPref = '';   // 最後に検索した都道府県
 
-  // アイコン定義（divIconでダークテーマ対応）
-  function makeIcon(color, size) {
-    size = size || 10;
-    return L.divIcon({
-      html: '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + color + ';border:2px solid rgba(255,255,255,0.8);box-shadow:0 1px 4px rgba(0,0,0,0.5);"></div>',
-      iconSize: [size, size],
-      iconAnchor: [size/2, size/2]
-    });
-  }
-  var defaultIcon = makeIcon('#60a5fa');      // 青
-  var detailIcon = makeIcon('#f59e0b', 14);   // オレンジ
-  var pinnedIcon = makeIcon('#ef4444', 14);   // 赤
+  // GAS準拠: 標準ピンアイコン（leaflet-color-markers）
+  var defaultIcon = L.icon({
+    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+  });
+  var detailIcon = L.icon({
+    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+  });
+  var pinnedIcon = L.icon({
+    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+  });
 
   function init() {
     if (initialized && map) {
@@ -60,6 +69,43 @@ var postingMap = (function() {
         });
       }
     });
+
+    // リサイズハンドル初期化
+    initResizeHandle();
+  }
+
+  // --- リサイズハンドル ---
+  function initResizeHandle() {
+    var handle = document.getElementById('jm-resize-handle');
+    if (!handle) return;
+    var isDragging = false;
+    var mainContainer = document.getElementById('jm-main-container');
+    var panel = document.getElementById('jm-details-panel');
+
+    handle.addEventListener('mousedown', function(e) {
+      isDragging = true;
+      e.preventDefault();
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging || !mainContainer || !panel) return;
+      var rect = mainContainer.getBoundingClientRect();
+      var newPanelWidth = rect.right - e.clientX;
+      newPanelWidth = Math.max(250, Math.min(newPanelWidth, rect.width * 0.6));
+      panel.style.width = newPanelWidth + 'px';
+      if (map) map.invalidateSize();
+    });
+
+    document.addEventListener('mouseup', function() {
+      if (isDragging) {
+        isDragging = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        if (map) map.invalidateSize();
+      }
+    });
   }
 
   function search() {
@@ -80,6 +126,9 @@ var postingMap = (function() {
     document.getElementById('jm-count').textContent = '検索中...';
     document.getElementById('jm-search-btn').disabled = true;
 
+    lastSearchPref = pref;
+    lastSearchMuni = muni;
+
     var params = new URLSearchParams({
       prefecture: pref,
       municipality: muni,
@@ -93,6 +142,9 @@ var postingMap = (function() {
       .then(function(data) {
         drawMarkers(data);
         document.getElementById('jm-search-btn').disabled = false;
+        // 地域分析ボタンを有効化
+        var regionBtn = document.getElementById('jm-region-btn');
+        if (regionBtn) regionBtn.disabled = false;
       })
       .catch(function(err) {
         document.getElementById('jm-count').textContent = 'エラー: ' + err.message;
@@ -106,6 +158,8 @@ var postingMap = (function() {
     markerGroup.clearLayers();
     allMarkers = [];
     activeDetailMarker = null;
+    detailJsonCache = {};
+    regionSectionsLoaded = {};
 
     var markers = data.markers || [];
     document.getElementById('jm-count').textContent = markers.length + ' 件';
@@ -124,7 +178,7 @@ var postingMap = (function() {
         onMarkerClick(markerInfo);
       });
 
-      // ツールチップ（ホバー用の簡易情報）- textContentベースで安全
+      // ツールチップ（ホバー用の簡易情報）
       var salary = formatYen(d.salaryMin) + ' 〜 ' + formatYen(d.salaryMax);
       marker.bindTooltip(
         escapeHtml(d.facility) + '\n' + escapeHtml(d.emp) + ' ' + salary,
@@ -164,6 +218,9 @@ var postingMap = (function() {
     // 詳細パネル表示
     var panel = document.getElementById('jm-details-panel');
     panel.classList.remove('hidden');
+    // リサイズハンドルも表示
+    var handle = document.getElementById('jm-resize-handle');
+    if (handle) handle.classList.remove('hidden');
 
     // 詳細カード取得（サーバーサイドでescape済みHTML）
     fetch('/api/jobmap/detail/' + markerInfo.data.id)
@@ -188,7 +245,7 @@ var postingMap = (function() {
 
     var card = document.createElement('div');
     card.className = 'border border-gray-600 rounded-lg p-3 relative';
-    card.style.background = '#1e293b';
+    card.style.cssText = 'background:#1e293b; flex-shrink:0; width:350px; min-width:300px;';
 
     // ボタンバー
     var btnBar = document.createElement('div');
@@ -208,16 +265,22 @@ var postingMap = (function() {
 
     card.appendChild(btnBar);
 
-    // サーバーサイドでescape_html()済みのHTMLコンテンツ
+    // サーバーサイドでescape_html()済みのHTMLコンテンツをDOM解析
     var content = document.createElement('div');
-    content.innerHTML = serverRenderedHtml; // Rustサーバー側でXSS対策済み
+    // Rustサーバー側でXSS対策済みの安全なHTMLコンテンツ
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(serverRenderedHtml, 'text/html');
+    while (doc.body.firstChild) {
+      content.appendChild(doc.body.firstChild);
+    }
     card.appendChild(content);
 
     // markerInfo をカード要素に紐付け
     card._markerInfo = markerInfo;
 
     container.appendChild(card);
-    container.scrollTop = container.scrollHeight;
+    // 横スクロールで新しいカードを表示
+    container.scrollLeft = container.scrollWidth;
   }
 
   function removeCard(btnEl) {
@@ -235,10 +298,28 @@ var postingMap = (function() {
 
     if (container.children.length === 0) {
       var p = document.createElement('p');
-      p.className = 'text-gray-500 text-sm text-center py-4';
+      p.className = 'text-gray-500 text-sm text-center py-4 flex-shrink-0 w-full';
       p.textContent = 'マーカーをクリックで詳細表示';
       container.appendChild(p);
     }
+  }
+
+  // --- 詳細JSONフェッチ（ピンカード用） ---
+  function fetchDetailJson(id) {
+    if (detailJsonCache[id]) return Promise.resolve(detailJsonCache[id]);
+    return fetch('/api/jobmap/detail-json/' + id)
+      .then(function(r) { return r.json(); })
+      .then(function(data) { detailJsonCache[id] = data; return data; });
+  }
+
+  // --- チェックボックス状態取得 ---
+  function getPinFields() {
+    var fields = {};
+    var checks = document.querySelectorAll('.jm-pin-field');
+    for (var i = 0; i < checks.length; i++) {
+      fields[checks[i].getAttribute('data-field')] = checks[i].checked;
+    }
+    return fields;
   }
 
   function pinCard(btnEl) {
@@ -248,9 +329,21 @@ var postingMap = (function() {
 
     var d = markerInfo.data;
 
-    // ピンカード（地図上のミニカード）
+    // 詳細JSONをフェッチしてピンカード作成
+    fetchDetailJson(d.id).then(function(detail) {
+      buildPinnedCard(markerInfo, detail);
+    }).catch(function() {
+      // フェッチ失敗時はマーカーデータのみで簡易ピンカード
+      buildPinnedCardSimple(markerInfo);
+    });
+  }
+
+  function buildPinnedCard(markerInfo, detail) {
+    var d = markerInfo.data;
+    var fields = getPinFields();
+
     var pinnedCard = document.createElement('div');
-    pinnedCard.style.cssText = 'position:absolute;z-index:1000;background:rgba(255,255,255,0.95);border:2px solid #3b82f6;border-radius:6px;padding:5px 7px;font-size:11px;max-width:180px;min-width:100px;box-shadow:0 2px 8px rgba(0,0,0,0.3);cursor:move;user-select:none;line-height:1.3;color:#1e293b;';
+    pinnedCard.style.cssText = 'position:absolute;z-index:1000;background:rgba(255,255,255,0.95);border:2px solid #3b82f6;border-radius:6px;padding:5px 7px;font-size:11px;max-width:220px;min-width:120px;box-shadow:0 2px 8px rgba(0,0,0,0.3);cursor:move;user-select:none;line-height:1.3;color:#1e293b;';
 
     // 閉じるボタン
     var closeBtn = document.createElement('button');
@@ -262,16 +355,35 @@ var postingMap = (function() {
     });
     pinnedCard.appendChild(closeBtn);
 
-    // ミニカード内容（textContentでXSS安全）
+    // ミニカード内容（textContentでXSS安全、チェックボックスで出し分け）
     var infoDiv = document.createElement('div');
     infoDiv.style.marginTop = '8px';
-    var facilityB = document.createElement('b');
-    facilityB.textContent = (d.facility || '').substring(0, 20);
-    infoDiv.appendChild(facilityB);
-    infoDiv.appendChild(document.createElement('br'));
-    infoDiv.appendChild(document.createTextNode(d.emp || ''));
-    infoDiv.appendChild(document.createElement('br'));
-    infoDiv.appendChild(document.createTextNode(formatYen(d.salaryMin) + ' 〜 ' + formatYen(d.salaryMax)));
+
+    if (fields.facility && detail.facility_name) addBoldLine(infoDiv, truncate(detail.facility_name, 25));
+    if (fields.service && detail.service_type) addLine(infoDiv, detail.service_type);
+    if (fields.access && detail.access) addLine(infoDiv, truncate(detail.access, 35));
+    if (fields.emp && detail.employment_type) addLine(infoDiv, detail.employment_type);
+    if (fields.salaryType && detail.salary_type) addLine(infoDiv, detail.salary_type);
+    if (fields.salary && (detail.salary_min || detail.salary_max)) {
+      addLine(infoDiv, formatYen(detail.salary_min) + ' 〜 ' + formatYen(detail.salary_max));
+    }
+    if (fields.salaryDetail && detail.salary_detail) addLine(infoDiv, truncate(detail.salary_detail, 40));
+    if (fields.benefits && detail.benefits) addLine(infoDiv, truncate(detail.benefits, 40));
+    if (fields.training && detail.education_training) addLine(infoDiv, truncate(detail.education_training, 40));
+    if (fields.worktime && detail.working_hours) addLine(infoDiv, truncate(detail.working_hours, 40));
+    if (fields.holiday && detail.holidays) addLine(infoDiv, truncate(detail.holidays, 30));
+    if (fields.longHoliday && detail.special_holidays) addLine(infoDiv, truncate(detail.special_holidays, 30));
+    if (fields.requirements && detail.requirements) addLine(infoDiv, truncate(detail.requirements, 40));
+    if (fields.jobContent && detail.job_description) addLine(infoDiv, truncate(detail.job_description, 50));
+    if (fields.jobPosition && detail.headline) addLine(infoDiv, truncate(detail.headline, 40));
+    if (fields.tags && detail.tags) addLine(infoDiv, truncate(detail.tags, 35));
+    if (fields.segment && detail.tier3_label_short) addLine(infoDiv, detail.tier3_label_short);
+
+    // 何も表示項目がない場合
+    if (infoDiv.childNodes.length === 0) {
+      addLine(infoDiv, '表示項目が選択されていません');
+    }
+
     pinnedCard.appendChild(infoDiv);
 
     // 位置設定
@@ -302,6 +414,82 @@ var postingMap = (function() {
     }
 
     updatePinnedStats();
+  }
+
+  // フォールバック: detail-json取得失敗時の簡易ピンカード
+  function buildPinnedCardSimple(markerInfo) {
+    var d = markerInfo.data;
+
+    var pinnedCard = document.createElement('div');
+    pinnedCard.style.cssText = 'position:absolute;z-index:1000;background:rgba(255,255,255,0.95);border:2px solid #3b82f6;border-radius:6px;padding:5px 7px;font-size:11px;max-width:180px;min-width:100px;box-shadow:0 2px 8px rgba(0,0,0,0.3);cursor:move;user-select:none;line-height:1.3;color:#1e293b;';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.style.cssText = 'position:absolute;top:1px;right:3px;border:none;background:transparent;font-size:12px;cursor:pointer;color:#3b82f6;font-weight:bold;';
+    closeBtn.textContent = '\u00D7';
+    closeBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      removePinnedCard(pinnedCard);
+    });
+    pinnedCard.appendChild(closeBtn);
+
+    var infoDiv = document.createElement('div');
+    infoDiv.style.marginTop = '8px';
+    var facilityB = document.createElement('b');
+    facilityB.textContent = (d.facility || '').substring(0, 20);
+    infoDiv.appendChild(facilityB);
+    infoDiv.appendChild(document.createElement('br'));
+    infoDiv.appendChild(document.createTextNode(d.emp || ''));
+    infoDiv.appendChild(document.createElement('br'));
+    infoDiv.appendChild(document.createTextNode(formatYen(d.salaryMin) + ' 〜 ' + formatYen(d.salaryMax)));
+    pinnedCard.appendChild(infoDiv);
+
+    var point = map.latLngToContainerPoint([d.lat, d.lng]);
+    pinnedCard.style.left = (point.x + 20) + 'px';
+    pinnedCard.style.top = (point.y - 20) + 'px';
+
+    document.getElementById('jm-map-container').appendChild(pinnedCard);
+
+    var cardData = {
+      element: pinnedCard,
+      markerLat: d.lat,
+      markerLng: d.lng,
+      line: null,
+      markerInfo: markerInfo,
+      data: d
+    };
+    pinnedCards.push(cardData);
+
+    markerInfo.isPinned = true;
+    markerInfo.marker.setIcon(pinnedIcon);
+
+    makeDraggable(pinnedCard, cardData);
+    updateConnectionLine(cardData);
+
+    if (pinnedCards.length === 1) {
+      map.on('move zoom', updateAllPinnedCards);
+    }
+
+    updatePinnedStats();
+  }
+
+  // テキスト行追加ヘルパー
+  function addLine(parent, text) {
+    var span = document.createElement('div');
+    span.style.cssText = 'font-size:10px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;';
+    span.textContent = text;
+    parent.appendChild(span);
+  }
+
+  function addBoldLine(parent, text) {
+    var b = document.createElement('div');
+    b.style.cssText = 'font-size:11px;font-weight:bold;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;';
+    b.textContent = text;
+    parent.appendChild(b);
+  }
+
+  function truncate(s, maxLen) {
+    if (!s) return '';
+    return s.length > maxLen ? s.substring(0, maxLen - 1) + '…' : s;
   }
 
   function makeDraggable(element, cardData) {
@@ -408,7 +596,6 @@ var postingMap = (function() {
     document.getElementById('jm-stats-title').textContent =
       'ピン止め施設の給与統計 (' + pinnedCards.length + '件)';
 
-    // サーバー側で統計計算
     fetch('/api/jobmap/stats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -417,7 +604,6 @@ var postingMap = (function() {
     .then(function(r) { return r.json(); })
     .then(function(s) {
       var content = document.getElementById('jm-stats-content');
-      // DOMで安全に構築
       while (content.firstChild) content.removeChild(content.firstChild);
 
       var labels = [
@@ -462,18 +648,138 @@ var postingMap = (function() {
 
   function closePanel() {
     document.getElementById('jm-details-panel').classList.add('hidden');
+    var handle = document.getElementById('jm-resize-handle');
+    if (handle) handle.classList.add('hidden');
     var container = document.getElementById('jm-details-container');
     while (container.firstChild) container.removeChild(container.firstChild);
     var p = document.createElement('p');
-    p.className = 'text-gray-500 text-sm text-center py-4';
+    p.className = 'text-gray-500 text-sm text-center py-4 flex-shrink-0 w-full';
     p.textContent = 'マーカーをクリックで詳細表示';
     container.appendChild(p);
+
+    // 地域分析も閉じる
+    closeRegionDashboard();
 
     if (activeDetailMarker) {
       activeDetailMarker.marker.setIcon(activeDetailMarker.isPinned ? pinnedIcon : defaultIcon);
       activeDetailMarker.isDetailActive = false;
       activeDetailMarker = null;
     }
+
+    if (map) map.invalidateSize();
+  }
+
+  // --- チェックボックスパネル開閉 ---
+  function togglePinFields() {
+    var list = document.getElementById('jm-pin-fields-list');
+    var arrow = document.getElementById('jm-pin-fields-arrow');
+    if (list.classList.contains('hidden')) {
+      list.classList.remove('hidden');
+      arrow.textContent = '▼';
+    } else {
+      list.classList.add('hidden');
+      arrow.textContent = '▶';
+    }
+  }
+
+  // --- 地域分析ダッシュボード ---
+  function openRegionDashboard() {
+    if (!lastSearchPref || !lastSearchMuni) return;
+
+    var panel = document.getElementById('jm-details-panel');
+    panel.classList.remove('hidden');
+    var handle = document.getElementById('jm-resize-handle');
+    if (handle) handle.classList.remove('hidden');
+
+    var dashboard = document.getElementById('jm-region-dashboard');
+    dashboard.classList.remove('hidden');
+
+    var title = document.getElementById('jm-region-title');
+    title.textContent = '📊 ' + lastSearchMuni + ' 地域分析';
+
+    // セクションをリセット
+    regionSectionsLoaded = {};
+    ['summary', 'age_gender', 'posting_stats', 'segments'].forEach(function(section) {
+      var content = document.getElementById('jm-region-content-' + section);
+      if (content) {
+        content.classList.add('hidden');
+        while (content.firstChild) content.removeChild(content.firstChild);
+      }
+      var arrow = document.getElementById('jm-region-arrow-' + section);
+      if (arrow) arrow.textContent = '▶';
+    });
+
+    // サマリーは自動展開
+    toggleRegionSection('summary');
+  }
+
+  function closeRegionDashboard() {
+    var dashboard = document.getElementById('jm-region-dashboard');
+    if (dashboard) dashboard.classList.add('hidden');
+  }
+
+  function toggleRegionSection(section) {
+    var content = document.getElementById('jm-region-content-' + section);
+    var arrow = document.getElementById('jm-region-arrow-' + section);
+    if (!content) return;
+
+    if (content.classList.contains('hidden')) {
+      content.classList.remove('hidden');
+      if (arrow) arrow.textContent = '▼';
+      // まだロード済みでなければAPIを呼ぶ
+      if (!regionSectionsLoaded[section]) {
+        loadRegionSection(section);
+      }
+    } else {
+      content.classList.add('hidden');
+      if (arrow) arrow.textContent = '▶';
+    }
+  }
+
+  function loadRegionSection(section) {
+    var content = document.getElementById('jm-region-content-' + section);
+    if (!content) return;
+
+    var loadingMsg = document.createElement('p');
+    loadingMsg.className = 'text-gray-500 text-xs py-2';
+    loadingMsg.textContent = '読み込み中...';
+    while (content.firstChild) content.removeChild(content.firstChild);
+    content.appendChild(loadingMsg);
+
+    var apiMap = {
+      'summary': '/api/jobmap/region/summary',
+      'age_gender': '/api/jobmap/region/age_gender',
+      'posting_stats': '/api/jobmap/region/posting_stats',
+      'segments': '/api/jobmap/region/segments'
+    };
+
+    var url = apiMap[section];
+    if (!url) return;
+
+    var params = new URLSearchParams({
+      prefecture: lastSearchPref,
+      municipality: lastSearchMuni
+    });
+
+    fetch(url + '?' + params.toString())
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        // Rustサーバー側でXSS対策済みの安全なHTMLコンテンツ
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+        while (content.firstChild) content.removeChild(content.firstChild);
+        while (doc.body.firstChild) {
+          content.appendChild(doc.body.firstChild);
+        }
+        regionSectionsLoaded[section] = true;
+      })
+      .catch(function(err) {
+        while (content.firstChild) content.removeChild(content.firstChild);
+        var errMsg = document.createElement('p');
+        errMsg.className = 'text-red-400 text-xs';
+        errMsg.textContent = 'エラー: ' + (err.message || 'unknown');
+        content.appendChild(errMsg);
+      });
   }
 
   // ユーティリティ
@@ -497,6 +803,10 @@ var postingMap = (function() {
     removeCard: removeCard,
     removePinnedCard: removePinnedCard,
     closePanel: closePanel,
-    toggleStats: toggleStats
+    toggleStats: toggleStats,
+    togglePinFields: togglePinFields,
+    openRegionDashboard: openRegionDashboard,
+    closeRegionDashboard: closeRegionDashboard,
+    toggleRegionSection: toggleRegionSection
   };
 })();
