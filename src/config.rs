@@ -23,6 +23,8 @@ pub struct AppConfig {
     pub geocoded_db_path: String,
     /// キャッシュTTL（秒）
     pub cache_ttl_secs: u64,
+    /// キャッシュ最大エントリ数
+    pub cache_max_entries: usize,
     /// レート制限: 最大試行回数
     pub rate_limit_max_attempts: u32,
     /// レート制限: ロックアウト秒数
@@ -56,6 +58,10 @@ impl AppConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(1800), // 30分
+            cache_max_entries: env::var("CACHE_MAX_ENTRIES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(2000),
             rate_limit_max_attempts: env::var("RATE_LIMIT_MAX_ATTEMPTS")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -83,7 +89,7 @@ mod tests {
             "PORT", "TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN",
             "AUTH_PASSWORD", "AUTH_PASSWORD_HASH", "ALLOWED_DOMAINS",
             "LOCAL_DB_PATH", "SEGMENT_DB_PATH", "GEOCODED_DB_PATH", "CACHE_TTL_SECS",
-            "RATE_LIMIT_MAX_ATTEMPTS", "RATE_LIMIT_LOCKOUT_SECONDS",
+            "CACHE_MAX_ENTRIES", "RATE_LIMIT_MAX_ATTEMPTS", "RATE_LIMIT_LOCKOUT_SECONDS",
         ] {
             env::remove_var(key);
         }

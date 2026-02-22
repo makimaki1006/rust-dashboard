@@ -24,6 +24,17 @@ impl LocalDb {
             .build(manager)
             .map_err(|e| format!("SQLite pool creation failed: {e}"))?;
 
+        // PRAGMA最適化: WALモード + 読み取り性能向上
+        {
+            let conn = pool.get().map_err(|e| format!("SQLite PRAGMA setup failed: {e}"))?;
+            conn.execute_batch(
+                "PRAGMA journal_mode=WAL;
+                 PRAGMA synchronous=NORMAL;
+                 PRAGMA cache_size=10000;
+                 PRAGMA temp_store=MEMORY;"
+            ).map_err(|e| format!("SQLite PRAGMA failed: {e}"))?;
+        }
+
         Ok(Self { pool })
     }
 
@@ -79,6 +90,21 @@ impl LocalDb {
             results.push(row.map_err(|e| format!("SQLite row error: {e}"))?);
         }
         Ok(results)
+    }
+
+    /// DDL/DML実行（戻り値不要）
+    pub fn execute(
+        &self,
+        sql: &str,
+        params: &[&dyn rusqlite::types::ToSql],
+    ) -> Result<usize, String> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("SQLite connection failed: {e}"))?;
+
+        conn.execute(sql, params_from_iter(params.iter()))
+            .map_err(|e| format!("SQLite execute failed: {e}"))
     }
 
     /// スカラー値を取得

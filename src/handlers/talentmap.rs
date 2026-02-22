@@ -106,8 +106,8 @@ async fn fetch_talentmap(state: &AppState, job_type: &str, prefecture: &str, mun
     let mut stats = TalentMapStats::default();
     let pref = if prefecture.is_empty() || prefecture == "全国" { "" } else { prefecture };
 
-    // マーカーデータ取得（SUMMARY + 座標あり）
-    let mut sql = String::from(
+    // マーカーSQL構築
+    let mut marker_sql = String::from(
         "SELECT prefecture, municipality, latitude, longitude, \
          male_count, female_count, applicant_count \
          FROM job_seeker_data \
@@ -115,38 +115,15 @@ async fn fetch_talentmap(state: &AppState, job_type: &str, prefecture: &str, mun
          AND latitude IS NOT NULL AND longitude IS NOT NULL \
          AND latitude != '' AND longitude != ''"
     );
-    let mut params = vec![Value::String(job_type.to_string())];
+    let mut marker_params = vec![Value::String(job_type.to_string())];
 
     if !pref.is_empty() {
-        sql.push_str(" AND prefecture = ?");
-        params.push(Value::String(pref.to_string()));
+        marker_sql.push_str(" AND prefecture = ?");
+        marker_params.push(Value::String(pref.to_string()));
     }
 
-    if let Ok(rows) = state.turso.query(&sql, &params).await {
-        for row in &rows {
-            let lat = get_f64(row, "latitude");
-            let lng = get_f64(row, "longitude");
-            if lat == 0.0 || lng == 0.0 { continue; }
-            let count = get_i64(row, "applicant_count");
-            let male = get_i64(row, "male_count");
-            let female = get_i64(row, "female_count");
-
-            stats.markers.push(MarkerData {
-                municipality: get_str(row, "municipality"),
-                prefecture: get_str(row, "prefecture"),
-                lat,
-                lng,
-                count,
-                male_count: male,
-                female_count: female,
-            });
-        }
-    }
-
-    stats.total_count = stats.markers.iter().map(|m| m.count).sum();
-
-    // フローデータ取得（都道府県選択時のみ）
     if !pref.is_empty() {
+        // 都道府県選択時: マーカー + フロー + 市区町村詳細を並列取得
         let flow_sql = "SELECT category1 as from_pref, category2 as from_muni, \
                         category3 as to_pref, municipality as to_muni, \
                         latitude as from_lat, longitude as from_lng, \
@@ -160,96 +137,147 @@ async fn fetch_talentmap(state: &AppState, job_type: &str, prefecture: &str, mun
             Value::String(pref.to_string()),
         ];
 
-        if let Ok(rows) = state.turso.query(flow_sql, &flow_params).await {
-            for row in &rows {
-                let from_lat = get_f64(row, "from_lat");
-                let from_lng = get_f64(row, "from_lng");
-                let to_lat = get_f64(row, "to_lat");
-                let to_lng = get_f64(row, "to_lng");
-                if from_lat == 0.0 || to_lat == 0.0 { continue; }
+        let muni = if municipality.is_empty() || municipality == "すべて" { "" } else { municipality };
 
-                stats.flows.push(FlowLine {
-                    from_pref: get_str(row, "from_pref"),
-                    from_muni: get_str(row, "from_muni"),
-                    from_lat,
-                    from_lng,
-                    to_pref: get_str(row, "to_pref"),
-                    to_muni: get_str(row, "to_muni"),
-                    to_lat,
-                    to_lng,
-                    count: get_i64(row, "count"),
-                });
+        // マーカー+フローをtokio::join!で並列実行、市区町村詳細も同時に取得
+        let marker_fut = state.turso.query(&marker_sql, &marker_params);
+        let flow_fut = state.turso.query(flow_sql, &flow_params);
+
+        if !muni.is_empty() {
+            // 3つ並列: マーカー、フロー、市区町村詳細
+            let detail_fut = fetch_muni_detail(state, job_type, pref, muni);
+            let (marker_result, flow_result, detail_result) =
+                tokio::join!(marker_fut, flow_fut, detail_fut);
+
+            if let Ok(rows) = marker_result {
+                parse_markers(&rows, &mut stats);
+            }
+            if let Ok(rows) = flow_result {
+                parse_flows(&rows, &mut stats);
+            }
+            stats.muni_detail = detail_result;
+        } else {
+            // 2つ並列: マーカー、フロー
+            let (marker_result, flow_result) = tokio::join!(marker_fut, flow_fut);
+
+            if let Ok(rows) = marker_result {
+                parse_markers(&rows, &mut stats);
+            }
+            if let Ok(rows) = flow_result {
+                parse_flows(&rows, &mut stats);
             }
         }
-
-        // 市区町村詳細（選択時）
-        let muni = if municipality.is_empty() || municipality == "すべて" { "" } else { municipality };
-        if !muni.is_empty() {
-            stats.muni_detail = fetch_muni_detail(state, job_type, pref, muni).await;
+    } else {
+        // 全国モード: マーカーのみ
+        if let Ok(rows) = state.turso.query(&marker_sql, &marker_params).await {
+            parse_markers(&rows, &mut stats);
         }
     }
 
+    stats.total_count = stats.markers.iter().map(|m| m.count).sum();
     stats
 }
 
+/// マーカーデータのパース（fetch_talentmapのヘルパー）
+fn parse_markers(rows: &[HashMap<String, Value>], stats: &mut TalentMapStats) {
+    for row in rows {
+        let lat = get_f64(row, "latitude");
+        let lng = get_f64(row, "longitude");
+        if lat == 0.0 || lng == 0.0 { continue; }
+        let count = get_i64(row, "applicant_count");
+        let male = get_i64(row, "male_count");
+        let female = get_i64(row, "female_count");
+
+        stats.markers.push(MarkerData {
+            municipality: get_str(row, "municipality"),
+            prefecture: get_str(row, "prefecture"),
+            lat,
+            lng,
+            count,
+            male_count: male,
+            female_count: female,
+        });
+    }
+}
+
+/// フローデータのパース（fetch_talentmapのヘルパー）
+fn parse_flows(rows: &[HashMap<String, Value>], stats: &mut TalentMapStats) {
+    for row in rows {
+        let from_lat = get_f64(row, "from_lat");
+        let from_lng = get_f64(row, "from_lng");
+        let to_lat = get_f64(row, "to_lat");
+        let to_lng = get_f64(row, "to_lng");
+        if from_lat == 0.0 || to_lat == 0.0 { continue; }
+
+        stats.flows.push(FlowLine {
+            from_pref: get_str(row, "from_pref"),
+            from_muni: get_str(row, "from_muni"),
+            from_lat,
+            from_lng,
+            to_pref: get_str(row, "to_pref"),
+            to_muni: get_str(row, "to_muni"),
+            to_lat,
+            to_lng,
+            count: get_i64(row, "count"),
+        });
+    }
+}
+
+/// 市区町村詳細データを3クエリ pipeline batch で1 HTTPリクエストで取得
 async fn fetch_muni_detail(state: &AppState, job_type: &str, pref: &str, muni: &str) -> Option<MuniDetail> {
-    // 基本データ
-    let sql = "SELECT male_count, female_count, applicant_count \
-               FROM job_seeker_data \
-               WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture = ? AND municipality = ?";
-    let params = vec![
+    let common_params = vec![
         Value::String(job_type.to_string()),
         Value::String(pref.to_string()),
         Value::String(muni.to_string()),
     ];
 
-    let (count, male, female) = if let Ok(rows) = state.turso.query(sql, &params).await {
-        if let Some(row) = rows.first() {
-            (get_i64(row, "applicant_count"), get_i64(row, "male_count"), get_i64(row, "female_count"))
-        } else {
-            return None;
-        }
-    } else {
-        return None;
-    };
-
-    // 年齢×性別データ
+    // 3クエリを1バッチで実行
+    let summary_sql = "SELECT male_count, female_count, applicant_count \
+                       FROM job_seeker_data \
+                       WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture = ? AND municipality = ?";
     let ag_sql = "SELECT category1, male_count, female_count \
                   FROM job_seeker_data \
                   WHERE job_type = ? AND row_type = 'AGE_GENDER' AND prefecture = ? AND municipality = ? \
                   ORDER BY category1";
-    let ag_params = vec![
-        Value::String(job_type.to_string()),
-        Value::String(pref.to_string()),
-        Value::String(muni.to_string()),
-    ];
-    let mut age_gender = Vec::new();
-    if let Ok(rows) = state.turso.query(ag_sql, &ag_params).await {
-        for row in &rows {
-            let age = get_str(row, "category1");
-            if !age.is_empty() {
-                age_gender.push((age, get_i64(row, "male_count"), get_i64(row, "female_count")));
-            }
-        }
-    }
-
-    // 雇用形態分布（WORKSTYLE_DISTRIBUTIONがない場合はSUMMARYのみ）
     let ws_sql = "SELECT category1, count \
                   FROM job_seeker_data \
                   WHERE job_type = ? AND row_type = 'WORKSTYLE_DISTRIBUTION' AND prefecture = ? AND municipality = ? \
                   ORDER BY count DESC";
-    let ws_params = vec![
-        Value::String(job_type.to_string()),
-        Value::String(pref.to_string()),
-        Value::String(muni.to_string()),
-    ];
+
+    let batch_results = match state.turso.query_batch(&[
+        (summary_sql, &common_params),
+        (ag_sql, &common_params),
+        (ws_sql, &common_params),
+    ]).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("Muni detail batch query failed: {e}");
+            return None;
+        }
+    };
+
+    // 基本データ（1番目のクエリ結果）
+    let (count, male, female) = if let Some(row) = batch_results[0].first() {
+        (get_i64(row, "applicant_count"), get_i64(row, "male_count"), get_i64(row, "female_count"))
+    } else {
+        return None;
+    };
+
+    // 年齢×性別データ（2番目のクエリ結果）
+    let mut age_gender = Vec::new();
+    for row in &batch_results[1] {
+        let age = get_str(row, "category1");
+        if !age.is_empty() {
+            age_gender.push((age, get_i64(row, "male_count"), get_i64(row, "female_count")));
+        }
+    }
+
+    // 雇用形態分布（3番目のクエリ結果）
     let mut workstyle_dist = Vec::new();
-    if let Ok(rows) = state.turso.query(ws_sql, &ws_params).await {
-        for row in &rows {
-            let ws = get_str(row, "category1");
-            if !ws.is_empty() {
-                workstyle_dist.push((ws, get_i64(row, "count")));
-            }
+    for row in &batch_results[2] {
+        let ws = get_str(row, "category1");
+        if !ws.is_empty() {
+            workstyle_dist.push((ws, get_i64(row, "count")));
         }
     }
 

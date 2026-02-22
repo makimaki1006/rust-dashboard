@@ -156,6 +156,7 @@ impl Default for NatStats {
 }
 
 /// Tursoから統計データを取得（都道府県/市区町村フィルタ対応）
+/// 都道府県選択時はメインクエリ+全国比較クエリをpipeline batchで1 HTTPリクエストにまとめる
 async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str, municipality: &str) -> NatStats {
     let mut params = vec![Value::String(job_type.to_string())];
     let location_filter = build_location_filter(prefecture, municipality, &mut params);
@@ -170,18 +171,49 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
         WHERE job_type = ? \
           AND row_type IN ('SUMMARY', 'AGE_GENDER', 'GAP', 'RESIDENCE_FLOW'){location_filter}"
     );
-    let rows = match state.turso.query(&sql, &params).await {
-        Ok(r) => {
-            if r.is_empty() {
-                tracing::warn!("Turso query returned 0 rows for job_type={}, pref={}, muni={}", job_type, prefecture, municipality);
+
+    // 都道府県選択時は全国比較クエリもバッチに含める
+    let nat_sql = "SELECT row_type, \
+                          avg_desired_areas, avg_qualifications, male_count, female_count, \
+                          avg_reference_distance_km, avg_age \
+                   FROM job_seeker_data \
+                   WHERE job_type = ? \
+                     AND row_type = 'SUMMARY' \
+                     AND prefecture != ''";
+    let nat_params = vec![Value::String(job_type.to_string())];
+
+    let batch_results = if !prefecture.is_empty() {
+        // 2クエリを1 HTTPリクエストでバッチ実行
+        match state.turso.query_batch(&[
+            (&sql, &params),
+            (nat_sql, &nat_params),
+        ]).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Turso batch query failed: {e}");
+                return NatStats::default();
             }
-            r
         }
-        Err(e) => {
-            tracing::error!("Turso query failed: {e}");
-            return NatStats::default();
+    } else {
+        // 全国モード: メインクエリのみ
+        match state.turso.query(&sql, &params).await {
+            Ok(r) => {
+                if r.is_empty() {
+                    tracing::warn!("Turso query returned 0 rows for job_type={}, pref={}, muni={}", job_type, prefecture, municipality);
+                }
+                vec![r]
+            }
+            Err(e) => {
+                tracing::error!("Turso query failed: {e}");
+                return NatStats::default();
+            }
         }
     };
+
+    let rows = &batch_results[0];
+    if rows.is_empty() {
+        tracing::warn!("Turso query returned 0 rows for job_type={}, pref={}, muni={}", job_type, prefecture, municipality);
+    }
 
     let mut stats = NatStats::default();
     let mut total_male: i64 = 0;
@@ -205,7 +237,7 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
     let mut total_inflow: f64 = 0.0;
     let mut total_outflow: f64 = 0.0;
 
-    for row in &rows {
+    for row in rows {
         let row_type = get_str(row, "row_type");
 
         match row_type.as_str() {
@@ -295,78 +327,64 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
         stats.age_gender.push((age.to_string(), male, female));
     }
 
-    // --- 3層比較用: 都道府県が選択されている場合、全国SUMMARYも取得 ---
-    if !prefecture.is_empty() {
-        let nat_params = vec![Value::String(job_type.to_string())];
-        let nat_sql = "SELECT row_type, \
-                              avg_desired_areas, avg_qualifications, male_count, female_count, \
-                              avg_reference_distance_km, avg_age \
-                       FROM job_seeker_data \
-                       WHERE job_type = ? \
-                         AND row_type = 'SUMMARY' \
-                         AND prefecture != ''";
-        match state.turso.query(nat_sql, &nat_params).await {
-            Ok(nat_rows) => {
-                let mut n_male: i64 = 0;
-                let mut n_female: i64 = 0;
-                let mut n_age_sum: f64 = 0.0;
-                let mut n_age_count: f64 = 0.0;
-                let mut n_desired_sum: f64 = 0.0;
-                let mut n_qual_sum: f64 = 0.0;
-                let mut n_dist_values: Vec<f64> = Vec::new();
-                let mut n_summary_count: i64 = 0;
+    // --- 3層比較用: バッチ結果の2番目から全国データを処理 ---
+    if !prefecture.is_empty() && batch_results.len() > 1 {
+        let nat_rows = &batch_results[1];
+        let mut n_male: i64 = 0;
+        let mut n_female: i64 = 0;
+        let mut n_age_sum: f64 = 0.0;
+        let mut n_age_count: f64 = 0.0;
+        let mut n_desired_sum: f64 = 0.0;
+        let mut n_qual_sum: f64 = 0.0;
+        let mut n_dist_values: Vec<f64> = Vec::new();
+        let mut n_summary_count: i64 = 0;
 
-                for row in &nat_rows {
-                    let male = get_i64(row, "male_count");
-                    let female = get_i64(row, "female_count");
-                    n_male += male;
-                    n_female += female;
+        for row in nat_rows {
+            let male = get_i64(row, "male_count");
+            let female = get_i64(row, "female_count");
+            n_male += male;
+            n_female += female;
 
-                    let avg_age_val = get_f64(row, "avg_age");
-                    let row_total = male + female;
-                    if avg_age_val > 0.0 && row_total > 0 {
-                        n_age_sum += avg_age_val * row_total as f64;
-                        n_age_count += row_total as f64;
-                    }
-
-                    n_desired_sum += get_f64(row, "avg_desired_areas") * row_total as f64;
-                    n_qual_sum += get_f64(row, "avg_qualifications") * row_total as f64;
-                    n_summary_count += row_total;
-
-                    let dist = get_f64(row, "avg_reference_distance_km");
-                    if dist > 0.0 {
-                        n_dist_values.push(dist);
-                    }
-                }
-
-                stats.national_male_count = n_male;
-                stats.national_female_count = n_female;
-                stats.national_total = n_male + n_female;
-                stats.national_avg_age = if n_age_count > 0.0 {
-                    n_age_sum / n_age_count
-                } else {
-                    0.0
-                };
-                stats.national_avg_desired_areas = if n_summary_count > 0 {
-                    n_desired_sum / n_summary_count as f64
-                } else {
-                    0.0
-                };
-                stats.national_avg_qualifications = if n_summary_count > 0 {
-                    n_qual_sum / n_summary_count as f64
-                } else {
-                    0.0
-                };
-                stats.national_avg_distance_km = if !n_dist_values.is_empty() {
-                    n_dist_values.iter().sum::<f64>() / n_dist_values.len() as f64
-                } else {
-                    0.0
-                };
+            let avg_age_val = get_f64(row, "avg_age");
+            let row_total = male + female;
+            if avg_age_val > 0.0 && row_total > 0 {
+                n_age_sum += avg_age_val * row_total as f64;
+                n_age_count += row_total as f64;
             }
-            Err(e) => {
-                tracing::warn!("全国比較データ取得失敗（3層比較パネル無効化）: {e}");
+
+            n_desired_sum += get_f64(row, "avg_desired_areas") * row_total as f64;
+            n_qual_sum += get_f64(row, "avg_qualifications") * row_total as f64;
+            n_summary_count += row_total;
+
+            let dist = get_f64(row, "avg_reference_distance_km");
+            if dist > 0.0 {
+                n_dist_values.push(dist);
             }
         }
+
+        stats.national_male_count = n_male;
+        stats.national_female_count = n_female;
+        stats.national_total = n_male + n_female;
+        stats.national_avg_age = if n_age_count > 0.0 {
+            n_age_sum / n_age_count
+        } else {
+            0.0
+        };
+        stats.national_avg_desired_areas = if n_summary_count > 0 {
+            n_desired_sum / n_summary_count as f64
+        } else {
+            0.0
+        };
+        stats.national_avg_qualifications = if n_summary_count > 0 {
+            n_qual_sum / n_summary_count as f64
+        } else {
+            0.0
+        };
+        stats.national_avg_distance_km = if !n_dist_values.is_empty() {
+            n_dist_values.iter().sum::<f64>() / n_dist_values.len() as f64
+        } else {
+            0.0
+        };
     }
 
     stats

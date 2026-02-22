@@ -2,6 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Turso HTTP APIクライアント（v2 pipeline）
 #[derive(Clone)]
@@ -84,8 +85,16 @@ impl TursoClient {
         };
         let api_url = format!("{}/v2/pipeline", base_url.trim_end_matches('/'));
 
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(5))
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(Duration::from_secs(90))
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
         Self {
-            client: Client::new(),
+            client,
             url: api_url,
             auth_token: auth_token.to_string(),
         }
@@ -221,6 +230,118 @@ impl TursoClient {
         }
 
         Ok(rows)
+    }
+
+    /// 複数SQLを1 HTTPリクエスト（pipeline）でバッチ実行
+    /// 各クエリの結果をVec<Vec<HashMap<String, Value>>>で返す
+    pub async fn query_batch(
+        &self,
+        queries: &[(&str, &[Value])],
+    ) -> Result<Vec<Vec<HashMap<String, Value>>>, String> {
+        if queries.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // pipeline requestsを構築: 各クエリをexecuteとして追加 + 最後にclose
+        let mut requests: Vec<PipelineReqItem> = Vec::with_capacity(queries.len() + 1);
+        for (sql, params) in queries {
+            let args = if params.is_empty() {
+                None
+            } else {
+                Some(Self::convert_params(params))
+            };
+            requests.push(PipelineReqItem {
+                req_type: "execute".to_string(),
+                stmt: Some(StmtBody {
+                    sql: sql.to_string(),
+                    args,
+                }),
+            });
+        }
+        requests.push(PipelineReqItem {
+            req_type: "close".to_string(),
+            stmt: None,
+        });
+
+        let request = PipelineRequest { requests };
+
+        let resp = self
+            .client
+            .post(&self.url)
+            .bearer_auth(&self.auth_token)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| format!("Turso batch request failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Turso HTTP {status}: {body}"));
+        }
+
+        let body_text = resp
+            .text()
+            .await
+            .map_err(|e| format!("Turso batch response read failed: {e}"))?;
+
+        let pipeline_resp: PipelineResponse = serde_json::from_str(&body_text)
+            .map_err(|e| format!("Turso batch response parse failed: {e}"))?;
+
+        let mut all_results = Vec::with_capacity(queries.len());
+
+        if let Some(results) = pipeline_resp.results {
+            // resultsにはexecute応答 + close応答が含まれる。
+            // close応答は最後の1つなので、queries.len()個分だけ処理する
+            for item in results.into_iter().take(queries.len()) {
+                let mut rows = Vec::new();
+                if let Some(response) = item.response {
+                    if let Some(result) = response.result {
+                        let columns: Vec<String> = result
+                            .cols
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|c| c.name.unwrap_or_default())
+                            .collect();
+
+                        if let Some(result_rows) = result.rows {
+                            for row in result_rows {
+                                let mut map = HashMap::new();
+                                for (i, pv) in row.into_iter().enumerate() {
+                                    if let Some(col) = columns.get(i) {
+                                        let val = match pv.val_type.as_deref() {
+                                            Some("integer") => {
+                                                if let Some(Value::String(s)) = &pv.value {
+                                                    s.parse::<i64>()
+                                                        .map(|n| Value::Number(n.into()))
+                                                        .unwrap_or(Value::Null)
+                                                } else {
+                                                    pv.value.unwrap_or(Value::Null)
+                                                }
+                                            }
+                                            Some("float") => pv.value.unwrap_or(Value::Null),
+                                            Some("text") => pv.value.unwrap_or(Value::Null),
+                                            Some("null") | None => Value::Null,
+                                            _ => pv.value.unwrap_or(Value::Null),
+                                        };
+                                        map.insert(col.clone(), val);
+                                    }
+                                }
+                                rows.push(map);
+                            }
+                        }
+                    }
+                }
+                all_results.push(rows);
+            }
+        }
+
+        // resultsが足りない場合は空Vecで埋める
+        while all_results.len() < queries.len() {
+            all_results.push(Vec::new());
+        }
+
+        Ok(all_results)
     }
 
     /// スカラー値を1つだけ取得

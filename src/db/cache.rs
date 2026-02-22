@@ -61,6 +61,11 @@ impl AppCache {
         self.map.retain(|_, entry| now < entry.expires_at);
     }
 
+    /// 指定プレフィックスで始まるエントリを削除
+    pub fn remove_prefix(&self, prefix: &str) {
+        self.map.retain(|key, _| !key.starts_with(prefix));
+    }
+
     /// キャッシュクリア
     pub fn clear(&self) {
         self.map.clear();
@@ -120,6 +125,20 @@ mod tests {
         assert_eq!(cache.len(), 3);
         cache.clear();
         assert_eq!(cache.len(), 0);
+    }
+
+    // テスト48b: remove_prefix → プレフィックスのみ削除
+    #[test]
+    fn test_cache_remove_prefix() {
+        let cache = AppCache::new(60, 100);
+        cache.set("overview_foo".to_string(), Value::Null);
+        cache.set("overview_bar".to_string(), Value::Null);
+        cache.set("mobility_baz".to_string(), Value::Null);
+        assert_eq!(cache.len(), 3);
+        cache.remove_prefix("overview_");
+        assert_eq!(cache.len(), 1);
+        assert!(cache.get("mobility_baz").is_some());
+        assert!(cache.get("overview_foo").is_none());
     }
 
     // テスト49: max_entries超過 → エビクション

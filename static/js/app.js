@@ -7,8 +7,20 @@
 (function() {
     'use strict';
 
+    // 共有ResizeObserver: 全EChartsインスタンスで1つのObserverを共有
+    var sharedResizeObserver = new ResizeObserver(function(entries) {
+        entries.forEach(function(entry) {
+            if (typeof echarts !== 'undefined') {
+                var instance = echarts.getInstanceByDom(entry.target);
+                if (instance) instance.resize();
+            }
+        });
+    });
+
     // ECharts初期化: 対象コンテナ内の.echart[data-chart-config]を走査
     function initECharts(container) {
+        // deferで読み込むためechartsが未ロードの場合はスキップ
+        if (typeof echarts === 'undefined') return;
         if (!container) container = document;
         var elements = container.querySelectorAll('.echart[data-chart-config]');
         elements.forEach(function(el) {
@@ -30,13 +42,16 @@
                 // 背景色をnavy-900に合わせる
                 config.backgroundColor = config.backgroundColor || 'transparent';
                 chart.setOption(config);
-                // コンテナリサイズ時にチャートも追従
-                new ResizeObserver(function() { chart.resize(); }).observe(el);
+                // 共有ResizeObserverでリサイズ追従
+                sharedResizeObserver.observe(el);
             } catch (e) {
                 console.warn('[app.js] ECharts初期化エラー:', e.message, el);
             }
         });
     }
+
+    // reviveFunctions用キャッシュ: 同一関数文字列の再パースを防止
+    var fnCache = {};
 
     // JSON内の"function(...){...}"文字列を実際のJS関数に変換（再帰）
     // 注意: data-chart-configはサーバー側Rustコードから生成された信頼済みデータのみ。
@@ -47,10 +62,17 @@
         Object.keys(obj).forEach(function(key) {
             var val = obj[key];
             if (typeof val === 'string' && fnPattern.test(val)) {
-                try {
-                    var m = val.match(fnPattern);
-                    obj[key] = new Function(m[1], m[2]);
-                } catch(e) { /* 変換失敗時は文字列のまま */ }
+                if (fnCache[val]) {
+                    obj[key] = fnCache[val];
+                } else {
+                    try {
+                        var m = val.match(fnPattern);
+                        // サーバー側Rustコードから生成された信頼済みデータのみ
+                        var fn = new Function(m[1], m[2]); // eslint-disable-line no-new-func
+                        fnCache[val] = fn;
+                        obj[key] = fn;
+                    } catch(e) { /* 変換失敗時は文字列のまま */ }
+                }
             } else if (Array.isArray(val)) {
                 val.forEach(function(item) { reviveFunctions(item); });
             } else if (typeof val === 'object' && val !== null) {

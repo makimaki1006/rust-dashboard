@@ -13,8 +13,10 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
+use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
-use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
+use tower_http::set_header::SetResponseHeaderLayer;
+use tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer};
 
 use auth::{
     require_auth, validate_email_domain, verify_password,
@@ -39,7 +41,9 @@ pub struct AppState {
 /// アプリケーションRouter構築（統合テストでも使用）
 pub fn build_app(state: Arc<AppState>) -> Router {
     let session_store = MemoryStore::default();
-    let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
+    let session_layer = SessionManagerLayer::new(session_store)
+        .with_secure(false)
+        .with_expiry(Expiry::OnInactivity(time::Duration::hours(24)));
 
     let protected_routes = Router::new()
         .route("/", get(dashboard_page))
@@ -56,6 +60,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/jobmap/detail/{id}", get(handlers::jobmap::jobmap_detail))
         .route("/api/jobmap/stats", post(handlers::jobmap::jobmap_stats))
         .route("/api/jobmap/municipalities", get(handlers::jobmap::jobmap_municipalities))
+        .route("/api/jobmap/region/summary", get(handlers::jobmap::region_summary))
+        .route("/api/jobmap/region/age_gender", get(handlers::jobmap::region_age_gender))
+        .route("/api/jobmap/region/posting_stats", get(handlers::jobmap::region_posting_stats))
+        .route("/api/jobmap/region/segments", get(handlers::jobmap::region_segments))
         .route(
             "/tab/talentmap",
             get(handlers::talentmap::tab_talentmap),
@@ -166,14 +174,26 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             auth_middleware,
         ));
 
+    // 静的ファイル配信（Cache-Control付き、別Router）
+    let static_router = Router::new()
+        .nest_service("/static", ServeDir::new("static").precompressed_gzip())
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::CACHE_CONTROL,
+            http::HeaderValue::from_static("public, max-age=86400"),
+        ));
+
     Router::new()
         .route("/health", get(health_check))
         .route("/login", get(login_page).post(login_submit))
         .route("/logout", get(logout))
         .merge(protected_routes)
-        .nest_service("/static", ServeDir::new("static"))
         .with_state(state)
-        .layer(session_layer)
+        .merge(static_router)
+        .layer(
+            tower::ServiceBuilder::new()
+                .layer(session_layer)
+                .layer(CompressionLayer::new())
+        )
 }
 
 // --- ミドルウェア ---

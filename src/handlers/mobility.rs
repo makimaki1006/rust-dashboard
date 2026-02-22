@@ -372,19 +372,24 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
         0.0
     };
 
-    // 地域サマリー（COMPETITIONデータ）
+    // 地域サマリー + 資格別定着率を tokio::join! で並列取得
     if has_pref {
-        fetch_region_summary(state, job_type, prefecture, municipality, &mut stats).await;
+        let (region_result, retention_result) = tokio::join!(
+            fetch_region_summary_data(state, job_type, prefecture, municipality),
+            fetch_retention_rates_data(state, job_type, prefecture, municipality)
+        );
+        apply_region_summary(&mut stats, region_result);
+        apply_retention_rates(&mut stats, retention_result);
+    } else {
+        let retention_result = fetch_retention_rates_data(state, job_type, prefecture, municipality).await;
+        apply_retention_rates(&mut stats, retention_result);
     }
-
-    // 資格別定着率（QUALIFICATION_DETAILデータ）
-    fetch_retention_rates(state, job_type, prefecture, municipality, &mut stats).await;
 
     stats
 }
 
-/// 地域サマリーデータ取得（COMPETITIONデータ）
-async fn fetch_region_summary(state: &AppState, job_type: &str, prefecture: &str, municipality: &str, stats: &mut MobilityStats) {
+/// 地域サマリーデータのみ取得（tokio::join!用）
+async fn fetch_region_summary_data(state: &AppState, job_type: &str, prefecture: &str, municipality: &str) -> Vec<HashMap<String, Value>> {
     let mut sql = String::from(
         "SELECT total_applicants, female_ratio, category1, top_age_ratio, avg_qualification_count \
          FROM job_seeker_data WHERE job_type = ? AND row_type = 'COMPETITION'"
@@ -401,21 +406,24 @@ async fn fetch_region_summary(state: &AppState, job_type: &str, prefecture: &str
     }
     sql.push_str(" LIMIT 1");
 
-    if let Ok(rows) = state.turso.query(&sql, &params).await {
-        if let Some(row) = rows.first() {
-            let female_r = get_f64(row, "female_ratio");
-            stats.female_ratio = if female_r > 0.0 { format!("{:.1}%", female_r * 100.0) } else { "-".to_string() };
-            stats.top_age = get_str(row, "category1");
-            let age_r = get_f64(row, "top_age_ratio");
-            stats.top_age_ratio = if age_r > 0.0 { format!("{:.1}%", age_r * 100.0) } else { "-".to_string() };
-            let qual = get_f64(row, "avg_qualification_count");
-            stats.avg_qualification_count = if qual > 0.0 { format!("{:.1}", qual) } else { "-".to_string() };
-        }
+    state.turso.query(&sql, &params).await.unwrap_or_default()
+}
+
+/// 地域サマリーデータをstatsに適用
+fn apply_region_summary(stats: &mut MobilityStats, rows: Vec<HashMap<String, Value>>) {
+    if let Some(row) = rows.first() {
+        let female_r = get_f64(row, "female_ratio");
+        stats.female_ratio = if female_r > 0.0 { format!("{:.1}%", female_r * 100.0) } else { "-".to_string() };
+        stats.top_age = get_str(row, "category1");
+        let age_r = get_f64(row, "top_age_ratio");
+        stats.top_age_ratio = if age_r > 0.0 { format!("{:.1}%", age_r * 100.0) } else { "-".to_string() };
+        let qual = get_f64(row, "avg_qualification_count");
+        stats.avg_qualification_count = if qual > 0.0 { format!("{:.1}", qual) } else { "-".to_string() };
     }
 }
 
-/// 資格別定着率データ取得（QUALIFICATION_DETAILデータ）
-async fn fetch_retention_rates(state: &AppState, job_type: &str, prefecture: &str, municipality: &str, stats: &mut MobilityStats) {
+/// 資格別定着率データのみ取得（tokio::join!用）
+async fn fetch_retention_rates_data(state: &AppState, job_type: &str, prefecture: &str, municipality: &str) -> Vec<HashMap<String, Value>> {
     let mut sql = String::from(
         "SELECT category1, retention_rate, count \
          FROM job_seeker_data WHERE job_type = ? AND row_type = 'QUALIFICATION_DETAIL' \
@@ -432,40 +440,42 @@ async fn fetch_retention_rates(state: &AppState, job_type: &str, prefecture: &st
         params.push(Value::String(format!("{}%", municipality)));
     }
 
-    if let Ok(rows) = state.turso.query(&sql, &params).await {
-        // 資格別に集計
-        let mut qual_map: HashMap<String, (f64, i64, i64)> = HashMap::new(); // (sum_rate, sum_count, n_rows)
-        for row in &rows {
-            let qual = get_str(row, "category1");
-            let rate = get_f64(row, "retention_rate");
-            let cnt = get_i64(row, "count");
-            if !qual.is_empty() && rate > 0.0 {
-                let entry = qual_map.entry(qual).or_insert((0.0, 0, 0));
-                entry.0 += rate;
-                entry.1 += cnt;
-                entry.2 += 1;
-            }
+    state.turso.query(&sql, &params).await.unwrap_or_default()
+}
+
+/// 資格別定着率データをstatsに適用
+fn apply_retention_rates(stats: &mut MobilityStats, rows: Vec<HashMap<String, Value>>) {
+    let mut qual_map: HashMap<String, (f64, i64, i64)> = HashMap::new();
+    for row in &rows {
+        let qual = get_str(row, "category1");
+        let rate = get_f64(row, "retention_rate");
+        let cnt = get_i64(row, "count");
+        if !qual.is_empty() && rate > 0.0 {
+            let entry = qual_map.entry(qual).or_insert((0.0, 0, 0));
+            entry.0 += rate;
+            entry.1 += cnt;
+            entry.2 += 1;
         }
-
-        let mut retention_list: Vec<(String, f64, String, i64)> = qual_map.into_iter()
-            .map(|(qual, (sum_rate, total_count, n))| {
-                let avg_rate = sum_rate / n as f64;
-                let interp = if avg_rate >= 1.1 {
-                    "地元志向強".to_string()
-                } else if avg_rate >= 1.0 {
-                    "地元志向".to_string()
-                } else if avg_rate >= 0.9 {
-                    "平均的".to_string()
-                } else {
-                    "流出傾向".to_string()
-                };
-                (qual, avg_rate, interp, total_count)
-            })
-            .collect();
-
-        retention_list.sort_by(|a, b| b.3.cmp(&a.3)); // 人数降順
-        stats.retention_rates = retention_list.into_iter().take(10).collect();
     }
+
+    let mut retention_list: Vec<(String, f64, String, i64)> = qual_map.into_iter()
+        .map(|(qual, (sum_rate, total_count, n))| {
+            let avg_rate = sum_rate / n as f64;
+            let interp = if avg_rate >= 1.1 {
+                "地元志向強".to_string()
+            } else if avg_rate >= 1.0 {
+                "地元志向".to_string()
+            } else if avg_rate >= 0.9 {
+                "平均的".to_string()
+            } else {
+                "流出傾向".to_string()
+            };
+            (qual, avg_rate, interp, total_count)
+        })
+        .collect();
+
+    retention_list.sort_by(|a, b| b.3.cmp(&a.3));
+    stats.retention_rates = retention_list.into_iter().take(10).collect();
 }
 
 /// 重み付き分位数を計算する

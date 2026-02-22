@@ -8,7 +8,8 @@ edition = "2021"
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "cors", "compression-gzip"] }
+tower-http = { version = "0.6", features = ["fs", "cors", "compression-gzip", "set-header"] }
+http = "1"
 tower-sessions = "0.14"
 
 # Template engine
@@ -43,6 +44,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Compression (gzip DB decompression on startup)
 flate2 = "1"
 
+# Time (セッション有効期限設定用)
+time = "0.3"
+
 # Misc
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
@@ -53,5 +57,6 @@ tempfile = "3"
 http-body-util = "0.1"
 
 [profile.release]
-opt-level = 2
-lto = false
+opt-level = 3
+lto = "thin"
+codegen-units = 1

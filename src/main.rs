@@ -60,6 +60,16 @@ async fn main() {
     let geocoded_db = match LocalDb::new(&config.geocoded_db_path) {
         Ok(db) => {
             tracing::info!("Geocoded postings SQLite loaded: {}", config.geocoded_db_path);
+            // パフォーマンス向上: インデックス自動作成
+            let idx_sqls = [
+                "CREATE INDEX IF NOT EXISTS idx_postings_job_pref ON postings (job_type, prefecture)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_job_lat_lng ON postings (job_type, lat, lng)",
+            ];
+            for sql in &idx_sqls {
+                if let Err(e) = db.execute(sql, &[]) {
+                    tracing::warn!("Index creation failed: {e}");
+                }
+            }
             Some(db)
         }
         Err(e) => {
@@ -68,7 +78,7 @@ async fn main() {
         }
     };
 
-    let cache = AppCache::new(config.cache_ttl_secs, 100);
+    let cache = AppCache::new(config.cache_ttl_secs, config.cache_max_entries);
     let rate_limiter = RateLimiter::new(config.rate_limit_max_attempts, config.rate_limit_lockout_secs);
 
     let state = Arc::new(AppState {

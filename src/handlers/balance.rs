@@ -60,45 +60,29 @@ impl Default for BalanceStats {
     }
 }
 
+/// 需給バランスデータ取得
+/// 都道府県選択時はGAP + job_count + job_total の3クエリを pipeline batch で1 HTTPリクエスト
 async fn fetch_balance(state: &AppState, job_type: &str, prefecture: &str, municipality: &str) -> BalanceStats {
     let mut stats = BalanceStats::default();
+    let has_pref = !prefecture.is_empty() && prefecture != "全国";
+    let has_muni = has_pref && !municipality.is_empty() && municipality != "すべて";
 
-    // GAPデータ取得
-    let mut params = vec![Value::String(job_type.to_string())];
-    let mut sql = String::from(
+    // GAPクエリ構築
+    let mut gap_params = vec![Value::String(job_type.to_string())];
+    let mut gap_sql = String::from(
         "SELECT municipality, demand_count, supply_count, gap, demand_supply_ratio \
         FROM job_seeker_data \
         WHERE job_type = ? AND row_type = 'GAP'"
     );
 
-    if !prefecture.is_empty() && prefecture != "全国" {
-        params.push(Value::String(prefecture.to_string()));
-        sql.push_str(" AND prefecture = ?");
+    if has_pref {
+        gap_params.push(Value::String(prefecture.to_string()));
+        gap_sql.push_str(" AND prefecture = ?");
     }
 
-    let rows = match state.turso.query(&sql, &params).await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("Balance GAP query failed: {e}");
-            return stats;
-        }
-    };
-
-    for row in &rows {
-        let muni = get_str(row, "municipality");
-        if muni.is_empty() { continue; }
-        stats.gap_rows.push(GapRow {
-            municipality: muni,
-            demand_count: get_f64(row, "demand_count"),
-            supply_count: get_f64(row, "supply_count"),
-            gap: get_f64(row, "gap"),
-            ratio: get_f64(row, "demand_supply_ratio"),
-        });
-    }
-
-    // 求人数取得（job_openingsテーブル）
-    if !prefecture.is_empty() && prefecture != "全国" {
-        let jo_sql = if !municipality.is_empty() && municipality != "すべて" {
+    if has_pref {
+        // 都道府県選択時: 3クエリを1バッチで実行
+        let jo_sql = if has_muni {
             "SELECT COUNT(*) as cnt FROM job_openings WHERE job_type = ? AND prefecture = ? AND municipality = ?"
         } else {
             "SELECT COUNT(*) as cnt FROM job_openings WHERE job_type = ? AND prefecture = ?"
@@ -107,22 +91,64 @@ async fn fetch_balance(state: &AppState, job_type: &str, prefecture: &str, munic
             Value::String(job_type.to_string()),
             Value::String(prefecture.to_string()),
         ];
-        if !municipality.is_empty() && municipality != "すべて" {
+        if has_muni {
             jo_params.push(Value::String(municipality.to_string()));
         }
 
-        if let Ok(jo_rows) = state.turso.query(jo_sql, &jo_params).await {
-            if let Some(first) = jo_rows.first() {
-                stats.job_count = get_i64(first, "cnt");
-            }
-        }
-
-        // 全国求人数
         let total_sql = "SELECT COUNT(*) as cnt FROM job_openings WHERE job_type = ?";
         let total_params = vec![Value::String(job_type.to_string())];
-        if let Ok(total_rows) = state.turso.query(total_sql, &total_params).await {
-            if let Some(first) = total_rows.first() {
-                stats.job_total = get_i64(first, "cnt");
+
+        match state.turso.query_batch(&[
+            (&gap_sql, &gap_params),
+            (jo_sql, &jo_params),
+            (total_sql, &total_params),
+        ]).await {
+            Ok(batch_results) => {
+                // GAP結果（1番目）
+                for row in &batch_results[0] {
+                    let muni = get_str(row, "municipality");
+                    if muni.is_empty() { continue; }
+                    stats.gap_rows.push(GapRow {
+                        municipality: muni,
+                        demand_count: get_f64(row, "demand_count"),
+                        supply_count: get_f64(row, "supply_count"),
+                        gap: get_f64(row, "gap"),
+                        ratio: get_f64(row, "demand_supply_ratio"),
+                    });
+                }
+                // job_count結果（2番目）
+                if let Some(first) = batch_results[1].first() {
+                    stats.job_count = get_i64(first, "cnt");
+                }
+                // job_total結果（3番目）
+                if let Some(first) = batch_results[2].first() {
+                    stats.job_total = get_i64(first, "cnt");
+                }
+            }
+            Err(e) => {
+                tracing::error!("Balance batch query failed: {e}");
+                return stats;
+            }
+        }
+    } else {
+        // 全国モード: GAPクエリのみ
+        match state.turso.query(&gap_sql, &gap_params).await {
+            Ok(rows) => {
+                for row in &rows {
+                    let muni = get_str(row, "municipality");
+                    if muni.is_empty() { continue; }
+                    stats.gap_rows.push(GapRow {
+                        municipality: muni,
+                        demand_count: get_f64(row, "demand_count"),
+                        supply_count: get_f64(row, "supply_count"),
+                        gap: get_f64(row, "gap"),
+                        ratio: get_f64(row, "demand_supply_ratio"),
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::error!("Balance GAP query failed: {e}");
+                return stats;
             }
         }
     }
