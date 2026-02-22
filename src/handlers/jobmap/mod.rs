@@ -6,5 +6,6 @@ mod stats;
 
 pub use handlers::{
     tab_jobmap, jobmap_markers, jobmap_detail, jobmap_detail_json, jobmap_stats, jobmap_municipalities,
+    jobmap_seekers, jobmap_seeker_detail,
 };
 pub use region::{region_summary, region_age_gender, region_posting_stats, region_segments};

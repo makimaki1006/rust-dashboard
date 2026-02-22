@@ -1,11 +1,21 @@
 <div class="space-y-4">
-  <h2 class="text-xl font-bold text-white">🗺️ 求人地図
+  <h2 class="text-xl font-bold text-white">🗺️ 地図分析
     <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span>
   </h2>
 
   <!-- フィルタバー -->
   <div class="stat-card">
     <div class="flex flex-wrap items-end gap-3">
+      <!-- 表示モード -->
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">表示モード</label>
+        <select id="jm-view-mode" onchange="postingMap.switchViewMode(this.value)"
+                class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+          <option value="postings">求人マーカー</option>
+          <option value="seekers">求職者分布</option>
+          <option value="hybrid">求人+求職者</option>
+        </select>
+      </div>
       <div>
         <label class="block text-xs text-gray-400 mb-1">都道府県</label>
         <select id="jm-pref" name="prefecture"
@@ -24,12 +34,12 @@
           <option value="">-- 市区町村 --</option>
         </select>
       </div>
-      <div>
+      <div id="jm-radius-wrap">
         <label class="block text-xs text-gray-400 mb-1">半径 (km)</label>
         <input type="number" id="jm-radius" value="10" min="1" max="100" step="1"
                class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 w-20">
       </div>
-      <div>
+      <div id="jm-emp-wrap">
         <label class="block text-xs text-gray-400 mb-1">雇用形態</label>
         <select id="jm-emp" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
           <option value="全て選択">全て選択</option>
@@ -38,7 +48,7 @@
           <option value="パート・アルバイト">パート・アルバイト</option>
         </select>
       </div>
-      <div>
+      <div id="jm-salary-type-wrap">
         <label class="block text-xs text-gray-400 mb-1">給与区分</label>
         <select id="jm-salary-type" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
           <option value="どちらも">どちらも</option>
@@ -58,8 +68,18 @@
     </div>
   </div>
 
+  <!-- レイヤーコントロール（seekers/hybridモード時のみ表示） -->
+  <div id="jm-layer-controls" class="stat-card hidden">
+    <div class="flex items-center gap-4 flex-wrap">
+      <span class="text-sm font-medium text-gray-300">レイヤー:</span>
+      <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-polygons" checked class="accent-blue-500" onchange="postingMap.toggleLayer('polygons', this.checked)"> ポリゴン</label>
+      <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-seeker-markers" checked class="accent-blue-500" onchange="postingMap.toggleLayer('seekerMarkers', this.checked)"> 求職者マーカー</label>
+      <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-flows" class="accent-blue-500" onchange="postingMap.toggleLayer('flows', this.checked)"> フロー線</label>
+    </div>
+  </div>
+
   <!-- ピン止めカード表示項目 -->
-  <div class="stat-card">
+  <div class="stat-card" id="jm-pin-fields-wrap">
     <div class="flex justify-between items-center">
       <span class="text-sm text-gray-300 font-medium">📌 ピン止め表示項目</span>
       <button onclick="postingMap.togglePinFields()" class="text-xs text-gray-400 hover:text-white">
@@ -85,17 +105,33 @@
         <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="jobPosition"> 募集職種</label>
         <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="tags"> タグ</label>
         <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="segment"> セグメント</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="geocodeConf"> 住所信頼度</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="annualIncome"> 想定年収</label>
       </div>
     </div>
   </div>
 
+  <!-- ピン統計パネル（GAS準拠: フィルタバー直下） -->
+  <div id="jm-pinned-stats" class="stat-card hidden">
+    <div class="flex items-center justify-between mb-2">
+      <span id="jm-stats-title" class="text-sm font-medium text-gray-300">📍 ピン止め統計</span>
+      <button onclick="postingMap.toggleStats()" id="jm-stats-toggle" class="text-xs text-gray-400 hover:text-white">折りたたむ</button>
+    </div>
+    <div id="jm-stats-content" class="text-sm grid grid-cols-2 gap-2"></div>
+  </div>
+
   <!-- メインコンテンツ: 地図 + リサイズ + 詳細パネル -->
-  <div id="jm-main-container" class="flex gap-0" style="height: calc(100vh - 340px); min-height: 400px;">
+  <div id="jm-main-container" class="flex gap-0" style="height: calc(100vh - 420px); min-height: 400px;">
     <!-- 地図 -->
     <div id="jm-map-container" class="flex-1 relative rounded-l-lg overflow-hidden border border-gray-700" style="min-width: 300px;">
       <div id="jm-map" style="width:100%; height:100%; z-index:1;"></div>
       <!-- SVG接続線レイヤー -->
       <svg id="jm-connection-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999;"></svg>
+      <!-- 凡例オーバーレイ -->
+      <div id="jm-legend" class="hidden absolute bottom-2 left-2 bg-gray-800/90 rounded p-2 text-xs z-[500] max-w-[220px]">
+        <div class="font-medium text-gray-200 mb-1">凡例</div>
+        <div id="jm-legend-content"></div>
+      </div>
     </div>
 
     <!-- リサイズハンドル -->
@@ -151,23 +187,21 @@
           <div id="jm-region-content-segments" class="hidden mt-1"></div>
         </div>
       </div>
+      <!-- 求職者統計パネル（seekers/hybridモード時のみ表示） -->
+      <div id="jm-seeker-stats" class="hidden border-t border-gray-700 p-2 overflow-y-auto" style="max-height: 60%;">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-sm font-medium text-gray-300">👤 求職者統計</span>
+          <button onclick="postingMap.closeSeekerStats()" class="text-gray-400 hover:text-white text-lg">&times;</button>
+        </div>
+        <div id="jm-seeker-stats-content"></div>
+      </div>
     </div>
-  </div>
-
-  <!-- ピン統計パネル -->
-  <div id="jm-pinned-stats" class="stat-card hidden">
-    <div class="flex items-center justify-between mb-2">
-      <span id="jm-stats-title" class="text-sm font-medium text-gray-300">📍 ピン止め統計</span>
-      <button onclick="postingMap.toggleStats()" id="jm-stats-toggle" class="text-xs text-gray-400 hover:text-white">折りたたむ</button>
-    </div>
-    <div id="jm-stats-content" class="text-sm grid grid-cols-2 gap-2"></div>
   </div>
 </div>
 
-<script src="/static/js/postingmap.js"></script>
+<script src="/static/js/postingmap.js?v=3"></script>
 <script>
   // 初期化（HTMX タブ切り替え・DOMContentLoaded 両対応）
-  // 本番環境ではHTMXスワップ後のレイアウト確定に時間がかかる場合がある
   (function() {
     var maxRetries = 10;
     var retryCount = 0;
@@ -184,7 +218,6 @@
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', tryInit);
     } else {
-      // HTMX経由: 段階的リトライ（100ms, 200ms, 300ms...）
       setTimeout(tryInit, 100);
     }
   })();

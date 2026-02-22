@@ -61,13 +61,15 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/jobmap/detail-json/{id}", get(handlers::jobmap::jobmap_detail_json))
         .route("/api/jobmap/stats", post(handlers::jobmap::jobmap_stats))
         .route("/api/jobmap/municipalities", get(handlers::jobmap::jobmap_municipalities))
+        .route("/api/jobmap/seekers", get(handlers::jobmap::jobmap_seekers))
+        .route("/api/jobmap/seeker-detail", get(handlers::jobmap::jobmap_seeker_detail))
         .route("/api/jobmap/region/summary", get(handlers::jobmap::region_summary))
         .route("/api/jobmap/region/age_gender", get(handlers::jobmap::region_age_gender))
         .route("/api/jobmap/region/posting_stats", get(handlers::jobmap::region_posting_stats))
         .route("/api/jobmap/region/segments", get(handlers::jobmap::region_segments))
         .route(
             "/tab/talentmap",
-            get(handlers::talentmap::tab_talentmap),
+            get(|| async { Redirect::to("/tab/jobmap") }),
         )
         .route(
             "/tab/competitive",

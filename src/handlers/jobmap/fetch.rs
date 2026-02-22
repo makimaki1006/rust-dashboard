@@ -43,6 +43,8 @@ pub(crate) struct DetailRow {
     pub(crate) exp_qual_segment: String,
     pub(crate) lat: f64,
     pub(crate) lng: f64,
+    pub(crate) geocode_confidence: i64,
+    pub(crate) geocode_level: i64,
 }
 
 fn value_to_i64(v: &Value) -> i64 {
@@ -210,7 +212,8 @@ pub(crate) fn fetch_detail(db: &LocalDb, posting_id: i64) -> Option<DetailRow> {
              employment_type, salary_type, salary_min, salary_max, salary_detail, \
              headline, job_description, requirements, benefits, working_hours, \
              holidays, education_training, access, special_holidays, tags, \
-             tier3_label_short, exp_qual_segment, lat, lng \
+             tier3_label_short, exp_qual_segment, lat, lng, \
+             geocode_confidence, geocode_level \
              FROM postings WHERE id = ?",
             &[&posting_id as &dyn rusqlite::types::ToSql],
         )
@@ -243,6 +246,8 @@ pub(crate) fn fetch_detail(db: &LocalDb, posting_id: i64) -> Option<DetailRow> {
         exp_qual_segment: value_to_str(r.get("exp_qual_segment")),
         lat: r.get("lat").map(value_to_f64).unwrap_or(0.0),
         lng: r.get("lng").map(value_to_f64).unwrap_or(0.0),
+        geocode_confidence: r.get("geocode_confidence").map(value_to_i64).unwrap_or(0),
+        geocode_level: r.get("geocode_level").map(value_to_i64).unwrap_or(0),
     })
 }
 

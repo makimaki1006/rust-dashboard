@@ -52,41 +52,41 @@ pub async fn tab_talentmap(
 
 // ===== データ構造 =====
 
-struct MarkerData {
-    municipality: String,
-    prefecture: String,
-    lat: f64,
-    lng: f64,
-    count: i64,
-    male_count: i64,
-    female_count: i64,
+pub(crate) struct MarkerData {
+    pub(crate) municipality: String,
+    pub(crate) prefecture: String,
+    pub(crate) lat: f64,
+    pub(crate) lng: f64,
+    pub(crate) count: i64,
+    pub(crate) male_count: i64,
+    pub(crate) female_count: i64,
 }
 
-struct FlowLine {
-    from_pref: String,
-    from_muni: String,
-    from_lat: f64,
-    from_lng: f64,
-    to_pref: String,
-    to_muni: String,
-    to_lat: f64,
-    to_lng: f64,
-    count: i64,
+pub(crate) struct FlowLine {
+    pub(crate) from_pref: String,
+    pub(crate) from_muni: String,
+    pub(crate) from_lat: f64,
+    pub(crate) from_lng: f64,
+    pub(crate) to_pref: String,
+    pub(crate) to_muni: String,
+    pub(crate) to_lat: f64,
+    pub(crate) to_lng: f64,
+    pub(crate) count: i64,
 }
 
-struct MuniDetail {
-    count: i64,
-    male_count: i64,
-    female_count: i64,
-    age_gender: Vec<(String, i64, i64)>, // (age_group, male, female)
-    workstyle_dist: Vec<(String, i64)>,  // (workstyle, count)
+pub(crate) struct MuniDetail {
+    pub(crate) count: i64,
+    pub(crate) male_count: i64,
+    pub(crate) female_count: i64,
+    pub(crate) age_gender: Vec<(String, i64, i64)>, // (age_group, male, female)
+    pub(crate) workstyle_dist: Vec<(String, i64)>,  // (workstyle, count)
 }
 
-struct TalentMapStats {
-    markers: Vec<MarkerData>,
-    flows: Vec<FlowLine>,
-    muni_detail: Option<MuniDetail>,
-    total_count: i64,
+pub(crate) struct TalentMapStats {
+    pub(crate) markers: Vec<MarkerData>,
+    pub(crate) flows: Vec<FlowLine>,
+    pub(crate) muni_detail: Option<MuniDetail>,
+    pub(crate) total_count: i64,
 }
 
 impl Default for TalentMapStats {
@@ -102,7 +102,7 @@ impl Default for TalentMapStats {
 
 // ===== データ取得 =====
 
-async fn fetch_talentmap(state: &AppState, job_type: &str, prefecture: &str, municipality: &str) -> TalentMapStats {
+pub(crate) async fn fetch_talentmap(state: &AppState, job_type: &str, prefecture: &str, municipality: &str) -> TalentMapStats {
     let mut stats = TalentMapStats::default();
     let pref = if prefecture.is_empty() || prefecture == "全国" { "" } else { prefecture };
 
@@ -179,7 +179,7 @@ async fn fetch_talentmap(state: &AppState, job_type: &str, prefecture: &str, mun
 }
 
 /// マーカーデータのパース（fetch_talentmapのヘルパー）
-fn parse_markers(rows: &[HashMap<String, Value>], stats: &mut TalentMapStats) {
+pub(crate) fn parse_markers(rows: &[HashMap<String, Value>], stats: &mut TalentMapStats) {
     for row in rows {
         let lat = get_f64(row, "latitude");
         let lng = get_f64(row, "longitude");
@@ -201,7 +201,7 @@ fn parse_markers(rows: &[HashMap<String, Value>], stats: &mut TalentMapStats) {
 }
 
 /// フローデータのパース（fetch_talentmapのヘルパー）
-fn parse_flows(rows: &[HashMap<String, Value>], stats: &mut TalentMapStats) {
+pub(crate) fn parse_flows(rows: &[HashMap<String, Value>], stats: &mut TalentMapStats) {
     for row in rows {
         let from_lat = get_f64(row, "from_lat");
         let from_lng = get_f64(row, "from_lng");
@@ -224,7 +224,7 @@ fn parse_flows(rows: &[HashMap<String, Value>], stats: &mut TalentMapStats) {
 }
 
 /// 市区町村詳細データを3クエリ pipeline batch で1 HTTPリクエストで取得
-async fn fetch_muni_detail(state: &AppState, job_type: &str, pref: &str, muni: &str) -> Option<MuniDetail> {
+pub(crate) async fn fetch_muni_detail(state: &AppState, job_type: &str, pref: &str, muni: &str) -> Option<MuniDetail> {
     let common_params = vec![
         Value::String(job_type.to_string()),
         Value::String(pref.to_string()),
@@ -429,7 +429,7 @@ pub async fn api_talentmap_detail(
 
 // ===== ヘルパー関数 =====
 
-fn pref_code_to_romaji(code: &str) -> &'static str {
+pub(crate) fn pref_code_to_romaji(code: &str) -> &'static str {
     match code {
         "01" => "hokkaido", "02" => "aomori", "03" => "iwate", "04" => "miyagi",
         "05" => "akita", "06" => "yamagata", "07" => "fukushima", "08" => "ibaraki",
@@ -447,7 +447,7 @@ fn pref_code_to_romaji(code: &str) -> &'static str {
     }
 }
 
-fn build_choropleth_styles(markers: &[MarkerData], selected_muni: &str) -> String {
+pub(crate) fn build_choropleth_styles(markers: &[MarkerData], selected_muni: &str) -> String {
     if markers.is_empty() {
         return "{}".to_string();
     }
@@ -501,7 +501,7 @@ fn count_to_color(ratio: f64) -> String {
     }
 }
 
-fn build_markers_json(markers: &[MarkerData]) -> String {
+pub(crate) fn build_markers_json(markers: &[MarkerData]) -> String {
     let items: Vec<String> = markers.iter().take(200).map(|m| {
         let radius = ((m.count as f64 / 50.0).max(4.0)).min(12.0);
         format!(
@@ -512,7 +512,7 @@ fn build_markers_json(markers: &[MarkerData]) -> String {
     format!("[{}]", items.join(","))
 }
 
-fn build_flows_json(flows: &[FlowLine]) -> String {
+pub(crate) fn build_flows_json(flows: &[FlowLine]) -> String {
     let items: Vec<String> = flows.iter().take(50).map(|f| {
         let weight = ((f.count as f64 / 100.0).max(1.0)).min(8.0);
         format!(
@@ -523,7 +523,7 @@ fn build_flows_json(flows: &[FlowLine]) -> String {
     format!("[{}]", items.join(","))
 }
 
-fn build_sidebar(muni: &str, pref: &str, detail: &Option<MuniDetail>, markers: &[MarkerData]) -> String {
+pub(crate) fn build_sidebar(muni: &str, pref: &str, detail: &Option<MuniDetail>, markers: &[MarkerData]) -> String {
     if muni.is_empty() || pref.is_empty() {
         return build_sidebar_placeholder();
     }

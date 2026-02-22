@@ -6,8 +6,10 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::AppState;
+use crate::geo::pref_name_to_code;
 use crate::handlers::competitive::{build_option, escape_html};
 use crate::handlers::overview::get_session_filters;
+use crate::handlers::talentmap;
 
 use super::fetch;
 use super::render;
@@ -226,9 +228,150 @@ pub async fn jobmap_detail_json(
             "tags": d.tags,
             "tier3_label_short": d.tier3_label_short,
             "exp_qual_segment": d.exp_qual_segment,
+            "geocode_confidence": d.geocode_confidence,
+            "geocode_level": d.geocode_level,
         })),
         None => Json(serde_json::json!({})),
     }
+}
+
+// ===== 求職者データAPI（Tab 7 統合） =====
+
+#[derive(Deserialize)]
+pub struct SeekerParams {
+    #[serde(default)]
+    pub prefecture: String,
+    #[serde(default)]
+    pub municipality: String,
+}
+
+/// 求職者マーカー + フロー + コロプレスJSON API: /api/jobmap/seekers
+pub async fn jobmap_seekers(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<SeekerParams>,
+) -> Json<serde_json::Value> {
+    let (job_type, session_pref, session_muni) = get_session_filters(&session).await;
+
+    let pref = if params.prefecture.is_empty() {
+        &session_pref
+    } else {
+        &params.prefecture
+    };
+    let muni = if params.municipality.is_empty() {
+        &session_muni
+    } else {
+        &params.municipality
+    };
+
+    if pref.is_empty() {
+        return Json(serde_json::json!({
+            "markers": [],
+            "flows": [],
+            "choropleth": {},
+            "total": 0,
+            "message": "都道府県を選択してください"
+        }));
+    }
+
+    // talentmap.rsのfetch_talentmapを再利用
+    let stats = talentmap::fetch_talentmap(&state, &job_type, pref, muni).await;
+
+    // マーカーJSON
+    let markers_json_str = talentmap::build_markers_json(&stats.markers);
+    let markers_val: serde_json::Value =
+        serde_json::from_str(&markers_json_str).unwrap_or(serde_json::json!([]));
+
+    // フローJSON
+    let flows_json_str = talentmap::build_flows_json(&stats.flows);
+    let flows_val: serde_json::Value =
+        serde_json::from_str(&flows_json_str).unwrap_or(serde_json::json!([]));
+
+    // コロプレススタイル
+    let muni_for_choropleth = if muni.is_empty() || muni == "すべて" { "" } else { muni };
+    let choropleth_str = talentmap::build_choropleth_styles(&stats.markers, muni_for_choropleth);
+    let choropleth_val: serde_json::Value =
+        serde_json::from_str(&choropleth_str).unwrap_or(serde_json::json!({}));
+
+    // GeoJSON URL
+    let geojson_url = {
+        let code_map = pref_name_to_code();
+        if let Some(code) = code_map.get(pref.as_str()) {
+            let romaji = talentmap::pref_code_to_romaji(code);
+            format!("/api/geojson/{}_{}.json", code, romaji)
+        } else {
+            String::new()
+        }
+    };
+
+    // 中心座標
+    let (center_lat, center_lng) = if !stats.markers.is_empty() {
+        let avg_lat = stats.markers.iter().map(|m| m.lat).sum::<f64>() / stats.markers.len() as f64;
+        let avg_lng = stats.markers.iter().map(|m| m.lng).sum::<f64>() / stats.markers.len() as f64;
+        (avg_lat, avg_lng)
+    } else {
+        (36.5, 138.0)
+    };
+
+    Json(serde_json::json!({
+        "markers": markers_val,
+        "flows": flows_val,
+        "choropleth": choropleth_val,
+        "geojsonUrl": geojson_url,
+        "total": stats.total_count,
+        "center": {"lat": center_lat, "lng": center_lng}
+    }))
+}
+
+/// 求職者詳細サイドバーHTML API: /api/jobmap/seeker-detail
+pub async fn jobmap_seeker_detail(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<SeekerParams>,
+) -> Html<String> {
+    let (job_type, session_pref, _session_muni) = get_session_filters(&session).await;
+
+    let pref = if params.prefecture.is_empty() {
+        &session_pref
+    } else {
+        &params.prefecture
+    };
+    let muni = if params.municipality.is_empty() { "" } else { &params.municipality };
+
+    if pref.is_empty() || muni.is_empty() {
+        return Html(r#"<p class="text-gray-400 text-sm">市区町村を選択してください</p>"#.to_string());
+    }
+
+    // 市区町村詳細データ取得
+    let detail = talentmap::fetch_muni_detail(&state, &job_type, pref, muni).await;
+
+    // マーカーデータ取得（基本情報表示用）
+    let marker_sql = "SELECT latitude, longitude, applicant_count, male_count, female_count \
+                      FROM job_seeker_data \
+                      WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture = ? AND municipality = ?";
+    let marker_params = vec![
+        serde_json::Value::String(job_type),
+        serde_json::Value::String(pref.to_string()),
+        serde_json::Value::String(muni.to_string()),
+    ];
+
+    use crate::handlers::overview::{get_f64, get_i64};
+    let markers: Vec<talentmap::MarkerData> = if let Ok(rows) = state.turso.query(marker_sql, &marker_params).await {
+        rows.iter().map(|row| talentmap::MarkerData {
+            municipality: muni.to_string(),
+            prefecture: pref.to_string(),
+            lat: get_f64(row, "latitude"),
+            lng: get_f64(row, "longitude"),
+            count: get_i64(row, "applicant_count"),
+            male_count: get_i64(row, "male_count"),
+            female_count: get_i64(row, "female_count"),
+        }).collect()
+    } else {
+        Vec::new()
+    };
+
+    // talentmap.rsのbuild_sidebarを再利用
+    Html(talentmap::build_sidebar(muni, pref, &detail, &markers))
 }
 
 fn markers_to_json(
