@@ -103,29 +103,27 @@ pub(crate) fn fetch_markers(
          FROM postings WHERE job_type = ? \
          AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?",
     );
-    let mut param_values: Vec<String> = vec![
-        job_type.to_string(),
-        lat_min.to_string(),
-        lat_max.to_string(),
-        lng_min.to_string(),
-        lng_max.to_string(),
+    // rusqlite::types::Value を使い、REAL列にはREAL型でバインド
+    // （String→TEXT型だとSQLiteの型比較ルールでBETWEENが常にFALSEになる）
+    use rusqlite::types::Value as SqlValue;
+    let mut param_values: Vec<SqlValue> = vec![
+        SqlValue::Text(job_type.to_string()),
+        SqlValue::Real(lat_min),
+        SqlValue::Real(lat_max),
+        SqlValue::Real(lng_min),
+        SqlValue::Real(lng_max),
     ];
 
-    if !prefecture.is_empty() {
-        sql.push_str(" AND prefecture = ?");
-        param_values.push(prefecture.to_string());
-    }
-    if !municipality.is_empty() {
-        sql.push_str(" AND municipality = ?");
-        param_values.push(municipality.to_string());
-    }
+    // GAS方式: 半径検索時は prefecture/municipality でフィルタしない
+    // 中心座標 + Bounding Box + Haversine で地理的に絞る
+    // （隣接県・隣接市区町村の求人も含めるため）
     if !employment_type.is_empty() && employment_type != "全て選択" {
         sql.push_str(" AND employment_type = ?");
-        param_values.push(employment_type.to_string());
+        param_values.push(SqlValue::Text(employment_type.to_string()));
     }
     if !salary_type.is_empty() && salary_type != "どちらも" {
         sql.push_str(" AND salary_type = ?");
-        param_values.push(salary_type.to_string());
+        param_values.push(SqlValue::Text(salary_type.to_string()));
     }
     // Bounding Boxで粗くフィルタ → Haversineで正確に絞る
     // LIMIT 2000は最終結果に適用するのでここではやや多めに取得
