@@ -120,8 +120,15 @@ pub async fn jobmap_markers(
     let radius_km = params.radius.unwrap_or(10.0);
 
     // 市区町村中心座標を取得（local_db の municipality_geocode テーブル）
+    // 政令指定都市の区（例: 大阪市北区）は geocode テーブルに「大阪市」として格納
+    // → 完全一致で見つからない場合、親市名（「大阪市」部分）でフォールバック
     let center = state.local_db.as_ref().and_then(|db| {
         fetch::get_muni_center(db, pref, &params.municipality)
+            .or_else(|| {
+                // 「○○市△△区」→「○○市」にフォールバック
+                extract_parent_city(&params.municipality)
+                    .and_then(|parent| fetch::get_muni_center(db, pref, &parent))
+            })
     });
 
     let markers = if let Some((clat, clng)) = center {
@@ -411,4 +418,19 @@ fn markers_to_json(
     }
 
     Json(result)
+}
+
+/// 政令指定都市の区名から親市名を抽出
+/// 例: "大阪市北区" → Some("大阪市"), "新宿区" → None, "高崎市" → None
+fn extract_parent_city(municipality: &str) -> Option<String> {
+    // 「○○市△△区」パターンを検出（政令指定都市の区）
+    // 市の後に区が続く場合のみマッチ
+    if let Some(shi_pos) = municipality.find('市') {
+        let after_shi = &municipality[shi_pos + '市'.len_utf8()..];
+        if after_shi.ends_with('区') && !after_shi.is_empty() {
+            // "大阪市北区" → "大阪市"
+            return Some(municipality[..shi_pos + '市'.len_utf8()].to_string());
+        }
+    }
+    None
 }
