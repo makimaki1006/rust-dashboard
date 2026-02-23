@@ -125,12 +125,13 @@ pub async fn jobmap_markers(
     });
 
     let markers = if let Some((clat, clng)) = center {
-        // Bounding Box + 半径検索（GAS方式）
+        // Bounding Box + Haversine半径検索（GAS方式）
+        // 半径検索時はmunicipalityフィルタを外す（円内の全求人を取得）
         fetch::fetch_markers(
             geocoded_db,
             &job_type,
             pref,
-            &params.municipality,
+            "",
             &params.employment_type,
             &params.salary_type,
             clat,

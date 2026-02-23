@@ -67,7 +67,18 @@ fn value_to_str(v: Option<&Value>) -> String {
     v.and_then(|v| v.as_str()).unwrap_or("").to_string()
 }
 
-/// Bounding Box + ジオコードDBからマーカーデータを取得
+/// Haversine距離計算（km）
+fn haversine_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
+    let r = 6371.0; // 地球の半径 (km)
+    let d_lat = (lat2 - lat1).to_radians();
+    let d_lng = (lng2 - lng1).to_radians();
+    let a = (d_lat / 2.0).sin().powi(2)
+        + lat1.to_radians().cos() * lat2.to_radians().cos() * (d_lng / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().asin();
+    r * c
+}
+
+/// Bounding Box + Haversine距離フィルタでマーカーデータを取得
 pub(crate) fn fetch_markers(
     db: &LocalDb,
     job_type: &str,
@@ -116,7 +127,9 @@ pub(crate) fn fetch_markers(
         sql.push_str(" AND salary_type = ?");
         param_values.push(salary_type.to_string());
     }
-    sql.push_str(" LIMIT 2000");
+    // Bounding Boxで粗くフィルタ → Haversineで正確に絞る
+    // LIMIT 2000は最終結果に適用するのでここではやや多めに取得
+    sql.push_str(" LIMIT 5000");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()
@@ -131,19 +144,34 @@ pub(crate) fn fetch_markers(
         }
     };
 
-    rows.iter()
-        .map(|r| MarkerRow {
-            id: r.get("id").map(value_to_i64).unwrap_or(0),
-            lat: r.get("lat").map(value_to_f64).unwrap_or(0.0),
-            lng: r.get("lng").map(value_to_f64).unwrap_or(0.0),
-            facility_name: value_to_str(r.get("facility_name")),
-            service_type: value_to_str(r.get("service_type")),
-            employment_type: value_to_str(r.get("employment_type")),
-            salary_type: value_to_str(r.get("salary_type")),
-            salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
-            salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
+    // Bounding Box結果からHaversine距離で正確な円内フィルタ
+    let mut result: Vec<MarkerRow> = rows
+        .iter()
+        .filter_map(|r| {
+            let m_lat = r.get("lat").map(value_to_f64).unwrap_or(0.0);
+            let m_lng = r.get("lng").map(value_to_f64).unwrap_or(0.0);
+            let dist = haversine_km(lat, lng, m_lat, m_lng);
+            if dist <= radius_km {
+                Some(MarkerRow {
+                    id: r.get("id").map(value_to_i64).unwrap_or(0),
+                    lat: m_lat,
+                    lng: m_lng,
+                    facility_name: value_to_str(r.get("facility_name")),
+                    service_type: value_to_str(r.get("service_type")),
+                    employment_type: value_to_str(r.get("employment_type")),
+                    salary_type: value_to_str(r.get("salary_type")),
+                    salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
+                    salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
+                })
+            } else {
+                None
+            }
         })
-        .collect()
+        .collect();
+
+    // 最大2000件に制限
+    result.truncate(2000);
+    result
 }
 
 /// 都道府県指定でマーカーを取得（半径なし・Bounding Boxなし）
