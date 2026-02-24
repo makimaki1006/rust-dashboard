@@ -92,7 +92,7 @@
       "handler": "comp_facility_salary",
       "description": "施設形態(大カテゴリ)別の給与統計チャートHTML（HTMXパーシャル）",
       "query_params": {
-        "employment_type": {"type": "String", "optional": true, "default": "正社員"}
+        "employment_type": {"type": "String", "optional": true, "default": "正職員"}
       },
       "response_type": "Html<String>",
       "data_flow": {
