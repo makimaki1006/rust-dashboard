@@ -10,7 +10,7 @@ fn make_posting(salary_min: i64, salary_max: i64, bonus: &str, holidays: i64) ->
         facility_type: "病院".to_string(),
         prefecture: "群馬県".to_string(),
         municipality: "高崎市".to_string(),
-        employment_type: "正職員".to_string(),
+        employment_type: "正社員".to_string(),
         salary_type: "月給".to_string(),
         salary_min,
         salary_max,

@@ -182,7 +182,7 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
     // ===== 雇用形態分布ドーナツ =====
     let ws_colors = |ws: &str| -> &str {
         match ws {
-            "正職員" => "#009E73",
+            "正社員" => "#009E73",
             "パート" => "#E69F00",
             _ => "#999999",
         }
@@ -208,7 +208,7 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
     }).collect();
 
     // ===== 雇用形態×年代 スタック棒グラフ =====
-    let workstyle_order = ["正職員", "パート", "その他"];
+    let workstyle_order = ["正社員", "パート", "その他"];
     let age_order = ["20代", "30代", "40代", "50代", "60代", "70歳以上"];
 
     // age_crossからピボットテーブルを構築
@@ -296,7 +296,7 @@ fn build_mobility_section(stats: &WorkstyleStats) -> String {
         return r#"<p class="text-slate-500 text-sm">WORKSTYLE_MOBILITYデータなし（Tursoへのインポートが必要です）</p>"#.to_string();
     }
 
-    let workstyles = ["正職員", "パート", "その他"];
+    let workstyles = ["正社員", "パート", "その他"];
     let mobilities = ["地元志向", "近隣移動", "中距離移動", "遠距離移動"];
 
     // ヒートマップデータ構築

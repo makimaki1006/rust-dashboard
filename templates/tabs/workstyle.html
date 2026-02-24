@@ -31,7 +31,7 @@
         <h3 class="text-sm text-slate-400 mb-3">雇用形態 × 年代</h3>
         <div class="echart" style="height:350px;" data-chart-config='{
             "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-            "legend": {"data": ["正職員", "パート", "その他"], "top": "0%", "itemGap": 15},
+            "legend": {"data": ["正社員", "パート", "その他"], "top": "0%", "itemGap": 15},
             "grid": {"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true},
             "xAxis": {"type": "category", "data": ["20代", "30代", "40代", "50代", "60代", "70歳以上"]},
             "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
@@ -47,7 +47,7 @@
                 "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
                 "legend": {"data": ["男性", "女性"], "top": "0%", "itemGap": 15},
                 "grid": {"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true},
-                "xAxis": {"type": "category", "data": ["正職員", "パート", "その他"]},
+                "xAxis": {"type": "category", "data": ["正社員", "パート", "その他"]},
                 "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
                 "series": [
                     {"name": "男性", "type": "bar", "data": {{GENDER_MALE_DATA}}, "itemStyle": {"color": "#0072B2"}, "label": {"show": true, "position": "inside", "formatter": "{c}%", "color": "#fff"}},
@@ -63,7 +63,7 @@
                 "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
                 "legend": {"data": ["就業中", "離職中", "在学中"], "top": "0%", "itemGap": 15},
                 "grid": {"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true},
-                "xAxis": {"type": "category", "data": ["正職員", "パート", "その他"]},
+                "xAxis": {"type": "category", "data": ["正社員", "パート", "その他"]},
                 "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
                 "series": [{{EMP_CROSS_SERIES}}]
             }'></div>
