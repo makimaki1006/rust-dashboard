@@ -176,7 +176,7 @@ pub async fn tab_analysis(
     </div>
 
     <!-- コンテンツ領域 -->
-    <div id="analysis-content" hx-get="/api/analysis/salary" hx-trigger="load" hx-swap="innerHTML">
+    <div id="analysis-content">
         <div class="flex items-center justify-center h-32 text-gray-400">
             <div class="animate-pulse">読み込み中...</div>
         </div>
@@ -184,6 +184,10 @@ pub async fn tab_analysis(
 </div>
 
 <script>
+// 初期サブタブを明示的にロード
+(function() {{
+    htmx.ajax('GET', '/api/analysis/salary', {{target: '#analysis-content', swap: 'innerHTML'}});
+}})();
 function setAnalysisSubTab(el) {{
     document.querySelectorAll('.analysis-sub-btn').forEach(function(btn) {{
         btn.classList.remove('active', 'bg-navy-700', 'text-white', 'border', 'border-slate-600', 'border-b-0');
