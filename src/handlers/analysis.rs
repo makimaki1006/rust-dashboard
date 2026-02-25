@@ -9,6 +9,61 @@ use crate::AppState;
 use super::competitive::escape_html;
 use super::overview::{get_session_filters, make_location_label, format_number};
 
+/// 近隣都道府県を返す（品質マップのフィルタリング用）
+fn adjacent_prefectures(pref: &str) -> &'static [&'static str] {
+    match pref {
+        "北海道" => &["青森県"],
+        "青森県" => &["北海道", "岩手県", "秋田県"],
+        "岩手県" => &["青森県", "秋田県", "宮城県"],
+        "宮城県" => &["岩手県", "秋田県", "山形県", "福島県"],
+        "秋田県" => &["青森県", "岩手県", "宮城県", "山形県"],
+        "山形県" => &["秋田県", "宮城県", "福島県", "新潟県"],
+        "福島県" => &["宮城県", "山形県", "新潟県", "群馬県", "栃木県", "茨城県"],
+        "茨城県" => &["福島県", "栃木県", "埼玉県", "千葉県"],
+        "栃木県" => &["福島県", "茨城県", "群馬県", "埼玉県"],
+        "群馬県" => &["福島県", "新潟県", "長野県", "埼玉県", "栃木県"],
+        "埼玉県" => &["群馬県", "栃木県", "茨城県", "千葉県", "東京都", "山梨県", "長野県"],
+        "千葉県" => &["茨城県", "埼玉県", "東京都"],
+        "東京都" => &["埼玉県", "千葉県", "神奈川県", "山梨県"],
+        "神奈川県" => &["東京都", "山梨県", "静岡県"],
+        "新潟県" => &["山形県", "福島県", "群馬県", "長野県", "富山県"],
+        "富山県" => &["新潟県", "長野県", "岐阜県", "石川県"],
+        "石川県" => &["富山県", "岐阜県", "福井県"],
+        "福井県" => &["石川県", "岐阜県", "滋賀県", "京都府"],
+        "山梨県" => &["埼玉県", "東京都", "神奈川県", "長野県", "静岡県"],
+        "長野県" => &["新潟県", "群馬県", "埼玉県", "山梨県", "静岡県", "愛知県", "岐阜県", "富山県"],
+        "岐阜県" => &["富山県", "石川県", "福井県", "長野県", "愛知県", "三重県", "滋賀県"],
+        "静岡県" => &["神奈川県", "山梨県", "長野県", "愛知県"],
+        "愛知県" => &["静岡県", "長野県", "岐阜県", "三重県"],
+        "三重県" => &["愛知県", "岐阜県", "滋賀県", "京都府", "奈良県", "和歌山県"],
+        "滋賀県" => &["福井県", "岐阜県", "三重県", "京都府"],
+        "京都府" => &["福井県", "滋賀県", "三重県", "奈良県", "大阪府", "兵庫県"],
+        "大阪府" => &["京都府", "奈良県", "和歌山県", "兵庫県"],
+        "兵庫県" => &["京都府", "大阪府", "鳥取県", "岡山県", "徳島県"],
+        "奈良県" => &["三重県", "京都府", "大阪府", "和歌山県"],
+        "和歌山県" => &["三重県", "奈良県", "大阪府"],
+        "鳥取県" => &["兵庫県", "岡山県", "島根県", "広島県"],
+        "島根県" => &["鳥取県", "広島県", "山口県"],
+        "岡山県" => &["兵庫県", "鳥取県", "広島県", "香川県"],
+        "広島県" => &["鳥取県", "島根県", "岡山県", "山口県", "愛媛県"],
+        "山口県" => &["島根県", "広島県", "福岡県"],
+        "徳島県" => &["兵庫県", "香川県", "愛媛県", "高知県"],
+        "香川県" => &["徳島県", "愛媛県", "岡山県"],
+        "愛媛県" => &["徳島県", "香川県", "高知県", "広島県"],
+        "高知県" => &["徳島県", "愛媛県"],
+        "福岡県" => &["山口県", "佐賀県", "熊本県", "大分県"],
+        "佐賀県" => &["福岡県", "長崎県"],
+        "長崎県" => &["佐賀県"],
+        "熊本県" => &["福岡県", "大分県", "宮崎県", "鹿児島県"],
+        "大分県" => &["福岡県", "熊本県", "宮崎県"],
+        "宮崎県" => &["大分県", "熊本県", "鹿児島県"],
+        "鹿児島県" => &["熊本県", "宮崎県"],
+        "沖縄県" => &[],
+        _ => &[],
+    }
+}
+
+/// 指定都道府県がフィルタ対象か判定（選択県 + 近隣県）
 /// 分析タブ クエリパラメータ
 #[derive(Deserialize)]
 pub struct AnalysisParams {
@@ -783,13 +838,19 @@ pub async fn api_keywords(
 
     let target = "#analysis-content";
     let fallback_note = if is_fallback && !prefecture.is_empty() {
+        let scope = if !municipality.is_empty() {
+            format!("{} {} ", escape_html(&prefecture), escape_html(&municipality))
+        } else {
+            format!("{} ", escape_html(&prefecture))
+        };
         format!(r#"<div class="bg-amber-900/30 border border-amber-700 rounded-lg px-3 py-2 text-xs text-amber-300">
-            ※ {} のキーワードデータがないため、全国データを表示しています
-        </div>"#, escape_html(&prefecture))
+            ※ {}のキーワードデータがないため、全国データを表示しています
+        </div>"#, scope)
     } else {
         String::new()
     };
-    let municipality_note = if !municipality.is_empty() {
+    // フォールバック時は「都道府県のデータを表示」注記を出さない（全国データなので矛盾する）
+    let municipality_note = if !municipality.is_empty() && !is_fallback {
         format!(r#"<div class="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-300">
             ※ キーワード分析は都道府県単位のデータです。{} のデータを表示しています。
         </div>"#, escape_html(&make_location_label(&prefecture, "")))
@@ -956,13 +1017,19 @@ pub async fn api_cooccurrence(
     let location_label = make_location_label(&prefecture, &municipality);
 
     let fallback_note = if is_fallback && !prefecture.is_empty() {
+        let scope = if !municipality.is_empty() {
+            format!("{} {} ", escape_html(&prefecture), escape_html(&municipality))
+        } else {
+            format!("{} ", escape_html(&prefecture))
+        };
         format!(r#"<div class="bg-amber-900/30 border border-amber-700 rounded-lg px-3 py-2 text-xs text-amber-300 mb-3">
-            ※ {} の共起データがないため、全国データを表示しています
-        </div>"#, escape_html(&prefecture))
+            ※ {}の共起データがないため、全国データを表示しています
+        </div>"#, scope)
     } else {
         String::new()
     };
-    let municipality_note = if !municipality.is_empty() {
+    // フォールバック時は「都道府県のデータを表示」注記を出さない（全国データなので矛盾する）
+    let municipality_note = if !municipality.is_empty() && !is_fallback {
         format!(r#"<div class="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-300 mb-3">
             ※ 共起分析は都道府県単位のデータです。{} のデータを表示しています。
         </div>"#, escape_html(&make_location_label(&prefecture, "")))
@@ -1208,93 +1275,207 @@ pub async fn api_quality(
         ));
     }
 
-    // 県別 ECharts チャート（全国データが2行以上ある場合）
-    let pref_rows: Vec<_> = national.iter().filter(|r| {
-        r.get("prefecture").and_then(|v| v.as_str()).unwrap_or("") != "全国"
-    }).collect();
+    // 市区町村別品質比較（近隣市区町村との比較が分析の本質）
+    // 都道府県選択時: 選択県 + 隣接県の全市区町村を比較
+    // 全国選択時: 全国の都道府県レベルのみ表示（全国時は市区町村が多すぎるため）
+    let has_pref = !prefecture.is_empty();
 
-    if !pref_rows.is_empty() {
-        // Entropy バーチャートデータ構築
-        let mut pref_names = Vec::new();
-        let mut entropy_vals = Vec::new();
-        let mut kanji_vals = Vec::new();
-        let mut entropy_colors = Vec::new();
+    if has_pref {
+        // 市区町村レベル比較: 選択県 + 隣接県の市区町村を集計
+        let mut target_prefs: Vec<&str> = vec![prefecture.as_str()];
+        for neighbor in adjacent_prefectures(&prefecture) {
+            target_prefs.push(neighbor);
+        }
 
-        for pr in &pref_rows {
-            let pname = pr.get("prefecture").and_then(|v| v.as_str()).unwrap_or("-");
-            let ent = pr.get("entropy_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let kj = pr.get("kanji_ratio_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let muni_rows = analytics::query_quality_by_municipality(db, &job_type, &target_prefs)
+            .unwrap_or_default();
 
-            pref_names.push(format!("'{}'", pname));
-            entropy_vals.push(format!("{:.3}", ent));
-            kanji_vals.push(format!("{:.3}", kj * 100.0));
-
-            if !prefecture.is_empty() && pname == prefecture {
-                entropy_colors.push("'#f59e0b'".to_string());
+        if !muni_rows.is_empty() {
+            // 選択市区町村のデータを特定
+            let selected_muni_name = if !municipality.is_empty() {
+                municipality.clone()
             } else {
-                entropy_colors.push("'#06b6d4'".to_string());
+                String::new()
+            };
+
+            // バーチャート用: Entropyの高い順に上位30市区町村
+            let top_n = 30.min(muni_rows.len());
+            let bar_rows = &muni_rows[..top_n];
+
+            let mut muni_names = Vec::new();
+            let mut entropy_vals = Vec::new();
+            let mut entropy_colors = Vec::new();
+
+            for mr in bar_rows {
+                let mname = mr.get("municipality").and_then(|v| v.as_str()).unwrap_or("-");
+                let pname = mr.get("prefecture").and_then(|v| v.as_str()).unwrap_or("");
+                let ent = mr.get("entropy_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+                // ラベル: 同県は市区町村名のみ、他県は「県名 市区町村名」
+                let label = if pname == prefecture {
+                    mname.to_string()
+                } else {
+                    format!("{} {}", pname, mname)
+                };
+                muni_names.push(format!("'{}'", label.replace('\'', "\\'")));
+                entropy_vals.push(format!("{:.3}", ent));
+
+                // 色分け: 選択市区町村=アンバー、同県=シアン、隣接県=グレー
+                if !selected_muni_name.is_empty() && mname == selected_muni_name && pname == prefecture {
+                    entropy_colors.push("'#f59e0b'".to_string());
+                } else if pname == prefecture {
+                    entropy_colors.push("'#06b6d4'".to_string());
+                } else {
+                    entropy_colors.push("'#64748b'".to_string());
+                }
             }
-        }
 
-        // 散布図用データ: kanji_ratio vs entropy
-        let mut scatter_data = Vec::new();
-        for pr in &pref_rows {
-            let pname = pr.get("prefecture").and_then(|v| v.as_str()).unwrap_or("-");
-            let ent = pr.get("entropy_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let kj = pr.get("kanji_ratio_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            scatter_data.push(format!("[{:.1},{:.3},'{}']", kj * 100.0, ent, pname));
-        }
+            // 散布図用: 市区町村をシリーズ分割
+            let mut scatter_selected = Vec::new();   // 選択市区町村（アンバー、大）
+            let mut scatter_same_pref = Vec::new();  // 同県の他市区町村（シアン）
+            let mut scatter_neighbor = Vec::new();   // 隣接県の市区町村（グレー）
 
-        html.push_str(&format!(r##"
+            for mr in &muni_rows {
+                let mname = mr.get("municipality").and_then(|v| v.as_str()).unwrap_or("-");
+                let pname = mr.get("prefecture").and_then(|v| v.as_str()).unwrap_or("");
+                let ent = mr.get("entropy_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let kj = mr.get("kanji_ratio_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let cnt = mr.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+
+                let label = if pname == prefecture {
+                    mname.to_string()
+                } else {
+                    format!("{} {}", pname, mname)
+                };
+                // [kanji_ratio, entropy, label, count] でtooltip表示用にcount追加
+                let item = format!("[{:.1},{:.3},'{}',{}]", kj * 100.0, ent, label.replace('\'', "\\'"), cnt);
+
+                if !selected_muni_name.is_empty() && mname == selected_muni_name && pname == prefecture {
+                    scatter_selected.push(item);
+                } else if pname == prefecture {
+                    scatter_same_pref.push(item);
+                } else {
+                    scatter_neighbor.push(item);
+                }
+            }
+
+            let all_scatter: Vec<String> = scatter_selected.iter()
+                .chain(scatter_same_pref.iter())
+                .chain(scatter_neighbor.iter())
+                .cloned().collect();
+
+            // チャート見出し
+            let chart_heading_bar = if !selected_muni_name.is_empty() {
+                format!("近隣市区町村 Entropy比較（{} {} + 周辺）", escape_html(&prefecture), escape_html(&selected_muni_name))
+            } else {
+                format!("近隣市区町村 Entropy比較（{} + 隣接県）", escape_html(&prefecture))
+            };
+            let chart_heading_scatter = if !selected_muni_name.is_empty() {
+                format!("品質マップ（{} {} + 近隣市区町村）", escape_html(&prefecture), escape_html(&selected_muni_name))
+            } else {
+                format!("品質マップ（{} + 隣接県 市区町村比較）", escape_html(&prefecture))
+            };
+
+            // 散布図シリーズ
+            let has_selected = !scatter_selected.is_empty();
+            let legend_items = if has_selected {
+                format!("['{}','{}内','隣接県']", escape_html(&selected_muni_name), escape_html(&prefecture))
+            } else {
+                format!("['{}内','隣接県']", escape_html(&prefecture))
+            };
+
+            let mut series_parts = Vec::new();
+            if has_selected {
+                series_parts.push(format!(
+                    r#"{{
+                        name: '{sel_name}',
+                        type: 'scatter',
+                        data: [{sel_data}],
+                        symbolSize: 18,
+                        itemStyle: {{ color: '#f59e0b', opacity: 1.0 }},
+                        label: {{ show: true, formatter: function(p) {{ return p.data[2]; }}, position: 'top', color: '#f59e0b', fontSize: 11, fontWeight: 'bold' }}
+                    }}"#,
+                    sel_name = escape_html(&selected_muni_name),
+                    sel_data = scatter_selected.join(","),
+                ));
+            }
+            series_parts.push(format!(
+                r#"{{
+                    name: '{pref}内',
+                    type: 'scatter',
+                    data: [{same_data}],
+                    symbolSize: function(d) {{ return Math.max(6, Math.min(16, Math.sqrt(d[3]) * 1.5)); }},
+                    itemStyle: {{ color: '#06b6d4', opacity: 0.85 }},
+                    label: {{ show: {show_label}, formatter: function(p) {{ return p.data[2]; }}, position: 'right', color: '#94a3b8', fontSize: 8 }}
+                }}"#,
+                pref = escape_html(&prefecture),
+                same_data = scatter_same_pref.join(","),
+                show_label = if scatter_same_pref.len() <= 15 { "true" } else { "false" },
+            ));
+            series_parts.push(format!(
+                r#"{{
+                    name: '隣接県',
+                    type: 'scatter',
+                    data: [{nei_data}],
+                    symbolSize: function(d) {{ return Math.max(5, Math.min(12, Math.sqrt(d[3]))); }},
+                    itemStyle: {{ color: '#64748b', opacity: 0.6 }},
+                    label: {{ show: false }}
+                }}"#,
+                nei_data = scatter_neighbor.join(","),
+            ));
+            let scatter_series = series_parts.join(",");
+
+            // バーチャートの高さ: 市区町村数に応じて動的計算
+            let bar_height = 20.max(top_n * 18 + 40).min(800);
+
+            html.push_str(&format!(r##"
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 Entropy分布</h4>
-            <div id="quality-entropy-chart" style="width:100%;height:500px;"></div>
+            <h4 class="text-sm font-semibold text-gray-300 mb-2">{chart_heading_bar}</h4>
+            <div id="quality-entropy-chart" style="width:100%;height:{bar_height}px;"></div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <h4 class="text-sm font-semibold text-gray-300 mb-2">品質マップ (漢字比率 vs Entropy)</h4>
-            <div id="quality-scatter-chart" style="width:100%;height:500px;"></div>
+            <h4 class="text-sm font-semibold text-gray-300 mb-2">{chart_heading_scatter}</h4>
+            <div id="quality-scatter-chart" style="width:100%;height:600px;"></div>
         </div>
     </div>
     <script>
     (function() {{
-        // Entropy バーチャート
         var dom1 = document.getElementById('quality-entropy-chart');
         if (dom1) {{
             var c1 = echarts.init(dom1, 'dark');
             c1.setOption({{
                 backgroundColor: 'transparent',
                 tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'shadow' }} }},
-                grid: {{ left: 70, right: 20, top: 10, bottom: 20 }},
+                grid: {{ left: 100, right: 20, top: 10, bottom: 20 }},
                 xAxis: {{ type: 'value', name: 'Entropy (mean)', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }} }},
-                yAxis: {{ type: 'category', data: [{prefs}], axisLabel: {{ color: '#94a3b8', fontSize: 9 }}, inverse: true }},
+                yAxis: {{ type: 'category', data: [{muni_names}], axisLabel: {{ color: '#94a3b8', fontSize: 9 }}, inverse: true }},
                 series: [{{
                     type: 'bar',
                     data: [{entropy_data}],
-                    barMaxWidth: 12,
+                    barMaxWidth: 14,
                     itemStyle: {{ color: function(p) {{ var cs = [{entropy_colors}]; return cs[p.dataIndex]; }} }}
                 }}]
             }});
             window.addEventListener('resize', function() {{ c1.resize(); }});
         }}
-        // 品質マップ散布図（動的軸スケール）
         var dom2 = document.getElementById('quality-scatter-chart');
         if (dom2) {{
             var c2 = echarts.init(dom2, 'dark');
-            var scatterRaw = [{scatter_data}];
-            // 動的軸範囲計算
-            var xVals = scatterRaw.map(function(d){{ return d[0]; }});
-            var yVals = scatterRaw.map(function(d){{ return d[1]; }});
+            var allScatter = [{all_scatter_data}];
+            var xVals = allScatter.map(function(d){{ return d[0]; }});
+            var yVals = allScatter.map(function(d){{ return d[1]; }});
             var minX = Math.min.apply(null, xVals) - 2;
             var maxX = Math.max.apply(null, xVals) + 2;
             var minY = Math.min.apply(null, yVals) - 0.2;
             var maxY = Math.max.apply(null, yVals) + 0.2;
             c2.setOption({{
                 backgroundColor: 'transparent',
+                legend: {{ show: true, data: [{legend_items}], textStyle: {{ color: '#94a3b8', fontSize: 10 }}, top: 0 }},
                 tooltip: {{
-                    formatter: function(p) {{ return p.data[2] + '<br>漢字比率: ' + p.data[0].toFixed(1) + '%<br>Entropy: ' + p.data[1].toFixed(3); }}
+                    formatter: function(p) {{ return p.data[2] + '<br>漢字比率: ' + p.data[0].toFixed(1) + '%<br>Entropy: ' + p.data[1].toFixed(3) + '<br>求人数: ' + p.data[3]; }}
                 }},
-                grid: {{ left: 50, right: 20, top: 20, bottom: 50 }},
+                grid: {{ left: 50, right: 20, top: 40, bottom: 50 }},
                 xAxis: {{
                     type: 'value', name: '漢字比率 (%)', nameLocation: 'center', nameGap: 30,
                     min: minX, max: maxX,
@@ -1307,81 +1488,149 @@ pub async fn api_quality(
                     axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }},
                     splitLine: {{ lineStyle: {{ color: '#334155' }} }}
                 }},
-                series: [{{
-                    type: 'scatter',
-                    data: scatterRaw,
-                    symbolSize: 10,
-                    itemStyle: {{ color: '#06b6d4', opacity: 0.8 }},
-                    label: {{ show: true, formatter: function(p) {{ return p.data[2]; }}, position: 'right', color: '#94a3b8', fontSize: 8 }}
-                }}]
+                series: [{scatter_series}]
             }});
             window.addEventListener('resize', function() {{ c2.resize(); }});
         }}
     }})();
     </script>
 "##,
-            prefs = pref_names.join(","),
-            entropy_data = entropy_vals.join(","),
-            entropy_colors = entropy_colors.join(","),
-            scatter_data = scatter_data.join(","),
-        ));
+                chart_heading_bar = chart_heading_bar,
+                chart_heading_scatter = chart_heading_scatter,
+                bar_height = bar_height,
+                muni_names = muni_names.join(","),
+                entropy_data = entropy_vals.join(","),
+                entropy_colors = entropy_colors.join(","),
+                all_scatter_data = all_scatter.join(","),
+                legend_items = legend_items,
+                scatter_series = scatter_series,
+            ));
 
-        // テーブル（コンパクト化）
-        html.push_str(r#"<div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <h4 class="text-sm font-semibold text-gray-300 mb-3">都道府県別品質比較</h4>
-            <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full text-xs">
-            <thead class="sticky top-0 bg-navy-800"><tr class="text-gray-400 border-b border-slate-700">
-                <th class="text-left p-1.5">都道府県</th>
-                <th class="text-center p-1.5">Grade</th>
-                <th class="text-right p-1.5">件数</th>
-                <th class="text-right p-1.5">Entropy</th>
-                <th class="text-right p-1.5">品質</th>
-                <th class="text-right p-1.5">福利厚生</th>
-                <th class="text-right p-1.5">文字数</th>
-            </tr></thead><tbody>"#);
-
-        for row in &national {
-            let pref = row.get("prefecture").and_then(|v| v.as_str()).unwrap_or("-");
-            let grade = row.get("grade").and_then(|v| v.as_str()).unwrap_or("-");
-            let count = row.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
-            let ent = row.get("entropy_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let qual = row.get("quality_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let ben = row.get("benefits_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let dl = row.get("desc_length_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
-
-            let grade_cls = match grade {
-                "A" => "text-emerald-400",
-                "B" => "text-blue-400",
-                "C" => "text-yellow-400",
-                _ => "text-red-400",
+            // 市区町村別品質比較テーブル
+            let table_heading = if !selected_muni_name.is_empty() {
+                format!("市区町村別 品質比較（{} {} + 近隣）", escape_html(&prefecture), escape_html(&selected_muni_name))
+            } else {
+                format!("市区町村別 品質比較（{} + 隣接県）", escape_html(&prefecture))
             };
-            let is_current = !prefecture.is_empty() && pref == prefecture;
-            let row_cls = if is_current { "bg-cyan-900/30" } else if pref == "全国" { "bg-navy-700/30" } else { "" };
 
-            html.push_str(&format!(
-                r#"<tr class="border-b border-slate-800 {row_cls}">
-                    <td class="p-1.5 {}">{pref}</td>
-                    <td class="p-1.5 text-center font-bold {grade_cls}">{grade}</td>
-                    <td class="p-1.5 text-right">{count}</td>
-                    <td class="p-1.5 text-right font-mono">{ent:.3}</td>
-                    <td class="p-1.5 text-right">{qual:.1}</td>
-                    <td class="p-1.5 text-right">{ben:.1}</td>
-                    <td class="p-1.5 text-right">{dl:.0}</td>
-                </tr>"#,
-                if pref == "全国" { "font-bold text-white" } else { "text-gray-300" },
-                pref = escape_html(pref),
-                grade = grade,
-                grade_cls = grade_cls,
-                count = format_number(count),
-                ent = ent,
-                qual = qual,
-                ben = ben,
-                dl = dl,
-                row_cls = row_cls,
+            html.push_str(&format!(r#"<div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+                <h4 class="text-sm font-semibold text-gray-300 mb-3">{table_heading}</h4>
+                <div class="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-300 mb-2">
+                    ※ {pref} + 隣接県の市区町村を比較（5件以上の市区町村のみ表示）。市区町村クリックで地域を切り替えできます。
+                </div>
+                <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full text-xs">
+                <thead class="sticky top-0 bg-navy-800"><tr class="text-gray-400 border-b border-slate-700">
+                    <th class="text-left p-1.5">都道府県</th>
+                    <th class="text-left p-1.5">市区町村</th>
+                    <th class="text-center p-1.5">Grade</th>
+                    <th class="text-right p-1.5">件数</th>
+                    <th class="text-right p-1.5">Entropy</th>
+                    <th class="text-right p-1.5">品質</th>
+                    <th class="text-right p-1.5">福利厚生</th>
+                </tr></thead><tbody>"#,
+                table_heading = table_heading,
+                pref = escape_html(&prefecture),
+            ));
+
+            for mr in &muni_rows {
+                let pname = mr.get("prefecture").and_then(|v| v.as_str()).unwrap_or("-");
+                let mname = mr.get("municipality").and_then(|v| v.as_str()).unwrap_or("-");
+                let grade = mr.get("grade").and_then(|v| v.as_str()).unwrap_or("-");
+                let count = mr.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+                let ent = mr.get("entropy_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let qual = mr.get("quality_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let ben = mr.get("benefits_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+                let grade_cls = match grade {
+                    "A" => "text-emerald-400",
+                    "B" => "text-blue-400",
+                    "C" => "text-yellow-400",
+                    _ => "text-red-400",
+                };
+                let is_current = !selected_muni_name.is_empty() && mname == selected_muni_name && pname == prefecture;
+                let row_cls = if is_current { "bg-amber-900/30 font-semibold" } else if pname == prefecture { "" } else { "opacity-70" };
+                let name_cls = if is_current { "text-amber-300" } else if pname == prefecture { "text-cyan-300" } else { "text-gray-400" };
+
+                html.push_str(&format!(
+                    r#"<tr class="border-b border-slate-800 {row_cls} cursor-pointer hover:bg-navy-700/50"
+                        onclick="switchLocation('{p_esc}','{m_esc}')">
+                        <td class="p-1.5 text-gray-400 text-xs">{pname}</td>
+                        <td class="p-1.5 {name_cls}">{mname}</td>
+                        <td class="p-1.5 text-center font-bold {grade_cls}">{grade}</td>
+                        <td class="p-1.5 text-right">{count}</td>
+                        <td class="p-1.5 text-right font-mono">{ent:.3}</td>
+                        <td class="p-1.5 text-right">{qual:.1}</td>
+                        <td class="p-1.5 text-right">{ben:.1}</td>
+                    </tr>"#,
+                    row_cls = row_cls,
+                    p_esc = escape_html(pname),
+                    m_esc = escape_html(mname),
+                    pname = escape_html(pname),
+                    mname = escape_html(mname),
+                    name_cls = name_cls,
+                    grade = grade,
+                    grade_cls = grade_cls,
+                    count = format_number(count),
+                    ent = ent,
+                    qual = qual,
+                    ben = ben,
+                ));
+            }
+
+            html.push_str("</tbody></table></div></div>");
+        }
+    } else {
+        // 全国選択時: 都道府県レベルの概要のみ表示
+        let all_pref_rows: Vec<_> = national.iter().filter(|r| {
+            r.get("prefecture").and_then(|v| v.as_str()).unwrap_or("") != "全国"
+        }).collect();
+
+        if !all_pref_rows.is_empty() {
+            let mut pref_names = Vec::new();
+            let mut entropy_vals = Vec::new();
+
+            for pr in &all_pref_rows {
+                let pname = pr.get("prefecture").and_then(|v| v.as_str()).unwrap_or("-");
+                let ent = pr.get("entropy_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                pref_names.push(format!("'{}'", pname));
+                entropy_vals.push(format!("{:.3}", ent));
+            }
+
+            html.push_str(&format!(r##"
+    <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+        <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 Entropy概況</h4>
+        <div class="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-300 mb-2">
+            ※ 都道府県を選択すると、近隣市区町村との詳細比較が表示されます。
+        </div>
+        <div id="quality-entropy-chart" style="width:100%;height:700px;"></div>
+    </div>
+    <script>
+    (function() {{
+        var dom1 = document.getElementById('quality-entropy-chart');
+        if (dom1) {{
+            var c1 = echarts.init(dom1, 'dark');
+            c1.setOption({{
+                backgroundColor: 'transparent',
+                tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'shadow' }} }},
+                grid: {{ left: 80, right: 20, top: 10, bottom: 20 }},
+                xAxis: {{ type: 'value', name: 'Entropy (mean)', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }} }},
+                yAxis: {{ type: 'category', data: [{prefs}], axisLabel: {{ color: '#94a3b8', fontSize: 9 }}, inverse: true }},
+                series: [{{
+                    type: 'bar',
+                    data: [{entropy_data}],
+                    barMaxWidth: 12,
+                    itemStyle: {{ color: '#06b6d4' }}
+                }}]
+            }});
+            window.addEventListener('resize', function() {{ c1.resize(); }});
+        }}
+    }})();
+    </script>
+"##,
+                prefs = pref_names.join(","),
+                entropy_data = entropy_vals.join(","),
             ));
         }
-
-        html.push_str("</tbody></table></div></div>");
     }
 
     html.push_str("</div>");

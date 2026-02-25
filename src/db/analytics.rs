@@ -872,6 +872,61 @@ pub fn query_quality_from_postings(
     Ok(vec![result])
 }
 
+/// postingsテーブルから市区町村別の品質統計を集計する。
+/// 指定都道府県群に含まれる全市区町村のAVG(text_entropy), AVG(kanji_ratio)等を返す。
+/// HAVING COUNT(*) >= 5 で件数が少なすぎる市区町村は除外。
+pub fn query_quality_by_municipality(
+    db: &LocalDb,
+    job_type: &str,
+    prefectures: &[&str],
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    if prefectures.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // IN句の動的構築
+    let placeholders: Vec<String> = (0..prefectures.len())
+        .map(|i| format!("?{}", i + 2))
+        .collect();
+    let in_clause = placeholders.join(",");
+
+    let sql = format!(
+        "SELECT prefecture, municipality, COUNT(*) as count,
+                AVG(text_entropy) as entropy_mean,
+                AVG(kanji_ratio) as kanji_ratio_mean,
+                AVG(content_richness_score) as quality_score_mean,
+                AVG(benefits_score) as benefits_score_mean
+         FROM postings
+         WHERE job_type = ?1 AND prefecture IN ({}) AND text_entropy IS NOT NULL
+         GROUP BY prefecture, municipality
+         HAVING COUNT(*) >= 5
+         ORDER BY entropy_mean DESC",
+        in_clause
+    );
+
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    params.push(Box::new(job_type.to_string()));
+    for p in prefectures {
+        params.push(Box::new(p.to_string()));
+    }
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+    let mut rows = db.query(&sql, &param_refs)?;
+
+    // グレード判定を各行に追加
+    for row in &mut rows {
+        let entropy_mean = row.get("entropy_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let quality_mean = row.get("quality_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let grade = if entropy_mean >= 4.5 && quality_mean >= 15.0 { "A" }
+            else if entropy_mean >= 4.0 && quality_mean >= 10.0 { "B" }
+            else if entropy_mean >= 3.5 { "C" }
+            else { "D" };
+        row.insert("grade".to_string(), Value::String(grade.to_string()));
+    }
+
+    Ok(rows)
+}
+
 /// キーワードデータをフォールバック付きで取得する。
 /// 指定都道府県にデータがなければ全国データにフォールバック。
 pub fn query_keywords_with_fallback(
