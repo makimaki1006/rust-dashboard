@@ -117,7 +117,20 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/competitive/analysis/filter",
             get(handlers::competitive::comp_analysis_filtered),
         )
-        // セグメント分析タブ (Tab 9)
+        // 市場分析タブ (Tab 9)
+        .route(
+            "/tab/analysis",
+            get(handlers::analysis::tab_analysis),
+        )
+        .route("/api/analysis/salary", get(handlers::analysis::api_salary))
+        .route("/api/analysis/facility", get(handlers::analysis::api_facility))
+        .route("/api/analysis/employment", get(handlers::analysis::api_employment))
+        .route("/api/analysis/keywords", get(handlers::analysis::api_keywords))
+        .route("/api/analysis/cooccurrence", get(handlers::analysis::api_cooccurrence))
+        .route("/api/analysis/quality", get(handlers::analysis::api_quality))
+        .route("/api/analysis/clusters", get(handlers::analysis::api_clusters))
+        .route("/api/analysis/heatmap", get(handlers::analysis::api_heatmap))
+        // セグメント分析タブ (Tab 10)
         .route(
             "/tab/segment",
             get(handlers::segment::tab_segment),
@@ -460,28 +473,43 @@ async fn set_municipality(
 // --- ヘルパー ---
 
 async fn fetch_prefecture_list(state: &AppState, job_type: &str) -> Vec<String> {
+    // Tursoから取得を試行
     let sql = "SELECT DISTINCT prefecture FROM job_seeker_data WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture != ''";
     let params = vec![serde_json::Value::String(job_type.to_string())];
-    match state.turso.query(sql, &params).await {
+    let mut prefs = match state.turso.query(sql, &params).await {
         Ok(rows) => {
-            let mut prefs: Vec<String> = rows
-                .iter()
+            rows.iter()
                 .filter_map(|r| {
                     r.get("prefecture")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
                 })
-                .collect();
-            prefs.sort_by_key(|p| {
-                PREFECTURE_ORDER
-                    .iter()
-                    .position(|&o| o == p.as_str())
-                    .unwrap_or(99)
-            });
-            prefs
+                .collect::<Vec<String>>()
         }
         Err(_) => Vec::new(),
+    };
+
+    // Tursoが空の場合、geocoded_db（ローカルSQLite）からフォールバック
+    if prefs.is_empty() {
+        if let Some(db) = &state.geocoded_db {
+            if let Ok(rows) = db.query(
+                "SELECT DISTINCT prefecture FROM postings WHERE job_type = ?1 AND prefecture IS NOT NULL AND prefecture != ''",
+                &[&job_type as &dyn rusqlite::types::ToSql],
+            ) {
+                prefs = rows.iter()
+                    .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    .collect();
+            }
+        }
     }
+
+    prefs.sort_by_key(|p| {
+        PREFECTURE_ORDER
+            .iter()
+            .position(|&o| o == p.as_str())
+            .unwrap_or(99)
+    });
+    prefs
 }
 
 async fn fetch_municipality_list(
@@ -489,12 +517,13 @@ async fn fetch_municipality_list(
     job_type: &str,
     prefecture: &str,
 ) -> Vec<String> {
+    // Tursoから取得を試行
     let sql = "SELECT DISTINCT municipality FROM job_seeker_data WHERE job_type = ? AND prefecture = ? AND row_type = 'SUMMARY' AND municipality != '' ORDER BY municipality";
     let params = vec![
         serde_json::Value::String(job_type.to_string()),
         serde_json::Value::String(prefecture.to_string()),
     ];
-    match state.turso.query(sql, &params).await {
+    let mut munis = match state.turso.query(sql, &params).await {
         Ok(rows) => rows
             .iter()
             .filter_map(|r| {
@@ -502,9 +531,28 @@ async fn fetch_municipality_list(
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
             })
-            .collect(),
+            .collect::<Vec<String>>(),
         Err(_) => Vec::new(),
+    };
+
+    // Tursoが空の場合、geocoded_db（ローカルSQLite）からフォールバック
+    if munis.is_empty() {
+        if let Some(db) = &state.geocoded_db {
+            if let Ok(rows) = db.query(
+                "SELECT DISTINCT municipality FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
+                &[
+                    &job_type as &dyn rusqlite::types::ToSql,
+                    &prefecture as &dyn rusqlite::types::ToSql,
+                ],
+            ) {
+                munis = rows.iter()
+                    .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    .collect();
+            }
+        }
     }
+
+    munis
 }
 
 /// ヘルスチェック（認証不要）

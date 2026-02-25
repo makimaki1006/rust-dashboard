@@ -7,6 +7,7 @@ pub mod jobmap;
 pub mod talentmap;
 pub mod competitive;
 pub mod segment;
+pub mod analysis;
 pub mod api;
 
 use axum::response::Html;
