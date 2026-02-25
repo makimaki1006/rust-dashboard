@@ -768,7 +768,7 @@ pub async fn api_keywords(
     session: Session,
     Query(params): Query<AnalysisParams>,
 ) -> Html<String> {
-    let (job_type, prefecture, _municipality) = get_session_filters(&session).await;
+    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -778,7 +778,7 @@ pub async fn api_keywords(
     // フォールバック付きで取得（都道府県データなし→全国にフォールバック）
     let (rows, is_fallback) = analytics::query_keywords_with_fallback(db, &job_type, &prefecture, layer, Some(50));
 
-    let location_label = make_location_label(&prefecture, "");
+    let location_label = make_location_label(&prefecture, &municipality);
     let active_layer = layer.unwrap_or("all");
 
     let target = "#analysis-content";
@@ -789,11 +789,18 @@ pub async fn api_keywords(
     } else {
         String::new()
     };
+    let municipality_note = if !municipality.is_empty() {
+        format!(r#"<div class="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-300">
+            ※ キーワード分析は都道府県単位のデータです。{} のデータを表示しています。
+        </div>"#, escape_html(&make_location_label(&prefecture, "")))
+    } else {
+        String::new()
+    };
 
     let mut html = format!(
         "<div class=\"space-y-4\">\
         <h3 class=\"text-lg font-semibold text-white\">🔑 キーワード分析 — {location}</h3>\
-        {fallback_note}\
+        {fallback_note}{municipality_note}\
         <div class=\"flex gap-2 mb-3\">\
             <button class=\"px-3 py-1 text-xs rounded {all_cls}\" hx-get=\"/api/analysis/keywords\" hx-target=\"{target}\" hx-swap=\"innerHTML\">全て</button>\
             <button class=\"px-3 py-1 text-xs rounded {uni_cls}\" hx-get=\"/api/analysis/keywords?layer=universal\" hx-target=\"{target}\" hx-swap=\"innerHTML\">🌐 業界共通</button>\
@@ -802,6 +809,7 @@ pub async fn api_keywords(
         </div>",
         location = escape_html(&location_label),
         fallback_note = fallback_note,
+        municipality_note = municipality_note,
         target = target,
         all_cls = if active_layer == "all" { "bg-cyan-600 text-white" } else { "bg-slate-700 text-gray-400" },
         uni_cls = if active_layer == "universal" { "bg-cyan-600 text-white" } else { "bg-slate-700 text-gray-400" },
@@ -935,7 +943,7 @@ pub async fn api_cooccurrence(
     session: Session,
     Query(params): Query<AnalysisParams>,
 ) -> Html<String> {
-    let (job_type, prefecture, _municipality) = get_session_filters(&session).await;
+    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -945,7 +953,7 @@ pub async fn api_cooccurrence(
     // フォールバック付きで取得（都道府県データなし→全国にフォールバック）
     let (rows, is_fallback) = analytics::query_cooccurrence_with_fallback(db, &job_type, &prefecture, min_lift);
 
-    let location_label = make_location_label(&prefecture, "");
+    let location_label = make_location_label(&prefecture, &municipality);
 
     let fallback_note = if is_fallback && !prefecture.is_empty() {
         format!(r#"<div class="bg-amber-900/30 border border-amber-700 rounded-lg px-3 py-2 text-xs text-amber-300 mb-3">
@@ -954,11 +962,18 @@ pub async fn api_cooccurrence(
     } else {
         String::new()
     };
+    let municipality_note = if !municipality.is_empty() {
+        format!(r#"<div class="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-300 mb-3">
+            ※ 共起分析は都道府県単位のデータです。{} のデータを表示しています。
+        </div>"#, escape_html(&make_location_label(&prefecture, "")))
+    } else {
+        String::new()
+    };
 
     let mut html = format!(
         r#"<div class="space-y-4">
         <h3 class="text-lg font-semibold text-white">🔗 条件パッケージ共起分析 — {location}</h3>
-        {fallback_note}
+        {fallback_note}{municipality_note}
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700 text-sm text-gray-300 space-y-2">
             <p><span class="text-cyan-400 font-semibold">関連強度 (Lift)</span>: 2つの条件が独立に出現する場合と比べて、何倍共起しやすいか。1.0=無相関、2.0以上で強い関連。</p>
             <p><span class="text-purple-400 font-semibold">相関度 (Phi)</span>: -1〜+1の統計的相関指標。0.3以上で実用的に意味のある関連性。</p>
@@ -966,6 +981,7 @@ pub async fn api_cooccurrence(
         </div>"#,
         location = escape_html(&location_label),
         fallback_note = fallback_note,
+        municipality_note = municipality_note,
     );
 
     if rows.is_empty() {
@@ -1380,7 +1396,7 @@ pub async fn api_clusters(
     State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -1395,12 +1411,23 @@ pub async fn api_clusters(
         return Html(empty_html("クラスタデータがありません"));
     }
 
+    let location_label = make_location_label(&prefecture, &municipality);
+    let scope_note = if !prefecture.is_empty() {
+        format!(r#"<div class="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-300">
+            ※ クラスタプロファイルは職種全体（全国）の分析結果です。{} の地域別クラスタ分布は「地域ヒートマップ」タブで確認できます。
+        </div>"#, escape_html(&location_label))
+    } else {
+        String::new()
+    };
+
     let colors = ["#06b6d4", "#8b5cf6", "#f59e0b", "#ef4444", "#10b981", "#3b82f6", "#ec4899"];
 
     let mut html = format!(
         r#"<div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white">🎯 求人クラスタ分析 — {}</h3>"#,
-        escape_html(&job_type),
+        <h3 class="text-lg font-semibold text-white">🎯 求人クラスタ分析 — {location}</h3>
+        {scope_note}"#,
+        location = escape_html(&location_label),
+        scope_note = scope_note,
     );
 
     // 円グラフ（クラスタ構成比）
@@ -1597,7 +1624,7 @@ pub async fn api_heatmap(
     session: Session,
     Query(params): Query<AnalysisParams>,
 ) -> Html<String> {
-    let (job_type, prefecture, _) = get_session_filters(&session).await;
+    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -1613,7 +1640,7 @@ pub async fn api_heatmap(
         return Html(empty_html("地域分布データがありません"));
     }
 
-    let location_label = make_location_label(&prefecture, "");
+    let location_label = make_location_label(&prefecture, &municipality);
 
     // クラスタラベル一覧
     let mut cluster_labels: Vec<(i64, String)> = Vec::new();
@@ -1655,10 +1682,19 @@ pub async fn api_heatmap(
 
     let chart_height = (prefectures.len() * 18).max(400);
 
+    let municipality_note = if !municipality.is_empty() {
+        format!(r#"<div class="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-300">
+            ※ ヒートマップは都道府県単位の解像度です。{} のデータを含む {} の行をハイライトしています。
+        </div>"#, escape_html(&municipality), escape_html(&prefecture))
+    } else {
+        String::new()
+    };
+
     let mut html = format!(r##"
 <div class="space-y-4">
     <h3 class="text-lg font-semibold text-white">🗺️ 地域×クラスタ分布 — {location}</h3>
     <p class="text-sm text-gray-400">各都道府県内でのクラスタ構成比 (%)。色が濃いほど構成比が高い。</p>
+    {municipality_note}
 
     <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
         <h4 class="text-sm font-semibold text-gray-300 mb-2">ヒートマップ</h4>
@@ -1727,6 +1763,7 @@ pub async fn api_heatmap(
     </script>
 "##,
         location = escape_html(&location_label),
+        municipality_note = municipality_note,
         chart_height = chart_height,
         x_labels = x_labels,
         y_labels = y_labels,
