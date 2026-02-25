@@ -146,10 +146,10 @@ struct MobilityStats {
     distance_q75: f64,
     /// 都道府県が選択されているか
     has_prefecture: bool,
-    /// 採用圏カード用: 主要流入元 (地名, 人数) 上位5
-    top_inflow_sources: Vec<(String, i64)>,
-    /// 採用圏カード用: 主要流出先 (地名, 人数) 上位5
-    top_outflow_targets: Vec<(String, i64)>,
+    /// 採用圏カード用: 主要流入元 (表示名, 都道府県, 市区町村, 人数) 上位5
+    top_inflow_sources: Vec<(String, String, String, i64)>,
+    /// 採用圏カード用: 主要流出先 (表示名, 都道府県, 市区町村, 人数) 上位5
+    top_outflow_targets: Vec<(String, String, String, i64)>,
     /// 地元志向率
     local_pct: f64,
     /// 地域サマリー: 女性比率
@@ -248,8 +248,8 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
     let mut mobility_map: HashMap<String, i64> = HashMap::new();
     let mut pref_flow_map: HashMap<(String, String), i64> = HashMap::new();
     let mut muni_flow_map: HashMap<(String, String), i64> = HashMap::new();
-    let mut inflow_source_map: HashMap<String, i64> = HashMap::new();
-    let mut outflow_target_map: HashMap<String, i64> = HashMap::new();
+    let mut inflow_source_map: HashMap<(String, String, String), i64> = HashMap::new();
+    let mut outflow_target_map: HashMap<(String, String, String), i64> = HashMap::new();
     let mut distance_values: Vec<(f64, i64)> = Vec::new();
 
     stats.has_prefecture = has_pref;
@@ -296,11 +296,13 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
                 } else if to_muni == municipality && from_muni != municipality && realistic {
                     stats.inflow += cnt;
                     let name = if from_muni.is_empty() { from_pref.clone() } else { from_muni.clone() };
-                    *inflow_source_map.entry(name).or_insert(0) += cnt;
+                    let key = (name, from_pref.clone(), from_muni.clone());
+                    *inflow_source_map.entry(key).or_insert(0) += cnt;
                 } else if from_muni == municipality && to_muni != municipality && realistic {
                     stats.outflow += cnt;
                     let name = if to_muni.is_empty() { to_pref.clone() } else { to_muni.clone() };
-                    *outflow_target_map.entry(name).or_insert(0) += cnt;
+                    let key = (name, to_pref.clone(), to_muni.clone());
+                    *outflow_target_map.entry(key).or_insert(0) += cnt;
                 }
             } else {
                 // 都道府県レベル判定（従来ロジック）
@@ -308,10 +310,12 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
                     stats.local_count += cnt;
                 } else if from_pref != prefecture && to_pref == prefecture && realistic {
                     stats.inflow += cnt;
-                    *inflow_source_map.entry(from_pref.clone()).or_insert(0) += cnt;
+                    let key = (from_pref.clone(), from_pref.clone(), String::new());
+                    *inflow_source_map.entry(key).or_insert(0) += cnt;
                 } else if from_pref == prefecture && to_pref != prefecture && realistic {
                     stats.outflow += cnt;
-                    *outflow_target_map.entry(to_pref.clone()).or_insert(0) += cnt;
+                    let key = (to_pref.clone(), to_pref.clone(), String::new());
+                    *outflow_target_map.entry(key).or_insert(0) += cnt;
                 }
             }
         }
@@ -357,12 +361,16 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
     stats.muni_flows = muni_flow_list.into_iter().take(10).collect();
 
     // 流入元・流出先Top3
-    let mut inflow_list: Vec<(String, i64)> = inflow_source_map.into_iter().collect();
-    inflow_list.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut inflow_list: Vec<(String, String, String, i64)> = inflow_source_map.into_iter()
+        .map(|((name, pref, muni), cnt)| (name, pref, muni, cnt))
+        .collect();
+    inflow_list.sort_by(|a, b| b.3.cmp(&a.3));
     stats.top_inflow_sources = inflow_list.into_iter().take(3).collect();
 
-    let mut outflow_list: Vec<(String, i64)> = outflow_target_map.into_iter().collect();
-    outflow_list.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut outflow_list: Vec<(String, String, String, i64)> = outflow_target_map.into_iter()
+        .map(|((name, pref, muni), cnt)| (name, pref, muni, cnt))
+        .collect();
+    outflow_list.sort_by(|a, b| b.3.cmp(&a.3));
     stats.top_outflow_targets = outflow_list.into_iter().take(3).collect();
 
     // 地元志向率
@@ -553,12 +561,13 @@ fn build_recruitment_area_card(stats: &MobilityStats) -> String {
         r#"<span class="text-slate-500 text-sm">データなし</span>"#.to_string()
     } else {
         stats.top_inflow_sources.iter()
-            .filter(|(_, cnt)| *cnt >= 2) // ノイズ除去
-            .map(|(name, cnt)| {
+            .filter(|(_, _, _, cnt)| *cnt >= 2) // ノイズ除去
+            .map(|(name, pref, muni, cnt)| {
                 let pct = if stats.inflow > 0 { *cnt as f64 / stats.inflow as f64 * 100.0 } else { 0.0 };
+                let display = if muni.is_empty() { name.clone() } else { format!("{} ({})", name, pref) };
                 format!(
-                    r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm"><span class="text-green-400">&larr;</span> {} <span class="text-slate-400">({}人, {:.0}%)</span></span>"#,
-                    name, format_number(*cnt), pct
+                    r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm cursor-pointer hover:bg-slate-600 transition-colors" onclick="switchLocation('{}','{}')"><span class="text-green-400">&larr;</span> {} <span class="text-slate-400">({}人, {:.0}%)</span></span>"#,
+                    pref, muni, display, format_number(*cnt), pct
                 )
             })
             .collect::<Vec<_>>()
@@ -569,12 +578,13 @@ fn build_recruitment_area_card(stats: &MobilityStats) -> String {
         r#"<span class="text-slate-500 text-sm">データなし</span>"#.to_string()
     } else {
         stats.top_outflow_targets.iter()
-            .filter(|(_, cnt)| *cnt >= 2) // ノイズ除去
-            .map(|(name, cnt)| {
+            .filter(|(_, _, _, cnt)| *cnt >= 2) // ノイズ除去
+            .map(|(name, pref, muni, cnt)| {
                 let pct = if stats.outflow > 0 { *cnt as f64 / stats.outflow as f64 * 100.0 } else { 0.0 };
+                let display = if muni.is_empty() { name.clone() } else { format!("{} ({})", name, pref) };
                 format!(
-                    r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm"><span class="text-red-400">&rarr;</span> {} <span class="text-slate-400">({}人, {:.0}%)</span></span>"#,
-                    name, format_number(*cnt), pct
+                    r#"<span class="inline-flex items-center gap-1 bg-slate-700 rounded px-2 py-1 text-sm cursor-pointer hover:bg-slate-600 transition-colors" onclick="switchLocation('{}','{}')"><span class="text-red-400">&rarr;</span> {} <span class="text-slate-400">({}人, {:.0}%)</span></span>"#,
+                    pref, muni, display, format_number(*cnt), pct
                 )
             })
             .collect::<Vec<_>>()
@@ -583,7 +593,7 @@ fn build_recruitment_area_card(stats: &MobilityStats) -> String {
 
     // 採用圏拡大提案テキスト
     let expansion = if stats.local_pct < 50.0 && !stats.top_inflow_sources.is_empty() {
-        let top_source = &stats.top_inflow_sources[0].0;
+        let top_source = &stats.top_inflow_sources[0].0;  // 表示名
         format!("{}など近隣エリアへの求人露出強化を推奨", top_source)
     } else if stats.local_pct > 70.0 {
         "地元志向が強いため、近隣エリアへの採用圏拡大を検討".to_string()
@@ -605,7 +615,7 @@ fn build_recruitment_area_card(stats: &MobilityStats) -> String {
 
     // 主要流入元のテキスト
     let source_text = stats.top_inflow_sources.iter().take(3)
-        .map(|(n, _)| n.as_str())
+        .map(|(n, _, _, _)| n.as_str())
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -675,18 +685,19 @@ fn build_flow_kpi(stats: &MobilityStats) -> String {
         "N/A".to_string()
     };
 
-    // 流入元リスト（割合表示付き、少数ノイズフィルタ）
-    let inflow_total: i64 = stats.top_inflow_sources.iter().map(|(_, c)| c).sum();
+    // 流入元リスト（割合表示付き、少数ノイズフィルタ、クリックでナビゲーション）
+    let inflow_total: i64 = stats.top_inflow_sources.iter().map(|(_, _, _, c)| c).sum();
     let inflow_source_html: String = if stats.top_inflow_sources.is_empty() {
         r#"<p class="text-sm text-slate-500">市区町村を選択すると表示</p>"#.to_string()
     } else {
         let mut items: Vec<String> = stats.top_inflow_sources.iter().take(3)
-            .filter(|(_, cnt)| *cnt >= 2) // ノイズ除去: 2人未満を除外
-            .map(|(name, cnt)| {
+            .filter(|(_, _, _, cnt)| *cnt >= 2) // ノイズ除去: 2人未満を除外
+            .map(|(name, pref, muni, cnt)| {
                 let pct = if inflow_total > 0 { *cnt as f64 / inflow_total as f64 * 100.0 } else { 0.0 };
+                let display = if muni.is_empty() { name.clone() } else { format!("{} ({})", name, pref) };
                 format!(
-                    r#"<div class="flex items-center justify-between"><span class="text-sm text-white">{}</span><span class="text-sm text-slate-400">{}人 <span style="color:#10b981;">({:.0}%)</span></span></div>"#,
-                    name, format_number(*cnt), pct
+                    r#"<div class="flex items-center justify-between cursor-pointer hover:bg-slate-700/50 rounded px-1 py-0.5 transition-colors" onclick="switchLocation('{}','{}')"><span class="text-sm text-white">{}</span><span class="text-sm text-slate-400">{}人 <span style="color:#10b981;">({:.0}%)</span></span></div>"#,
+                    pref, muni, display, format_number(*cnt), pct
                 )
             }).collect();
         if items.is_empty() {
@@ -695,18 +706,19 @@ fn build_flow_kpi(stats: &MobilityStats) -> String {
         items.join("\n")
     };
 
-    // 流出先リスト（割合表示付き、少数ノイズフィルタ）
-    let outflow_total: i64 = stats.top_outflow_targets.iter().map(|(_, c)| c).sum();
+    // 流出先リスト（割合表示付き、少数ノイズフィルタ、クリックでナビゲーション）
+    let outflow_total: i64 = stats.top_outflow_targets.iter().map(|(_, _, _, c)| c).sum();
     let outflow_target_html: String = if stats.top_outflow_targets.is_empty() || stats.outflow == 0 {
         r#"<p class="text-sm text-slate-500">流出データなし（地元志向が高いエリアです）</p>"#.to_string()
     } else {
         let mut items: Vec<String> = stats.top_outflow_targets.iter().take(3)
-            .filter(|(_, cnt)| *cnt >= 2) // ノイズ除去: 2人未満を除外
-            .map(|(name, cnt)| {
+            .filter(|(_, _, _, cnt)| *cnt >= 2) // ノイズ除去: 2人未満を除外
+            .map(|(name, pref, muni, cnt)| {
                 let pct = if outflow_total > 0 { *cnt as f64 / outflow_total as f64 * 100.0 } else { 0.0 };
+                let display = if muni.is_empty() { name.clone() } else { format!("{} ({})", name, pref) };
                 format!(
-                    r#"<div class="flex items-center justify-between"><span class="text-sm text-white">{}</span><span class="text-sm text-slate-400">{}人 <span style="color:#ef4444;">({:.0}%)</span></span></div>"#,
-                    name, format_number(*cnt), pct
+                    r#"<div class="flex items-center justify-between cursor-pointer hover:bg-slate-700/50 rounded px-1 py-0.5 transition-colors" onclick="switchLocation('{}','{}')"><span class="text-sm text-white">{}</span><span class="text-sm text-slate-400">{}人 <span style="color:#ef4444;">({:.0}%)</span></span></div>"#,
+                    pref, muni, display, format_number(*cnt), pct
                 )
             }).collect();
         if items.is_empty() {

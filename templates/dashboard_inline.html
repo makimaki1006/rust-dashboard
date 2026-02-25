@@ -171,6 +171,80 @@
                 fetch('/tab/demographics', { priority: 'low' });
             });
         }
+
+        // 流入/流出地域クリックでプルダウンを切り替え
+        function switchLocation(pref, muni) {
+            if (!pref) return;
+
+            // Step 1: セッションに都道府県を設定
+            fetch('/api/set_prefecture', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'prefecture=' + encodeURIComponent(pref)
+            }).then(function() {
+                // Step 2: 市区町村カスケード取得
+                return fetch('/api/municipalities_cascade?prefecture=' + encodeURIComponent(pref));
+            }).then(function(r) { return r.text(); }).then(function(html) {
+                // Step 3: 都道府県ドロップダウン更新
+                var prefSelect = document.getElementById('pref-select');
+                for (var i = 0; i < prefSelect.options.length; i++) {
+                    if (prefSelect.options[i].value === pref) {
+                        prefSelect.selectedIndex = i;
+                        break;
+                    }
+                }
+
+                // Step 4: 市区町村ドロップダウン更新
+                var muniSelect = document.getElementById('muni-select');
+                while (muniSelect.options.length > 0) { muniSelect.remove(0); }
+                var def = document.createElement('option');
+                def.value = '';
+                def.textContent = 'すべて';
+                muniSelect.appendChild(def);
+                if (html) {
+                    var tmp = document.createElement('select');
+                    tmp.insertAdjacentHTML('afterbegin', html);
+                    while (tmp.firstChild) { muniSelect.appendChild(tmp.firstChild); }
+                }
+                muniSelect.selectedIndex = 0;
+
+                if (muni) {
+                    // Step 5: セッションに市区町村を設定
+                    fetch('/api/set_municipality', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'municipality=' + encodeURIComponent(muni)
+                    }).then(function() {
+                        // Step 6: 市区町村ドロップダウンで該当市区町村を選択
+                        for (var j = 0; j < muniSelect.options.length; j++) {
+                            if (muniSelect.options[j].value === muni) {
+                                muniSelect.selectedIndex = j;
+                                break;
+                            }
+                        }
+                        // Step 7: タブ再読み込み
+                        var activeBtn = document.querySelector('.tab-btn.active');
+                        if (activeBtn) {
+                            var url = activeBtn.getAttribute('hx-get');
+                            htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                        }
+                    });
+                } else {
+                    // 市区町村なし → セッションの市区町村をクリアしてリロード
+                    fetch('/api/set_municipality', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'municipality='
+                    }).then(function() {
+                        var activeBtn = document.querySelector('.tab-btn.active');
+                        if (activeBtn) {
+                            var url = activeBtn.getAttribute('hx-get');
+                            htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                        }
+                    });
+                }
+            });
+        }
     </script>
 </body>
 </html>

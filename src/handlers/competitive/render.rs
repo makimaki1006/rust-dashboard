@@ -136,11 +136,11 @@ pub(crate) fn render_posting_table(
     html.push_str(r#"<th class="text-right">月給下限</th>"#);
     html.push_str(r#"<th class="text-right">月給上限</th>"#);
     html.push_str(r#"<th class="text-right">基本給</th>"#);
-    html.push_str("<th>応募要件</th>");
+    html.push_str(r#"<th style="min-width:200px">応募要件</th>"#);
     html.push_str("<th>賞与</th>");
     html.push_str(r#"<th class="text-right">年間休日</th>"#);
     html.push_str(r#"<th class="text-right">資格手当</th>"#);
-    html.push_str("<th>他手当</th>");
+    html.push_str(r#"<th style="min-width:200px">他手当</th>"#);
     html.push_str("<th>セグメント</th>");
     if show_distance {
         html.push_str(r#"<th class="text-right">距離</th>"#);
@@ -177,11 +177,11 @@ pub(crate) fn render_posting_table(
         let sal_min = if p.salary_min > 0 { format_number(p.salary_min) } else { "-".to_string() };
         let sal_max = if p.salary_max > 0 { format_number(p.salary_max) } else { "-".to_string() };
         let base_sal = if p.base_salary > 0 { format_number(p.base_salary) } else { "-".to_string() };
-        let reqs = truncate_str(&escape_html(&p.requirements), 80);
+        let reqs = escape_html(&p.requirements);
         let bonus = truncate_str(&escape_html(&p.bonus), 20);
         let holidays = if p.annual_holidays > 0 { p.annual_holidays.to_string() } else { "-".to_string() };
         let qual_allow = if p.qualification_allowance > 0 { format_number(p.qualification_allowance) } else { "-".to_string() };
-        let other_allow = truncate_str(&escape_html(&p.other_allowances), 80);
+        let other_allow = escape_html(&p.other_allowances);
 
         let seg_label = if p.tier3_label_short.is_empty() {
             "-".to_string()
@@ -190,7 +190,7 @@ pub(crate) fn render_posting_table(
             if p.tier3_id.is_empty() { label } else { format!(r#"<span title="{}">{}</span>"#, escape_html(&p.tier3_id), label) }
         };
         html.push_str(&format!(
-            r#"<tr><td class="text-center">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td>{}</td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td>{}</td><td class="text-xs">{}</td>"#,
+            r#"<tr><td class="text-center">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td><div class="cell-wrap">{}</div></td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td><div class="cell-wrap">{}</div></td><td class="text-xs">{}</td>"#,
             start_num + i as i64 + 1, fname, ftype_display, area, escape_html(&p.employment_type),
             sal_type, sal_min, sal_max, base_sal, reqs, bonus, holidays, qual_allow, other_allow, seg_label,
         ));
@@ -278,11 +278,11 @@ pub(crate) fn render_report_html(
         let sal_min = if p.salary_min > 0 { format_number(p.salary_min) } else { "-".to_string() };
         let sal_max = if p.salary_max > 0 { format_number(p.salary_max) } else { "-".to_string() };
         let base_sal = if p.base_salary > 0 { format_number(p.base_salary) } else { "-".to_string() };
-        let reqs = truncate_str(&escape_html(&p.requirements), 80);
+        let reqs = escape_html(&p.requirements);
         let bonus = truncate_str(&escape_html(&p.bonus), 20);
         let holidays = if p.annual_holidays > 0 { p.annual_holidays.to_string() } else { "-".to_string() };
         let qual_allow = if p.qualification_allowance > 0 { format_number(p.qualification_allowance) } else { "-".to_string() };
-        let other_allow = truncate_str(&escape_html(&p.other_allowances), 80);
+        let other_allow = escape_html(&p.other_allowances);
         let dist_cell = if show_distance {
             let d = p.distance_km.map(|d| format!("{:.1}km", d)).unwrap_or("-".to_string());
             format!(r#"<td class="num">{}</td>"#, d)
@@ -298,7 +298,7 @@ pub(crate) fn render_report_html(
             format!(r#"<span title="{}">{}</span>"#, escape_html(&p.tier3_id), escape_html(&p.tier3_label_short))
         };
         table_rows.push_str(&format!(
-            r#"<tr><td style="text-align:center">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td class="requirements">{}</td><td>{}</td><td class="num">{}</td><td class="num">{}</td><td>{}</td><td>{}</td>{}</tr>"#,
+            r#"<tr><td style="text-align:center">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td style="max-width:250px;word-break:break-all">{}</td><td>{}</td><td class="num">{}</td><td class="num">{}</td><td style="max-width:250px;word-break:break-all">{}</td><td>{}</td>{}</tr>"#,
             i + 1, fname, ftype, area, escape_html(&p.employment_type),
             sal_type, sal_min, sal_max, base_sal, reqs, bonus, holidays, qual_allow, other_allow, seg, dist_cell,
         ));

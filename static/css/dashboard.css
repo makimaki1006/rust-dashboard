@@ -122,6 +122,14 @@
     text-align: center;
 }
 
+.data-table .cell-wrap {
+    max-width: 300px;
+    white-space: normal;
+    word-break: break-all;
+    line-height: 1.4;
+    font-size: 0.75rem;
+}
+
 /* ==========================================================
    Leaflet地図オーバーライド（ダーク背景対応）
    ========================================================== */
