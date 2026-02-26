@@ -49,6 +49,15 @@
                     <option value="パート・バイト">パート・バイト</option>
                 </select>
             </div>
+            <!-- 事業形態 -->
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">事業形態</label>
+                <select id="comp-stype" name="service_type"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                    <option value="">全て</option>
+                    {{STYPE_OPTIONS}}
+                </select>
+            </div>
             <!-- 施設形態: 2階層選択（大カテゴリ→サブカテゴリ） -->
             <div class="relative" id="ftype-dropdown-container">
                 <label class="block text-xs text-slate-400 mb-1">施設形態</label>
@@ -250,6 +259,20 @@ function updateFacilityTypes(pref) {
             }
             updateFtypeLabel();
         });
+    // 事業形態プルダウンも再取得
+    fetch('/api/competitive/service_types?prefecture=' + encodeURIComponent(pref))
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+            var sel = document.getElementById('comp-stype');
+            if (sel) {
+                var parser = new DOMParser();
+                var doc = parser.parseFromString('<select>' + html + '</select>', 'text/html');
+                var newOptions = doc.querySelector('select');
+                while (sel.options.length > 0) sel.remove(0);
+                while (newOptions.firstChild) sel.appendChild(document.adoptNode(newOptions.firstChild));
+                sel.selectedIndex = 0;
+            }
+        });
 }
 
 // --- 検索・分析 ---
@@ -259,6 +282,7 @@ function searchCompetitive() {
     var muni = document.getElementById('comp-muni').value;
     var emp = document.getElementById('comp-emp').value;
     var ftype = getSelectedFtypes();
+    var stype = document.getElementById('comp-stype').value;
     var nearby = document.getElementById('comp-nearby').checked;
     var radius = document.getElementById('comp-radius').value;
 
@@ -276,6 +300,7 @@ function searchCompetitive() {
         + '&municipality=' + encodeURIComponent(muni)
         + '&employment_type=' + encodeURIComponent(emp)
         + '&facility_type=' + encodeURIComponent(ftype)
+        + '&service_type=' + encodeURIComponent(stype)
         + '&nearby=' + nearby
         + '&radius_km=' + radius;
 

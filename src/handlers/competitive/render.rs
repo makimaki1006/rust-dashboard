@@ -8,7 +8,7 @@ use super::utils::{
     truncate_str,
 };
 
-pub(crate) fn render_competitive(job_type: &str, stats: &CompStats, pref_options: &[String], ftype_options: &[(String, i64)]) -> String {
+pub(crate) fn render_competitive(job_type: &str, stats: &CompStats, pref_options: &[String], ftype_options: &[(String, i64)], stype_options: &[(String, i64)]) -> String {
     let pref_labels: Vec<String> = stats.pref_ranking.iter().map(|(p, _)| format!("\"{}\"", p)).collect();
     let pref_values: Vec<String> = stats.pref_ranking.iter().map(|(_, v)| v.to_string()).collect();
 
@@ -44,6 +44,18 @@ pub(crate) fn render_competitive(job_type: &str, stats: &CompStats, pref_options
         .collect::<Vec<_>>()
         .join("\n");
 
+    // 事業形態オプション
+    let stype_option_html: String = stype_options
+        .iter()
+        .map(|(cat, cnt)| {
+            format!(
+                r#"<option value="{}">{} ({})</option>"#,
+                escape_html(cat), escape_html(cat), format_number(*cnt)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
     include_str!("../../../templates/tabs/competitive.html")
         .replace("{{JOB_TYPE}}", job_type)
         .replace("{{TOTAL_POSTINGS}}", &format_number(stats.total_postings))
@@ -53,6 +65,7 @@ pub(crate) fn render_competitive(job_type: &str, stats: &CompStats, pref_options
         .replace("{{PREF_ROWS}}", &pref_rows)
         .replace("{{PREF_OPTIONS}}", &pref_option_html)
         .replace("{{FTYPE_CHECKBOXES}}", &ftype_checkbox_html)
+        .replace("{{STYPE_OPTIONS}}", &stype_option_html)
 }
 
 /// 求人一覧テーブル（HTMXパーシャル）
@@ -69,6 +82,7 @@ pub(crate) fn render_posting_table(
     radius_km: f64,
     emp: &str,
     ftype: &str,
+    stype: &str,
 ) -> Html<String> {
     let show_distance = nearby && postings.iter().any(|p| p.distance_km.is_some());
 
@@ -107,7 +121,7 @@ pub(crate) fn render_posting_table(
     html.push_str(&format!(
         r#"<div class="flex justify-between items-center mb-2">
             <span class="text-sm text-slate-400">全{}件中 {}〜{}件</span>
-            <a href="/api/report?prefecture={}&municipality={}&employment_type={}&facility_type={}&nearby={}&radius_km={}"
+            <a href="/api/report?prefecture={}&municipality={}&employment_type={}&facility_type={}&service_type={}&nearby={}&radius_km={}"
                target="_blank"
                class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded-lg transition">
                HTMLレポート出力
@@ -120,6 +134,7 @@ pub(crate) fn render_posting_table(
         urlencoding::encode(muni),
         urlencoding::encode(emp),
         urlencoding::encode(ftype),
+        urlencoding::encode(stype),
         nearby,
         radius_km,
     ));
@@ -206,11 +221,12 @@ pub(crate) fn render_posting_table(
     if total_pages > 1 {
         html.push_str(r#"<div class="flex justify-center gap-2 mt-4">"#);
         let base_url = format!(
-            "/api/competitive/filter?prefecture={}&municipality={}&employment_type={}&facility_type={}&nearby={}&radius_km={}",
+            "/api/competitive/filter?prefecture={}&municipality={}&employment_type={}&facility_type={}&service_type={}&nearby={}&radius_km={}",
             urlencoding::encode(pref),
             urlencoding::encode(muni),
             urlencoding::encode(emp),
             urlencoding::encode(ftype),
+            urlencoding::encode(stype),
             nearby,
             radius_km,
         );

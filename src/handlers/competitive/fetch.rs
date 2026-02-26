@@ -186,6 +186,7 @@ pub(crate) fn fetch_postings(
     muni: Option<&str>,
     emp: &str,
     ftype: &str,
+    stype: &str,
 ) -> Vec<PostingRow> {
     let mut sql = String::from(
         "SELECT facility_name, facility_type, prefecture, municipality, employment_type, \
@@ -207,6 +208,7 @@ pub(crate) fn fetch_postings(
         param_values.push(emp.to_string());
     }
     append_facility_type_filter(&mut sql, &mut param_values, ftype);
+    append_service_type_filter(&mut sql, &mut param_values, stype);
     sql.push_str(" ORDER BY salary_min DESC");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
@@ -277,6 +279,73 @@ pub(crate) fn append_facility_type_filter(sql: &mut String, param_values: &mut V
     }
 }
 
+/// 事業形態フィルタのSQL条件を追加（大カテゴリ前方一致）
+/// service_type は "介護・福祉事業所 グループホーム" のように "大カテゴリ サブ" の形式
+pub(crate) fn append_service_type_filter(sql: &mut String, param_values: &mut Vec<String>, stype: &str) {
+    if stype.is_empty() || stype == "全て" {
+        return;
+    }
+    if stype == "未分類" {
+        sql.push_str(" AND (service_type = '' OR service_type IS NULL)");
+    } else {
+        // 大カテゴリ前方一致: "介護・福祉事業所" → LIKE '介護・福祉事業所%'
+        sql.push_str(" AND (service_type = ? OR service_type LIKE ?)");
+        param_values.push(stype.to_string());
+        param_values.push(format!("{} %", stype));
+    }
+}
+
+/// 事業形態の大カテゴリ一覧を取得
+pub(crate) fn fetch_service_types(
+    state: &AppState,
+    job_type: &str,
+    pref: &str,
+) -> Vec<(String, i64)> {
+    let db = match &state.local_db {
+        Some(db) => db,
+        None => return Vec::new(),
+    };
+
+    let (sql, param_values) = if pref.is_empty() {
+        (
+            "SELECT CASE \
+                WHEN service_type = '' OR service_type IS NULL THEN '未分類' \
+                WHEN INSTR(service_type, ' ') > 0 THEN SUBSTR(service_type, 1, INSTR(service_type, ' ') - 1) \
+                ELSE service_type \
+             END as stype_cat, COUNT(*) as cnt \
+             FROM job_postings WHERE job_type = ? \
+             GROUP BY stype_cat ORDER BY cnt DESC".to_string(),
+            vec![job_type.to_string()],
+        )
+    } else {
+        (
+            "SELECT CASE \
+                WHEN service_type = '' OR service_type IS NULL THEN '未分類' \
+                WHEN INSTR(service_type, ' ') > 0 THEN SUBSTR(service_type, 1, INSTR(service_type, ' ') - 1) \
+                ELSE service_type \
+             END as stype_cat, COUNT(*) as cnt \
+             FROM job_postings WHERE job_type = ? AND prefecture = ? \
+             GROUP BY stype_cat ORDER BY cnt DESC".to_string(),
+            vec![job_type.to_string(), pref.to_string()],
+        )
+    };
+
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = db.query(&sql, &params_ref).unwrap_or_default();
+
+    rows.iter()
+        .filter_map(|r| {
+            let cat = r.get("stype_cat").and_then(|v| v.as_str())?.to_string();
+            let cnt = r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+            if cat.is_empty() { None } else { Some((cat, cnt)) }
+        })
+        .collect()
+}
+
 pub(crate) fn fetch_nearby_postings(
     db: &crate::db::local_sqlite::LocalDb,
     job_type: &str,
@@ -285,6 +354,7 @@ pub(crate) fn fetch_nearby_postings(
     radius_km: f64,
     emp: &str,
     ftype: &str,
+    stype: &str,
 ) -> Vec<PostingRow> {
     let center = match get_geocode(db, pref, muni) {
         Some(c) => c,
@@ -318,6 +388,7 @@ pub(crate) fn fetch_nearby_postings(
         param_values.push(emp.to_string());
     }
     append_facility_type_filter(&mut sql, &mut param_values, ftype);
+    append_service_type_filter(&mut sql, &mut param_values, stype);
     sql.push_str(" ORDER BY salary_min DESC");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values

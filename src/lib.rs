@@ -108,6 +108,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/competitive/facility_types",
             get(handlers::competitive::comp_facility_types),
         )
+        .route(
+            "/api/competitive/service_types",
+            get(handlers::competitive::comp_service_types),
+        )
         .route("/api/report", get(handlers::competitive::comp_report))
         .route(
             "/api/competitive/analysis",

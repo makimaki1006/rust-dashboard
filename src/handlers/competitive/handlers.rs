@@ -10,7 +10,7 @@ use crate::handlers::overview::{format_number, get_session_filters};
 use super::analysis::{calc_salary_stats, fetch_analysis, fetch_analysis_filtered};
 use super::fetch::{
     fetch_competitive, fetch_facility_types, fetch_facility_types_hierarchical,
-    fetch_nearby_postings, fetch_postings, fetch_prefectures,
+    fetch_nearby_postings, fetch_postings, fetch_prefectures, fetch_service_types,
 };
 use super::render::{
     render_analysis_html, render_analysis_html_with_scope, render_competitive,
@@ -35,7 +35,8 @@ pub async fn tab_competitive(
     let stats = fetch_competitive(&state, &job_type);
     let pref_options = fetch_prefectures(&state, &job_type);
     let ftype_options = fetch_facility_types(&state, &job_type);
-    let html = render_competitive(&job_type, &stats, &pref_options, &ftype_options);
+    let stype_options = fetch_service_types(&state, &job_type, "");
+    let html = render_competitive(&job_type, &stats, &pref_options, &ftype_options, &stype_options);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -47,6 +48,7 @@ pub struct CompFilterParams {
     pub municipality: Option<String>,
     pub employment_type: Option<String>,
     pub facility_type: Option<String>,
+    pub service_type: Option<String>,
     pub nearby: Option<bool>,
     pub radius_km: Option<f64>,
     pub page: Option<i64>,
@@ -69,6 +71,7 @@ pub async fn comp_filter(
     let muni = params.municipality.as_deref().unwrap_or("");
     let emp = params.employment_type.as_deref().unwrap_or("");
     let ftype = params.facility_type.as_deref().unwrap_or("");
+    let stype = params.service_type.as_deref().unwrap_or("");
     let nearby = params.nearby.unwrap_or(false);
     let radius_km = params.radius_km.unwrap_or(10.0);
     let page = params.page.unwrap_or(1).max(1);
@@ -79,9 +82,9 @@ pub async fn comp_filter(
     }
 
     let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp, ftype)
+        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp, ftype, stype)
     } else {
-        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp, ftype)
+        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp, ftype, stype)
     };
 
     let total = postings.len() as i64;
@@ -95,7 +98,7 @@ pub async fn comp_filter(
 
     render_posting_table(
         &job_type, pref, muni, page_data, &salary_stats,
-        page, total_pages, total, nearby, radius_km, emp, ftype,
+        page, total_pages, total, nearby, radius_km, emp, ftype, stype,
     )
 }
 
@@ -223,6 +226,27 @@ pub async fn comp_facility_types(
     Html(html)
 }
 
+/// 事業形態一覧API（都道府県変更時にHTMXで取得）
+pub async fn comp_service_types(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<MuniParams>,
+) -> Html<String> {
+    let (job_type, _, _) = get_session_filters(&session).await;
+    let pref = params.prefecture.as_deref().unwrap_or("");
+
+    let stypes = fetch_service_types(&state, &job_type, pref);
+
+    let mut html = String::from(r#"<option value="">全て</option>"#);
+    for (cat, cnt) in &stypes {
+        html.push_str(&format!(
+            r#"<option value="{}">{} ({})</option>"#,
+            escape_html(cat), escape_html(cat), format_number(*cnt)
+        ));
+    }
+    Html(html)
+}
+
 /// 求人データ分析API（HTMXパーシャル）
 pub async fn comp_analysis(
     State(state): State<Arc<AppState>>,
@@ -288,6 +312,7 @@ pub async fn comp_report(
     let muni = params.municipality.as_deref().unwrap_or("");
     let emp = params.employment_type.as_deref().unwrap_or("");
     let ftype = params.facility_type.as_deref().unwrap_or("");
+    let stype = params.service_type.as_deref().unwrap_or("");
     let nearby = params.nearby.unwrap_or(false);
     let radius_km = params.radius_km.unwrap_or(10.0);
 
@@ -296,9 +321,9 @@ pub async fn comp_report(
     }
 
     let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp, ftype)
+        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp, ftype, stype)
     } else {
-        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp, ftype)
+        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp, ftype, stype)
     };
 
     let stats = calc_salary_stats(&postings);

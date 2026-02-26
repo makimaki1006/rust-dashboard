@@ -10,7 +10,7 @@ mod tests;
 // ハンドラ（lib.rsから handlers::competitive::* として参照）
 pub use handlers::{
     comp_analysis, comp_analysis_filtered, comp_facility_types, comp_filter,
-    comp_municipalities, comp_report, tab_competitive,
+    comp_municipalities, comp_report, comp_service_types, tab_competitive,
 };
 
 // 他モジュールから参照されるユーティリティ（api.rs, segment.rs）
