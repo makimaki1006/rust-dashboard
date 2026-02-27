@@ -782,7 +782,7 @@ fn build_employment_chart(data: &[EmploymentBreakdown]) -> String {
             "yAxis": {{"type": "value"}},
             "series": [
                 {{"name": "就業中", "type": "bar", "stack": "employment", "data": [{}], "itemStyle": {{"color": "#009E73"}}}},
-                {{"name": "離職中", "type": "bar", "stack": "employment", "data": [{}], "itemStyle": {{"color": "#CC79A7"}}}},
+                {{"name": "離職中", "type": "bar", "stack": "employment", "data": [{}], "itemStyle": {{"color": "#D55E00"}}}},
                 {{"name": "在学中", "type": "bar", "stack": "employment", "data": [{}], "itemStyle": {{"color": "#F0E442"}}}}
             ]
         }}'></div>"##,

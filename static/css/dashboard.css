@@ -6,6 +6,30 @@
  */
 
 /* ==========================================================
+   統一カラーパレット（色覚多様性対応 Okabe-Ito系）
+   ========================================================== */
+:root {
+    /* 性別 */
+    --color-male: #0072B2;        /* 青 */
+    --color-female: #E69F00;      /* 橙 */
+    /* 雇用形態 */
+    --color-emp-regular: #009E73; /* 緑: 正職員 */
+    --color-emp-part: #CC79A7;    /* ピンク: パート・バイト（女性色と区別） */
+    --color-emp-contract: #56B4E9;/* 空色: 契約職員 */
+    --color-emp-outsource: #8b5cf6;/* 紫: 業務委託 */
+    /* 就業状態 */
+    --color-employed: #009E73;    /* 緑: 就業中 */
+    --color-unemployed: #D55E00;  /* 朱: 離職中 */
+    --color-student: #F0E442;     /* 黄: 在学中 */
+    /* 年代 */
+    --color-age-20: #3b82f6;      /* 青 */
+    --color-age-30: #10b981;      /* 緑 */
+    --color-age-40: #f59e0b;      /* 橙 */
+    --color-age-50: #ef4444;      /* 赤 */
+    --color-age-60: #8b5cf6;      /* 紫 */
+}
+
+/* ==========================================================
    タブナビゲーション
    ========================================================== */
 .tab-btn {
@@ -28,6 +52,36 @@
     color: #60a5fa;
     border-bottom-color: #3b82f6;
     font-weight: 600;
+}
+
+/* ==========================================================
+   ブレッドクラム（フィルタ状態表示）
+   ========================================================== */
+.bc-chip {
+    display: inline-block;
+    padding: 0.125rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.bc-chip-job {
+    background-color: rgba(59, 130, 246, 0.15);
+    color: #93c5fd;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.bc-chip-area {
+    background-color: rgba(100, 116, 139, 0.15);
+    color: #94a3b8;
+    border: 1px solid rgba(100, 116, 139, 0.2);
+}
+
+.bc-chip-area.bc-chip-area-active {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #6ee7b7;
+    border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
 /* ==========================================================
@@ -217,4 +271,152 @@
 
 ::-webkit-scrollbar-thumb:hover {
     background: #64748b;
+}
+
+/* ==========================================================
+   スケルトンローディング
+   ========================================================== */
+.skeleton {
+    position: relative;
+    overflow: hidden;
+}
+
+.skeleton::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.04) 50%,
+        transparent 100%
+    );
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.skeleton-card {
+    background: #1e293b;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ==========================================================
+   印刷/エクスポート
+   ========================================================== */
+.print-export-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.btn-export {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-export:hover {
+    color: #e2e8f0;
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* ==========================================================
+   印刷用スタイル
+   ========================================================== */
+@media print {
+    /* ヘッダー・ナビ・ブレッドクラム非表示 */
+    header, nav, #breadcrumb-bar, .print-export-bar {
+        display: none !important;
+    }
+
+    /* 背景色を白に */
+    body {
+        background: white !important;
+        color: #1e293b !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    /* コンテンツの余白調整 */
+    main#content {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* カードの背景を白に、ボーダーを維持 */
+    .stat-card {
+        background: white !important;
+        border: 1px solid #cbd5e1 !important;
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    /* テキスト色を印刷用に */
+    .stat-card, .stat-card * {
+        color: #1e293b !important;
+    }
+
+    .stat-label, .text-slate-400, .text-slate-500, .text-gray-400, .text-gray-500 {
+        color: #64748b !important;
+    }
+
+    /* テーブル印刷 */
+    .data-table thead th {
+        color: #1e293b !important;
+        border-bottom: 2px solid #1e293b !important;
+        background: #f1f5f9 !important;
+    }
+
+    .data-table tbody td {
+        color: #1e293b !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+    }
+
+    /* EChartsは背景透過のまま維持（チャートの色は保持） */
+    .echart {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    /* 地図はページ分割回避 */
+    .leaflet-map, #jm-map-container, #talentmap-leaflet {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    /* グリッドを1カラムに */
+    .grid-charts {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* 印刷ヘッダー表示 */
+    .print-header {
+        display: block !important;
+        text-align: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #1e293b;
+    }
+
+    /* 不要なボタン非表示 */
+    button:not(.tab-btn) {
+        display: none !important;
+    }
 }

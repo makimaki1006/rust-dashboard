@@ -173,7 +173,7 @@ fn emp_badge_class(emp: &str) -> &'static str {
     match emp {
         "正職員" => "bg-green-700 text-green-200",
         "契約職員" => "bg-blue-700 text-blue-200",
-        "パート・バイト" => "bg-orange-700 text-orange-200",
+        "パート・バイト" => "bg-pink-700 text-pink-200",
         "業務委託" => "bg-purple-700 text-purple-200",
         _ => "bg-gray-700 text-gray-300",
     }

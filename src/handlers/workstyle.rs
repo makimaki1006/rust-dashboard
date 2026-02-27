@@ -183,7 +183,9 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
     let ws_colors = |ws: &str| -> &str {
         match ws {
             "正職員" => "#009E73",
-            "パート" => "#E69F00",
+            "パート" => "#CC79A7",
+            "契約職員" => "#56B4E9",
+            "業務委託" => "#8b5cf6",
             _ => "#999999",
         }
     };
@@ -250,7 +252,7 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
     let emp_colors = |e: &str| -> &str {
         match e {
             "就業中" => "#009E73",
-            "離職中" => "#CC79A7",
+            "離職中" => "#D55E00",
             "在学中" => "#F0E442",
             _ => "#666666",
         }

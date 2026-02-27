@@ -68,18 +68,63 @@
             onclick="setActiveTab(this)">🎯 セグメント分析</button>
     </nav>
 
+    <!-- ブレッドクラム: 現在の選択状態を表示 -->
+    <div id="breadcrumb-bar" class="bg-navy-800/60 border-b border-slate-700/50 px-6 py-2 flex items-center gap-2 text-sm">
+        <span class="text-slate-500">現在の表示:</span>
+        <span id="bc-job" class="bc-chip bc-chip-job">介護職/ヘルパー</span>
+        <span class="text-slate-600">›</span>
+        <span id="bc-pref" class="bc-chip bc-chip-area">全国</span>
+        <span id="bc-muni-sep" class="text-slate-600 hidden">›</span>
+        <span id="bc-muni" class="bc-chip bc-chip-area hidden"></span>
+    </div>
+
     <main id="content" class="p-6">
         <div class="text-center text-slate-400 py-20">
             <p class="text-lg">読み込み中...</p>
         </div>
     </main>
 
+    <script src="/static/js/tabcache.js"></script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/charts.js"></script>
     <script src="/static/js/maps.js"></script>
+    <script src="/static/js/export.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             htmx.ajax('GET', '/tab/overview', {target: '#content', swap: 'innerHTML'});
+
+            // ブレッドクラム更新（switchLocationからも呼ぶためグローバル）
+            window.updateBreadcrumb = function() {
+                var jobSel = document.getElementById('job-type-select');
+                var prefSel = document.getElementById('pref-select');
+                var muniSel = document.getElementById('muni-select');
+                var bcJob = document.getElementById('bc-job');
+                var bcPref = document.getElementById('bc-pref');
+                var bcMuni = document.getElementById('bc-muni');
+                var bcMuniSep = document.getElementById('bc-muni-sep');
+
+                if (jobSel && bcJob) {
+                    bcJob.textContent = jobSel.options[jobSel.selectedIndex].text;
+                }
+                if (prefSel && bcPref) {
+                    bcPref.textContent = prefSel.value ? prefSel.options[prefSel.selectedIndex].text : '全国';
+                    // 全国なら地域チップのスタイルを薄く
+                    bcPref.classList.toggle('bc-chip-area-active', !!prefSel.value);
+                }
+                if (muniSel && bcMuni && bcMuniSep) {
+                    if (muniSel.value) {
+                        bcMuni.textContent = muniSel.options[muniSel.selectedIndex].text;
+                        bcMuni.classList.remove('hidden');
+                        bcMuniSep.classList.remove('hidden');
+                    } else {
+                        bcMuni.classList.add('hidden');
+                        bcMuniSep.classList.add('hidden');
+                    }
+                }
+            }
+
+            // 初回表示時にブレッドクラム更新
+            updateBreadcrumb();
 
             // アクティブタブ再読み込み共通関数
             function reloadActiveTab() {
@@ -109,6 +154,7 @@
             var jobSelect = document.getElementById('job-type-select');
             if (jobSelect) {
                 jobSelect.addEventListener('change', function() {
+                    if (window.clearTabCache) window.clearTabCache();
                     var jt = this.value;
                     fetch('/api/set_job_type', {
                         method: 'POST',
@@ -119,6 +165,7 @@
                     }).then(function(r) { return r.text(); }).then(function(html) {
                         safeSetOptions(document.getElementById('pref-select'), html, '全国');
                         safeSetOptions(document.getElementById('muni-select'), '', 'すべて');
+                        updateBreadcrumb();
                         reloadActiveTab();
                     });
                 });
@@ -128,6 +175,7 @@
             var prefSelect = document.getElementById('pref-select');
             if (prefSelect) {
                 prefSelect.addEventListener('change', function() {
+                    if (window.clearTabCache) window.clearTabCache();
                     var pref = this.value;
                     fetch('/api/set_prefecture', {
                         method: 'POST',
@@ -141,6 +189,7 @@
                         }
                     }).then(function(r) { return r.text(); }).then(function(html) {
                         safeSetOptions(document.getElementById('muni-select'), html, 'すべて');
+                        updateBreadcrumb();
                         reloadActiveTab();
                     });
                 });
@@ -150,12 +199,14 @@
             var muniSelect = document.getElementById('muni-select');
             if (muniSelect) {
                 muniSelect.addEventListener('change', function() {
+                    if (window.clearTabCache) window.clearTabCache();
                     var muni = this.value;
                     fetch('/api/set_municipality', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                         body: 'municipality=' + encodeURIComponent(muni)
                     }).then(function() {
+                        updateBreadcrumb();
                         reloadActiveTab();
                     });
                 });
@@ -164,6 +215,9 @@
         function setActiveTab(el) {
             document.querySelectorAll('.tab-btn').forEach(function(btn) { btn.classList.remove('active'); });
             el.classList.add('active');
+            // タブ切替時にスケルトンを即座表示（キャッシュヒット時は上書きされる）
+            var url = el.getAttribute('hx-get');
+            if (typeof window.showTabSkeleton === 'function') window.showTabSkeleton(url);
         }
         // アイドル時に次のタブ(demographics)をプリフェッチ
         if ('requestIdleCallback' in window) {
@@ -222,7 +276,8 @@
                                 break;
                             }
                         }
-                        // Step 7: タブ再読み込み
+                        // Step 7: ブレッドクラム更新 + タブ再読み込み
+                        if (window.updateBreadcrumb) window.updateBreadcrumb();
                         var activeBtn = document.querySelector('.tab-btn.active');
                         if (activeBtn) {
                             var url = activeBtn.getAttribute('hx-get');
@@ -236,6 +291,7 @@
                         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                         body: 'municipality='
                     }).then(function() {
+                        if (window.updateBreadcrumb) window.updateBreadcrumb();
                         var activeBtn = document.querySelector('.tab-btn.active');
                         if (activeBtn) {
                             var url = activeBtn.getAttribute('hx-get');
