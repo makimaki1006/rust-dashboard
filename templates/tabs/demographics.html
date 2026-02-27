@@ -1,22 +1,24 @@
-<!-- タブ2: ペルソナ分析 パーシャルHTML -->
+<!-- タブ2: 求職者の特徴 パーシャルHTML -->
 <div class="space-y-6">
-    <h2 class="text-xl font-bold text-white">👥 ペルソナ分析 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
+    <h2 class="text-xl font-bold text-white">👥 求職者の特徴 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
+    <p class="text-xs text-slate-500 -mt-4">この地域の求職者がどんな人たちか — 年齢・性別・資格・就業状態などの傾向を確認できます</p>
 
     <!-- 言語化カード（ターゲット、タイミング、資格戦略、隠れた人材） -->
     {{VERBALIZATION_CARDS}}
 
-    <!-- 1行目: 全ペルソナ内訳 + 横棒グラフ -->
+    <!-- 1行目: 全求職者タイプ内訳 + 横棒グラフ -->
     <div class="flex flex-col md:flex-row gap-4">
-        <!-- 左: 全ペルソナ内訳リスト -->
+        <!-- 左: 全求職者タイプ内訳リスト -->
         <div class="stat-card flex-1" style="min-width: 300px;">
-            <div class="text-sm font-semibold text-slate-400 mb-3">全ペルソナ内訳（100%）</div>
+            <div class="text-sm font-semibold text-slate-400 mb-3">求職者タイプ一覧（100%）</div>
+            <div class="text-xs text-slate-500 mb-2">例:「30代女性・就業中」「50代男性・離職中」など</div>
             <div style="max-height: 350px; overflow-y: auto;">
                 {{PERSONA_LIST}}
             </div>
         </div>
-        <!-- 右: ペルソナ構成比横棒グラフ -->
+        <!-- 右: 求職者タイプの割合グラフ -->
         <div class="stat-card flex-1" style="min-width: 400px;">
-            <div class="text-sm font-semibold text-slate-400 mb-3">ペルソナ構成比（横棒グラフ）</div>
+            <div class="text-sm font-semibold text-slate-400 mb-3">求職者タイプの割合</div>
             {{PERSONA_BAR_CHART}}
         </div>
     </div>
@@ -29,8 +31,8 @@
         </div>
     </div>
 
-    <!-- 3行目: 年齢×性別クロス分析 -->
-    <div class="text-sm font-semibold text-slate-400 mt-2 mb-3">年齢×性別クロス分析</div>
+    <!-- 3行目: 年齢×性別の分布 -->
+    <div class="text-sm font-semibold text-slate-400 mt-2 mb-3">年齢×性別の分布</div>
     <div class="flex flex-col md:flex-row gap-4">
         <!-- 左: 男女比ドーナツ -->
         <div class="stat-card flex-1">
@@ -47,22 +49,23 @@
         {{KPI_CARDS}}
     </div>
 
-    <!-- 5行目: 年齢・性別×就業状態別内訳 Top 10 -->
+    <!-- 5行目: 年齢・性別×就業状態の組み合わせ Top 10 -->
     <div class="stat-card">
-        <div class="text-sm font-semibold text-slate-400 mb-3">年齢・性別×就業状態別内訳 Top 10</div>
+        <div class="text-sm font-semibold text-slate-400 mb-3">年齢・性別×就業状態の組み合わせ Top 10</div>
+        <div class="text-xs text-slate-500 mb-2">例:「40代女性・就業中」が最も多い、など</div>
         {{EMPLOYMENT_BREAKDOWN_CHART}}
     </div>
 
-    <!-- 6行目: 保有資格ペルソナ（主要資格Top10 男女別） -->
+    <!-- 6行目: 保有資格の男女比（主要資格Top10） -->
     <div class="stat-card">
-        <div class="text-sm font-semibold text-slate-400 mb-3">保有資格ペルソナ（主要資格Top10 男女別）</div>
+        <div class="text-sm font-semibold text-slate-400 mb-3">保有資格の男女比（主要資格 Top10）</div>
         {{QUAL_GENDER_CHART}}
     </div>
 
-    <!-- 7行目: ペルソナシェア（年齢×性別）横棒 + バッジ -->
+    <!-- 7行目: 人材構成の割合（年齢×性別） -->
     <div class="stat-card">
-        <div class="text-sm font-semibold text-slate-400 mb-3">ペルソナシェア（年齢×性別）</div>
-        <div class="text-xs text-slate-500 mb-2">この地域の人材構成比（年齢×性別）</div>
+        <div class="text-sm font-semibold text-slate-400 mb-3">人材構成の割合（年齢×性別）</div>
+        <div class="text-xs text-slate-500 mb-2">この地域にどんな年代・性別の求職者がいるか</div>
         {{PERSONA_SHARE_CHART}}
         {{PERSONA_SHARE_BADGES}}
     </div>
@@ -74,10 +77,10 @@
         {{AGE_GENDER_STATS_LIST}}
     </div>
 
-    <!-- 9行目: 人材組み合わせ分析（RARITY） -->
+    <!-- 9行目: 条件を組み合わせて人材を探す -->
     <div class="stat-card">
-        <div class="text-sm font-semibold text-white mb-3">🎯 人材組み合わせ分析</div>
-        <div class="text-xs mb-3" style="color: #6366F1;">年代・性別・資格を選択して検索</div>
+        <div class="text-sm font-semibold text-white mb-3">🎯 条件を組み合わせて人材を探す</div>
+        <div class="text-xs mb-3" style="color: #6366F1;">例:「30代 × 女性 × 介護福祉士」でどのくらいの人材がいるか調べられます</div>
         <form hx-get="/api/rarity" hx-target="#rarity-results" hx-swap="innerHTML">
             <!-- 年代 -->
             <div class="p-2 rounded mb-2" style="background-color: rgba(59, 130, 246, 0.05);">

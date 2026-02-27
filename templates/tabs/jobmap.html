@@ -73,9 +73,9 @@
   <div id="jm-layer-controls" class="stat-card hidden">
     <div class="flex items-center gap-4 flex-wrap">
       <span class="text-sm font-medium text-gray-300">レイヤー:</span>
-      <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-polygons" checked class="accent-blue-500" onchange="postingMap.toggleLayer('polygons', this.checked)"> ポリゴン</label>
+      <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-polygons" checked class="accent-blue-500" onchange="postingMap.toggleLayer('polygons', this.checked)"> エリア色分け</label>
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-seeker-markers" checked class="accent-blue-500" onchange="postingMap.toggleLayer('seekerMarkers', this.checked)"> 求職者マーカー</label>
-      <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-flows" class="accent-blue-500" onchange="postingMap.toggleLayer('flows', this.checked)"> フロー線</label>
+      <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-flows" class="accent-blue-500" onchange="postingMap.toggleLayer('flows', this.checked)"> 移動の流れ</label>
     </div>
   </div>
 
@@ -105,8 +105,8 @@
         <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="jobContent"> 仕事内容</label>
         <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="jobPosition"> 募集職種</label>
         <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="tags"> タグ</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="segment"> セグメント</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="geocodeConf"> 住所信頼度</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="segment"> 求人タイプ</label>
+        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="geocodeConf"> 位置情報の精度</label>
         <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="annualIncome"> 想定年収</label>
       </div>
     </div>
@@ -182,7 +182,7 @@
         <!-- アコーディオン: セグメント -->
         <div class="mb-2">
           <button onclick="postingMap.toggleRegionSection('segments')" class="w-full flex justify-between items-center text-xs text-gray-300 bg-gray-700/50 rounded px-2 py-1 hover:bg-gray-700">
-            <span>🏷️ セグメント分析</span>
+            <span>🏷️ 求人タイプ分析</span>
             <span id="jm-region-arrow-segments">▶</span>
           </button>
           <div id="jm-region-content-segments" class="hidden mt-1"></div>

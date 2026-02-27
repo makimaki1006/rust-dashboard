@@ -19,45 +19,45 @@
     <!-- 求人・求職者シェア比較 -->
     {{SHARE_SECTION}}
 
-    <!-- 需要超過ランキング Top 10 -->
+    <!-- 求職者が集まりやすい地域 Top 10 -->
     <div class="stat-card">
         <div class="flex items-baseline gap-2 mb-2">
-            <h3 class="text-lg font-bold text-white">需要超過ランキング Top 10</h3>
+            <h3 class="text-lg font-bold text-white">求職者が集まりやすい地域 Top 10</h3>
             <span class="text-slate-400 text-sm">（{{PREF_LABEL}}内）</span>
         </div>
-        <p class="text-xs text-slate-500 mb-4">働きたい人が住んでいる求職者より多い市区町村（人材流入傾向）</p>
+        <p class="text-xs text-slate-500 mb-4">「ここで働きたい」と希望する人が多い市区町村（人気エリア）</p>
         {{SHORTAGE_CHART}}
     </div>
 
-    <!-- 供給超過ランキング Top 10 -->
+    <!-- 求職者が流出しやすい地域 Top 10 -->
     <div class="stat-card">
         <div class="flex items-baseline gap-2 mb-2">
-            <h3 class="text-lg font-bold text-white">供給超過ランキング Top 10</h3>
+            <h3 class="text-lg font-bold text-white">求職者が流出しやすい地域 Top 10</h3>
             <span class="text-slate-400 text-sm">（{{PREF_LABEL}}内）</span>
         </div>
-        <p class="text-xs text-slate-500 mb-4">住んでいる求職者が働きたい人より多い市区町村（人材流出傾向）</p>
+        <p class="text-xs text-slate-500 mb-4">地元に住んでいる求職者が、他の地域で働きたいと思っている市区町村</p>
         {{SURPLUS_CHART}}
     </div>
 
-    <!-- 需給比率ランキング Top 10 -->
+    <!-- 採用競争が激しい地域 Top 10 -->
     <div class="stat-card">
         <div class="flex items-baseline gap-2 mb-2">
-            <h3 class="text-lg font-bold text-white">需給比率ランキング Top 10</h3>
+            <h3 class="text-lg font-bold text-white">採用競争が激しい地域 Top 10</h3>
             <span class="text-slate-400 text-sm">（{{PREF_LABEL}}内）</span>
         </div>
-        <p class="text-xs text-slate-500 mb-4">需要/供給の比率が高い市区町村（採用競争激化）</p>
+        <p class="text-xs text-slate-500 mb-4">求人の数に比べて求職者が少なく、採用が難しい市区町村です</p>
         {{RATIO_CHART}}
     </div>
 
     <!-- 指標の説明 -->
     <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-3">指標の説明</h3>
+        <h3 class="text-sm text-slate-400 mb-3">用語の説明</h3>
         <ul class="space-y-1 text-sm text-slate-400">
-            <li>• 総需要: 地域内で必要とされる人材数</li>
-            <li>• 総供給: 地域内で利用可能な人材数</li>
-            <li>• 平均比率: 需要 ÷ 供給の平均（比率が高いほど人材獲得が困難）</li>
-            <li>• 不足地域: 需要 > 供給の市区町村数（採用難易度が高い地域）</li>
-            <li>• 過剰地域: 供給 > 需要の市区町村数（人材が余剰している地域）</li>
+            <li>• 総需要: 「この地域で働きたい」と希望している求職者の合計数</li>
+            <li>• 総供給: この地域に住んでいる求職者の合計数</li>
+            <li>• 平均比率: 需要 ÷ 供給（1.0より大きい＝求職者が足りない、1.0より小さい＝求職者が余っている）</li>
+            <li>• 不足地域: 働きたい人の方が多く、採用が難しい市区町村の数</li>
+            <li>• 過剰地域: 住んでいる人の方が多く、他の地域に流出しやすい市区町村の数</li>
         </ul>
     </div>
 </div>

@@ -1,6 +1,7 @@
 <!-- タブ5: 雇用形態分析 パーシャルHTML -->
 <div class="space-y-6">
-    <h2 class="text-xl font-bold text-white">📈 雇用形態クロス分析 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
+    <h2 class="text-xl font-bold text-white">📈 雇用形態の傾向分析 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
+    <p class="text-xs text-slate-500 -mt-4">正職員・パート等の割合が、年代・性別・就業状態によってどう違うかを確認できます</p>
 
     <!-- 雇用形態分布ドーナツ + KPIカード -->
     <div class="flex flex-col md:flex-row gap-4">
@@ -28,7 +29,8 @@
 
     <!-- 雇用形態 × 年代 スタック棒グラフ -->
     <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-3">雇用形態 × 年代</h3>
+        <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 年代</h3>
+        <p class="text-xs text-slate-500 mb-2">年代が上がるとパートの割合は増える？ 正職員はどの年代に多い？</p>
         <div class="echart" style="height:350px;" data-chart-config='{
             "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
             "legend": {"data": ["正職員", "パート", "その他"], "top": "0%", "itemGap": 15},
@@ -42,7 +44,8 @@
     <div class="grid-charts">
         <!-- 雇用形態 × 性別 グループ棒グラフ -->
         <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">雇用形態 × 性別</h3>
+            <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 性別</h3>
+            <p class="text-xs text-slate-500 mb-2">男女で正職員・パートの比率に違いはある？</p>
             <div class="echart" style="height:300px;" data-chart-config='{
                 "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
                 "legend": {"data": ["男性", "女性"], "top": "0%", "itemGap": 15},
@@ -58,7 +61,8 @@
 
         <!-- 雇用形態 × 就業状態 スタック棒グラフ -->
         <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">雇用形態 × 就業状態</h3>
+            <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 就業状態</h3>
+            <p class="text-xs text-slate-500 mb-2">今働いている人・離職中の人で希望する雇用形態に差がある？</p>
             <div class="echart" style="height:300px;" data-chart-config='{
                 "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
                 "legend": {"data": ["就業中", "離職中", "在学中"], "top": "0%", "itemGap": 15},
@@ -73,14 +77,14 @@
     <!-- 雇用形態 × 移動パターン: データ未修正のため一時非表示（CSV再生成後に復活） -->
     {{MOBILITY_CARD}}
 
-    <!-- 統計的解釈の注意 -->
+    <!-- このデータの見方 -->
     <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-3">統計的解釈の注意</h3>
+        <h3 class="text-sm text-slate-400 mb-3">このデータの見方</h3>
         <ul class="space-y-1 text-sm text-slate-400">
-            <li>• 効果量（Cramer's V）: すべての分析で小〜微小（0.07〜0.17）</li>
-            <li>• 統計的有意性: サンプルサイズが大きいため、わずかな差でも有意になる</li>
-            <li>• 実務的示唆: 単一属性での予測精度は低い（61〜68%程度）</li>
-            <li>• 推奨: 「予測」より「傾向把握→戦略立案」に活用すべき</li>
+            <li>• 関連の強さ: 年代や性別と雇用形態の関連はゆるやかです（強い決定要因ではありません）</li>
+            <li>• データ数が多いため: わずかな差でも数値上は「差がある」と出ますが、実務上の影響は小さい場合があります</li>
+            <li>• 活用のコツ: 「この属性なら必ずこう」という予測ではなく、「全体の傾向をつかむ」目的でお使いください</li>
+            <li>• 例: 「パートは40代女性に多い傾向」→ 採用ターゲティングの参考に</li>
         </ul>
     </div>
 </div>

@@ -650,7 +650,7 @@ def _normalize_employment_type(raw):
     """雇用形態の表記ゆれを正規化"""
     raw = raw.strip()
     if raw in ('正職員', '正社員'):
-        return '正社員'
+        return '正職員'
     if raw in ('パート・バイト', 'パート', 'バイト', 'アルバイト'):
         return 'パート・バイト'
     if raw in ('契約職員', '契約社員'):

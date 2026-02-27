@@ -101,17 +101,17 @@
         <p class="text-slate-400 text-sm">都道府県を選択して検索してください</p>
     </div>
 
-    <!-- セグメント分析（独立タブへ移動） -->
+    <!-- 求人タイプ分析（独立タブへ移動） -->
     <div class="stat-card">
         <div class="flex items-center justify-between">
-            <h3 class="text-sm text-slate-400">求人セグメント分析</h3>
+            <h3 class="text-sm text-slate-400">求人タイプ分析</h3>
             <button hx-get="/tab/segment" hx-target="#content" hx-swap="innerHTML"
                 onclick="document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.tab-btn')[8].classList.add('active')"
                 class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition flex items-center gap-2">
-                🎯 セグメント分析タブへ →
+                🎯 求人タイプ分析タブへ →
             </button>
         </div>
-        <p class="text-slate-500 text-sm mt-2">5軸分布・Tier3パターン・タグ分析・テキスト特徴・給与比較・仕事内容分析は専用タブに移動しました</p>
+        <p class="text-slate-500 text-sm mt-2">給与・待遇・条件などの軸で求人を分類した詳細分析は専用タブで確認できます</p>
     </div>
 
     <!-- 求人データ分析パネル -->
