@@ -64,17 +64,11 @@ pub fn has_turso_data(job_type: &str) -> bool {
 
 /// Tursoデータなし職種向けのメッセージHTML
 pub fn render_no_turso_data(job_type: &str, tab_name: &str) -> String {
-    format!(
-        r#"<div class="p-8 text-center">
-        <div class="bg-blue-900/30 border border-blue-700 rounded-lg p-6 max-w-lg mx-auto">
-            <p class="text-blue-300 text-lg font-medium mb-2">求職者データなし</p>
-            <p class="text-gray-300">
-                「<span class="text-white font-medium">{job_type}</span>」の{tab_name}データは現在準備中です。
-            </p>
-            <p class="text-gray-400 text-sm mt-3">
-                求人地図タブでは求人情報を確認できます。
-            </p>
-        </div>
-    </div>"#
+    crate::handlers::render_empty_state(
+        "求職者データなし",
+        &format!(
+            "「{}」の{}データは現在準備中です。求人地図タブでは求人情報を確認できます。",
+            job_type, tab_name
+        ),
     )
 }

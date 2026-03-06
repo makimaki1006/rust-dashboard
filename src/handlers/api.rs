@@ -21,15 +21,30 @@ pub async fn get_geojson(
     State(_state): State<Arc<AppState>>,
     Path(filename): Path<String>,
 ) -> Json<Value> {
+    // パストラバーサル防止: ファイル名に .. / \ を含む場合は拒否
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return Json(Value::Null);
+    }
+    // .geojson 拡張子のみ許可
+    if !filename.ends_with(".geojson") {
+        return Json(Value::Null);
+    }
+
     let geojson_dir = "static/geojson";
     let path = format!("{geojson_dir}/{filename}");
 
     match std::fs::read_to_string(&path) {
         Ok(content) => match serde_json::from_str::<Value>(&content) {
             Ok(json) => Json(json),
-            Err(_) => Json(Value::Null),
+            Err(e) => {
+                tracing::warn!("GeoJSON parse failed: {path}: {e}");
+                Json(Value::Null)
+            }
         },
-        Err(_) => Json(Value::Null),
+        Err(e) => {
+            tracing::warn!("GeoJSON file not found: {path}: {e}");
+            Json(Value::Null)
+        }
     }
 }
 
@@ -51,13 +66,24 @@ pub async fn get_markers(
         None => return Json(serde_json::json!([])),
     };
 
-    // 都道府県別求人数を集計
-    let rows = match db.query(
-        "SELECT prefecture, COUNT(*) as cnt FROM job_postings WHERE job_type = ? GROUP BY prefecture ORDER BY cnt DESC",
-        &[&job_type as &dyn rusqlite::types::ToSql],
-    ) {
-        Ok(r) => r,
-        Err(_) => return Json(serde_json::json!([])),
+    // 都道府県別求人数を集計（spawn_blockingでTokioスレッドブロック回避）
+    let db_clone = db.clone();
+    let jt = job_type.clone();
+    let rows = match tokio::task::spawn_blocking(move || {
+        db_clone.query(
+            "SELECT prefecture, COUNT(*) as cnt FROM job_postings WHERE job_type = ? GROUP BY prefecture ORDER BY cnt DESC",
+            &[&jt as &dyn rusqlite::types::ToSql],
+        )
+    }).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
+            tracing::error!("Markers query failed: {e}");
+            return Json(serde_json::json!([]));
+        }
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Json(serde_json::json!([]));
+        }
     };
 
     // 都道府県→緯度経度マッピング（県庁所在地の概略座標）
@@ -139,10 +165,14 @@ pub async fn get_prefectures(
     // Tursoが空の場合、geocoded_db（ローカルSQLite）からフォールバック
     if prefs.is_empty() {
         if let Some(db) = &state.geocoded_db {
-            if let Ok(rows) = db.query(
-                "SELECT DISTINCT prefecture FROM postings WHERE job_type = ?1 AND prefecture IS NOT NULL AND prefecture != ''",
-                &[&job_type as &dyn rusqlite::types::ToSql],
-            ) {
+            let db_clone = db.clone();
+            let jt = job_type.clone();
+            if let Ok(Ok(rows)) = tokio::task::spawn_blocking(move || {
+                db_clone.query(
+                    "SELECT DISTINCT prefecture FROM postings WHERE job_type = ?1 AND prefecture IS NOT NULL AND prefecture != ''",
+                    &[&jt as &dyn rusqlite::types::ToSql],
+                )
+            }).await {
                 prefs = rows.iter()
                     .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
                     .collect();
@@ -206,13 +236,18 @@ pub async fn get_municipalities_cascade(
     // Tursoが空の場合、geocoded_db（ローカルSQLite）からフォールバック
     if munis.is_empty() {
         if let Some(db) = &state.geocoded_db {
-            if let Ok(rows) = db.query(
-                "SELECT DISTINCT municipality FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
-                &[
-                    &job_type as &dyn rusqlite::types::ToSql,
-                    &prefecture as &dyn rusqlite::types::ToSql,
-                ],
-            ) {
+            let db_clone = db.clone();
+            let jt = job_type.clone();
+            let pref = prefecture.to_string();
+            if let Ok(Ok(rows)) = tokio::task::spawn_blocking(move || {
+                db_clone.query(
+                    "SELECT DISTINCT municipality FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
+                    &[
+                        &jt as &dyn rusqlite::types::ToSql,
+                        &pref as &dyn rusqlite::types::ToSql,
+                    ],
+                )
+            }).await {
                 munis = rows.iter()
                     .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
                     .collect();

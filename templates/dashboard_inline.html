@@ -21,19 +21,21 @@
 <body class="bg-navy-900 text-slate-100 min-h-screen">
     <header class="bg-navy-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
         <div class="flex items-center gap-4">
-            <h1 class="text-lg font-bold text-white">job_ap_analyzer_gui</h1>
-            <span class="text-slate-400 text-sm">🔧</span>
-            <select id="job-type-select"
+            <h1 class="text-lg font-bold text-white">求職者市場分析ダッシュボード</h1>
+            <label for="job-type-select" class="sr-only">職種選択</label>
+            <select id="job-type-select" aria-label="職種選択"
                 class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
                 {{JOB_OPTIONS}}
             </select>
             <span class="text-slate-400 text-sm">📍</span>
-            <select id="pref-select"
+            <label for="pref-select" class="sr-only">都道府県選択</label>
+            <select id="pref-select" aria-label="都道府県選択"
                 class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
                 <option value="">全国</option>
                 {{PREF_OPTIONS}}
             </select>
-            <select id="muni-select"
+            <label for="muni-select" class="sr-only">市区町村選択</label>
+            <select id="muni-select" aria-label="市区町村選択"
                 class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
                 <option value="">すべて</option>
                 {{MUNI_OPTIONS}}
@@ -47,26 +49,35 @@
 
     {{TURSO_WARNING}}
 
-    <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto">
-        <button class="tab-btn active" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">📊 市場概況</button>
-        <button class="tab-btn" hx-get="/tab/demographics" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">👥 求職者の特徴</button>
-        <button class="tab-btn" hx-get="/tab/mobility" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">🗺️ 地域・移動パターン</button>
-        <button class="tab-btn" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">⚖️ 需給バランス</button>
-        <button class="tab-btn" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">📈 雇用形態分析</button>
-        <button class="tab-btn" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">🗺️ 地図分析</button>
-        <button class="tab-btn" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">🔍 競合調査</button>
-        <button class="tab-btn" hx-get="/tab/analysis" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">📊 市場分析</button>
-        <button class="tab-btn" hx-get="/tab/segment" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">🎯 セグメント分析</button>
-    </nav>
+    <div class="tab-scroll-container bg-navy-800 border-b border-slate-700">
+        <div class="tab-scroll-fade-left tab-scroll-fade-hidden" id="tab-fade-left"></div>
+        <button class="tab-scroll-arrow tab-scroll-arrow-left tab-scroll-fade-hidden" id="tab-arrow-left" aria-label="タブを左にスクロール">&lsaquo;</button>
+        <nav id="tab-nav" class="px-6 flex gap-1 overflow-x-auto" role="tablist" aria-label="ダッシュボードタブ" style="scrollbar-width:none;-ms-overflow-style:none;">
+            <button class="tab-btn active" role="tab" aria-selected="true" tabindex="0" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">📊 市場概況</button>
+            <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" hx-get="/tab/demographics" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">👥 求職者の特徴</button>
+            <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" hx-get="/tab/mobility" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">🗺️ 地域・移動パターン</button>
+            <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">⚖️ 需給バランス</button>
+            <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">📈 雇用形態分析</button>
+            <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">🗺️ 地図分析</button>
+            <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">🔍 競合調査</button>
+            <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" hx-get="/tab/analysis" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">📊 市場分析</button>
+            <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" hx-get="/tab/segment" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">🎯 セグメント分析</button>
+            <!-- job_creator: 未実装のため非表示 -->
+            <!-- <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" hx-get="/tab/job_creator" hx-target="#content" hx-swap="innerHTML"
+                onclick="setActiveTab(this)">✏️ 求人作成</button> -->
+        </nav>
+        <div class="tab-scroll-fade-right" id="tab-fade-right"></div>
+        <button class="tab-scroll-arrow tab-scroll-arrow-right" id="tab-arrow-right" aria-label="タブを右にスクロール">&rsaquo;</button>
+    </div>
 
     <!-- ブレッドクラム: 現在の選択状態を表示 -->
     <div id="breadcrumb-bar" class="bg-navy-800/60 border-b border-slate-700/50 px-6 py-2 flex items-center gap-2 text-sm">
@@ -78,7 +89,7 @@
         <span id="bc-muni" class="bc-chip bc-chip-area hidden"></span>
     </div>
 
-    <main id="content" class="p-6">
+    <main id="content" class="p-6" style="position:relative;min-height:200px;">
         <div class="text-center text-slate-400 py-20">
             <p class="text-lg">読み込み中...</p>
         </div>
@@ -92,6 +103,72 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             htmx.ajax('GET', '/tab/overview', {target: '#content', swap: 'innerHTML'});
+
+            // ----- フィルタ操作中スピナー（UX-C2） -----
+            var filterSelects = ['job-type-select', 'pref-select', 'muni-select'];
+            function showFilterSpinner() {
+                var content = document.getElementById('content');
+                if (!content || document.getElementById('filter-overlay')) return;
+                var overlay = document.createElement('div');
+                overlay.id = 'filter-overlay';
+                overlay.className = 'filter-loading-overlay';
+                var spinner = document.createElement('div');
+                spinner.className = 'filter-spinner';
+                overlay.appendChild(spinner);
+                content.appendChild(overlay);
+                filterSelects.forEach(function(id) {
+                    var el = document.getElementById(id);
+                    if (el) el.disabled = true;
+                });
+            }
+            function hideFilterSpinner() {
+                var overlay = document.getElementById('filter-overlay');
+                if (overlay) overlay.remove();
+                filterSelects.forEach(function(id) {
+                    var el = document.getElementById(id);
+                    if (el) el.disabled = false;
+                });
+            }
+            // HTMX afterSwap で確実にスピナーを除去
+            document.body.addEventListener('htmx:afterSwap', function(evt) {
+                if (evt.detail.target && evt.detail.target.id === 'content') {
+                    hideFilterSpinner();
+                }
+            });
+
+            // ----- タブスクロールインジケータ（UX-C3） -----
+            (function() {
+                var nav = document.getElementById('tab-nav');
+                var fadeL = document.getElementById('tab-fade-left');
+                var fadeR = document.getElementById('tab-fade-right');
+                var arrowL = document.getElementById('tab-arrow-left');
+                var arrowR = document.getElementById('tab-arrow-right');
+                if (!nav) return;
+
+                function updateScrollFades() {
+                    var sl = nav.scrollLeft;
+                    var atLeft = sl <= 2;
+                    var atRight = sl + nav.clientWidth >= nav.scrollWidth - 2;
+
+                    if (fadeL) fadeL.classList.toggle('tab-scroll-fade-hidden', atLeft);
+                    if (arrowL) arrowL.classList.toggle('tab-scroll-fade-hidden', atLeft);
+                    if (fadeR) fadeR.classList.toggle('tab-scroll-fade-hidden', atRight);
+                    if (arrowR) arrowR.classList.toggle('tab-scroll-fade-hidden', atRight);
+                }
+
+                nav.addEventListener('scroll', updateScrollFades, {passive: true});
+                window.addEventListener('resize', updateScrollFades);
+                // 初回チェック
+                updateScrollFades();
+
+                // 矢印クリックでスクロール
+                if (arrowL) arrowL.addEventListener('click', function() {
+                    nav.scrollBy({left: -200, behavior: 'smooth'});
+                });
+                if (arrowR) arrowR.addEventListener('click', function() {
+                    nav.scrollBy({left: 200, behavior: 'smooth'});
+                });
+            })();
 
             // ブレッドクラム更新（switchLocationからも呼ぶためグローバル）
             window.updateBreadcrumb = function() {
@@ -154,6 +231,7 @@
             var jobSelect = document.getElementById('job-type-select');
             if (jobSelect) {
                 jobSelect.addEventListener('change', function() {
+                    showFilterSpinner();
                     if (window.clearTabCache) window.clearTabCache();
                     var jt = this.value;
                     fetch('/api/set_job_type', {
@@ -167,7 +245,7 @@
                         safeSetOptions(document.getElementById('muni-select'), '', 'すべて');
                         updateBreadcrumb();
                         reloadActiveTab();
-                    });
+                    }).catch(function() { hideFilterSpinner(); });
                 });
             }
 
@@ -175,6 +253,7 @@
             var prefSelect = document.getElementById('pref-select');
             if (prefSelect) {
                 prefSelect.addEventListener('change', function() {
+                    showFilterSpinner();
                     if (window.clearTabCache) window.clearTabCache();
                     var pref = this.value;
                     fetch('/api/set_prefecture', {
@@ -191,7 +270,7 @@
                         safeSetOptions(document.getElementById('muni-select'), html, 'すべて');
                         updateBreadcrumb();
                         reloadActiveTab();
-                    });
+                    }).catch(function() { hideFilterSpinner(); });
                 });
             }
 
@@ -199,6 +278,7 @@
             var muniSelect = document.getElementById('muni-select');
             if (muniSelect) {
                 muniSelect.addEventListener('change', function() {
+                    showFilterSpinner();
                     if (window.clearTabCache) window.clearTabCache();
                     var muni = this.value;
                     fetch('/api/set_municipality', {
@@ -208,17 +288,36 @@
                     }).then(function() {
                         updateBreadcrumb();
                         reloadActiveTab();
-                    });
+                    }).catch(function() { hideFilterSpinner(); });
                 });
             }
         });
         function setActiveTab(el) {
-            document.querySelectorAll('.tab-btn').forEach(function(btn) { btn.classList.remove('active'); });
+            document.querySelectorAll('.tab-btn').forEach(function(btn) {
+                btn.classList.remove('active');
+                btn.setAttribute('aria-selected', 'false');
+                btn.setAttribute('tabindex', '-1');
+            });
             el.classList.add('active');
+            el.setAttribute('aria-selected', 'true');
+            el.setAttribute('tabindex', '0');
             // タブ切替時にスケルトンを即座表示（キャッシュヒット時は上書きされる）
             var url = el.getAttribute('hx-get');
             if (typeof window.showTabSkeleton === 'function') window.showTabSkeleton(url);
         }
+        // キーボードナビゲーション（左右矢印キー）
+        document.addEventListener('keydown', function(e) {
+            if (e.target.classList.contains('tab-btn')) {
+                var tabs = Array.from(document.querySelectorAll('.tab-btn'));
+                var idx = tabs.indexOf(e.target);
+                if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    var next = e.key === 'ArrowRight' ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length;
+                    tabs[next].focus();
+                    tabs[next].click();
+                }
+            }
+        });
         // アイドル時に次のタブ(demographics)をプリフェッチ
         if ('requestIdleCallback' in window) {
             requestIdleCallback(function() {

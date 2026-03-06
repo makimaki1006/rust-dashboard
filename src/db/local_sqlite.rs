@@ -11,6 +11,8 @@ pub struct LocalDb {
     pool: Pool<SqliteConnectionManager>,
 }
 
+// Send + Sync は r2d2::Pool が既に実装済み
+
 impl LocalDb {
     /// DBファイルパスからプールを作成
     pub fn new(path: &str) -> Result<Self, String> {
@@ -120,6 +122,208 @@ impl LocalDb {
 
         conn.query_row(sql, params_from_iter(params.iter()), |row| row.get(0))
             .map_err(|e| format!("SQLite scalar query failed: {e}"))
+    }
+
+    // ---------------------------------------------------------------
+    // 汎用 spawn_blocking ラッパー
+    // ---------------------------------------------------------------
+
+    /// 同期クロージャを spawn_blocking で実行する汎用ヘルパー。
+    /// クロージャには self のクローンが渡されるため、既存の同期メソッドを
+    /// そのまま使用可能。
+    pub async fn run_blocking<F, R>(&self, f: F) -> Result<R, String>
+    where
+        F: FnOnce(&LocalDb) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || f(&db))
+            .await
+            .map_err(|e| format!("spawn_blocking failed: {e}"))
+    }
+
+    // ---------------------------------------------------------------
+    // Async版メソッド（spawn_blocking でTokioスレッドブロックを回避）
+    // ---------------------------------------------------------------
+
+    /// SQL実行（async版、所有権パラメータ）
+    /// 既存の同期queryと同じロジックを spawn_blocking 内で実行。
+    /// パラメータは Vec<String> として所有権を取る。
+    pub async fn query_owned(
+        &self,
+        sql: String,
+        params: Vec<String>,
+    ) -> Result<Vec<HashMap<String, Value>>, String> {
+        let pool = self.pool.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| format!("SQLite connection failed: {e}"))?;
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| format!("SQLite prepare failed: {e}"))?;
+            let columns: Vec<String> = stmt
+                .column_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+            let rows = stmt
+                .query_map(params_from_iter(param_refs.iter()), |row| {
+                    let mut map = HashMap::new();
+                    for (i, col) in columns.iter().enumerate() {
+                        let val: Value = match row.get_ref(i) {
+                            Ok(rusqlite::types::ValueRef::Null) => Value::Null,
+                            Ok(rusqlite::types::ValueRef::Integer(n)) => Value::from(n),
+                            Ok(rusqlite::types::ValueRef::Real(f)) => {
+                                serde_json::Number::from_f64(f)
+                                    .map(Value::Number)
+                                    .unwrap_or(Value::Null)
+                            }
+                            Ok(rusqlite::types::ValueRef::Text(s)) => {
+                                Value::String(String::from_utf8_lossy(s).to_string())
+                            }
+                            Ok(rusqlite::types::ValueRef::Blob(b)) => {
+                                Value::String(format!("[blob: {} bytes]", b.len()))
+                            }
+                            Err(_) => Value::Null,
+                        };
+                        map.insert(col.clone(), val);
+                    }
+                    Ok(map)
+                })
+                .map_err(|e| format!("SQLite query failed: {e}"))?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.map_err(|e| format!("SQLite row error: {e}"))?);
+            }
+            Ok(results)
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    }
+
+    /// スカラー値取得（async版、所有権パラメータ、i64固定）
+    pub async fn query_scalar_owned(
+        &self,
+        sql: String,
+        params: Vec<String>,
+    ) -> Result<i64, String> {
+        let pool = self.pool.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| format!("SQLite connection failed: {e}"))?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+            conn.query_row(&sql, params_from_iter(param_refs.iter()), |row| row.get(0))
+                .map_err(|e| format!("SQLite scalar query failed: {e}"))
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    }
+
+    /// SQL実行 → Vec<HashMap<String, Value>> (async版)
+    pub async fn query_async(
+        &self,
+        sql: &str,
+        params: &[&str],
+    ) -> Result<Vec<HashMap<String, Value>>, String> {
+        let pool = self.pool.clone();
+        let sql = sql.to_string();
+        let params: Vec<String> = params.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| format!("SQLite connection failed: {e}"))?;
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| format!("SQLite prepare failed: {e}"))?;
+            let columns: Vec<String> = stmt
+                .column_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+            let rows = stmt
+                .query_map(params_from_iter(param_refs.iter()), |row| {
+                    let mut map = HashMap::new();
+                    for (i, col) in columns.iter().enumerate() {
+                        let val: Value = match row.get_ref(i) {
+                            Ok(rusqlite::types::ValueRef::Null) => Value::Null,
+                            Ok(rusqlite::types::ValueRef::Integer(n)) => Value::from(n),
+                            Ok(rusqlite::types::ValueRef::Real(f)) => {
+                                serde_json::Number::from_f64(f)
+                                    .map(Value::Number)
+                                    .unwrap_or(Value::Null)
+                            }
+                            Ok(rusqlite::types::ValueRef::Text(s)) => {
+                                Value::String(String::from_utf8_lossy(s).to_string())
+                            }
+                            Ok(rusqlite::types::ValueRef::Blob(b)) => {
+                                Value::String(format!("[blob: {} bytes]", b.len()))
+                            }
+                            Err(_) => Value::Null,
+                        };
+                        map.insert(col.clone(), val);
+                    }
+                    Ok(map)
+                })
+                .map_err(|e| format!("SQLite query failed: {e}"))?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.map_err(|e| format!("SQLite row error: {e}"))?);
+            }
+            Ok(results)
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    }
+
+    /// DDL/DML実行（async版）
+    pub async fn execute_async(
+        &self,
+        sql: &str,
+        params: &[&str],
+    ) -> Result<usize, String> {
+        let pool = self.pool.clone();
+        let sql = sql.to_string();
+        let params: Vec<String> = params.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| format!("SQLite connection failed: {e}"))?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+            conn.execute(&sql, params_from_iter(param_refs.iter()))
+                .map_err(|e| format!("SQLite execute failed: {e}"))
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    }
+
+    /// スカラー値を取得（async版、i64固定）
+    pub async fn query_scalar_async_i64(
+        &self,
+        sql: &str,
+        params: &[&str],
+    ) -> Result<i64, String> {
+        let pool = self.pool.clone();
+        let sql = sql.to_string();
+        let params: Vec<String> = params.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| format!("SQLite connection failed: {e}"))?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+            conn.query_row(&sql, params_from_iter(param_refs.iter()), |row| row.get(0))
+                .map_err(|e| format!("SQLite scalar query failed: {e}"))
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?
     }
 }
 

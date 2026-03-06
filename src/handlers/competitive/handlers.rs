@@ -32,10 +32,21 @@ pub async fn tab_competitive(
         }
     }
 
-    let stats = fetch_competitive(&state, &job_type);
-    let pref_options = fetch_prefectures(&state, &job_type);
-    let ftype_options = fetch_facility_types(&state, &job_type);
-    let stype_options = fetch_service_types(&state, &job_type, "");
+    let state_ref = state.clone();
+    let jt = job_type.clone();
+    let (stats, pref_options, ftype_options, stype_options) = match tokio::task::spawn_blocking(move || {
+        let stats = fetch_competitive(&state_ref, &jt);
+        let pref_options = fetch_prefectures(&state_ref, &jt);
+        let ftype_options = fetch_facility_types(&state_ref, &jt);
+        let stype_options = fetch_service_types(&state_ref, &jt, "");
+        (stats, pref_options, ftype_options, stype_options)
+    }).await {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html("<p class=\"text-red-400\">データ取得エラー</p>".to_string());
+        }
+    };
     let html = render_competitive(&job_type, &stats, &pref_options, &ftype_options, &stype_options);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
@@ -81,10 +92,25 @@ pub async fn comp_filter(
         return Html("<p class=\"text-slate-400\">都道府県を選択してください</p>".to_string());
     }
 
-    let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp, ftype, stype)
-    } else {
-        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp, ftype, stype)
+    let db_clone = db.clone();
+    let jt = job_type.clone();
+    let pref_owned = pref.to_string();
+    let muni_owned = muni.to_string();
+    let emp_owned = emp.to_string();
+    let ftype_owned = ftype.to_string();
+    let stype_owned = stype.to_string();
+    let postings = match tokio::task::spawn_blocking(move || {
+        if nearby && !muni_owned.is_empty() {
+            fetch_nearby_postings(&db_clone, &jt, &pref_owned, &muni_owned, radius_km, &emp_owned, &ftype_owned, &stype_owned)
+        } else {
+            fetch_postings(&db_clone, &jt, &pref_owned, if muni_owned.is_empty() { None } else { Some(&muni_owned) }, &emp_owned, &ftype_owned, &stype_owned)
+        }
+    }).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html("<p class=\"text-red-400\">データ取得エラー</p>".to_string());
+        }
     };
 
     let total = postings.len() as i64;
@@ -125,10 +151,10 @@ pub async fn comp_municipalities(
         None => return Html(r#"<option value="">市区町村</option>"#.to_string()),
     };
 
-    let rows = db.query(
-        "SELECT DISTINCT municipality FROM job_postings WHERE job_type = ? AND prefecture = ? ORDER BY municipality",
-        &[&job_type as &dyn rusqlite::types::ToSql, &pref as &dyn rusqlite::types::ToSql],
-    ).unwrap_or_default();
+    let rows = db.query_owned(
+        "SELECT DISTINCT municipality FROM job_postings WHERE job_type = ? AND prefecture = ? ORDER BY municipality".to_string(),
+        vec![job_type.clone(), pref.to_string()],
+    ).await.unwrap_or_default();
 
     let mut html = String::from(r#"<option value="">全て</option>"#);
     for row in &rows {
@@ -152,10 +178,24 @@ pub async fn comp_facility_types(
     let (job_type, _, _) = get_session_filters(&session).await;
     let pref = params.prefecture.as_deref().unwrap_or("");
 
-    let hierarchy = fetch_facility_types_hierarchical(&state, &job_type, pref);
+    let state_ref = state.clone();
+    let jt = job_type.clone();
+    let pref_owned = pref.to_string();
+    let hierarchy = match tokio::task::spawn_blocking(move || {
+        fetch_facility_types_hierarchical(&state_ref, &jt, &pref_owned)
+    }).await {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html(r#"<div class="text-sm text-slate-400 p-2">データ取得エラー</div>"#.to_string());
+        }
+    };
 
     if hierarchy.is_empty() {
-        return Html(r#"<div class="text-sm text-slate-400 p-2">データがありません</div>"#.to_string());
+        return Html(crate::handlers::render_empty_state(
+            "施設形態データなし",
+            "選択された条件の施設形態データがありません",
+        ));
     }
 
     let mut html = String::new();
@@ -235,7 +275,18 @@ pub async fn comp_service_types(
     let (job_type, _, _) = get_session_filters(&session).await;
     let pref = params.prefecture.as_deref().unwrap_or("");
 
-    let stypes = fetch_service_types(&state, &job_type, pref);
+    let state_ref = state.clone();
+    let jt = job_type.clone();
+    let pref_owned = pref.to_string();
+    let stypes = match tokio::task::spawn_blocking(move || {
+        fetch_service_types(&state_ref, &jt, &pref_owned)
+    }).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html(r#"<option value="">全て</option>"#.to_string());
+        }
+    };
 
     let mut html = String::from(r#"<option value="">全て</option>"#);
     for (cat, cnt) in &stypes {
@@ -259,7 +310,17 @@ pub async fn comp_analysis(
         None => return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string()),
     };
 
-    let analysis = fetch_analysis(db, &job_type);
+    let db_clone = db.clone();
+    let jt = job_type.clone();
+    let analysis = match tokio::task::spawn_blocking(move || {
+        fetch_analysis(&db_clone, &jt)
+    }).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html("<p class=\"text-red-400\">分析データ取得エラー</p>".to_string());
+        }
+    };
     Html(render_analysis_html(&job_type, &analysis))
 }
 
@@ -284,7 +345,19 @@ pub async fn comp_analysis_filtered(
 
     let pref = params.prefecture.as_deref().unwrap_or("");
     let muni = params.municipality.as_deref().unwrap_or("");
-    let analysis = fetch_analysis_filtered(db, &job_type, pref, muni);
+    let db_clone = db.clone();
+    let jt = job_type.clone();
+    let pref_owned = pref.to_string();
+    let muni_owned = muni.to_string();
+    let analysis = match tokio::task::spawn_blocking(move || {
+        fetch_analysis_filtered(&db_clone, &jt, &pref_owned, &muni_owned)
+    }).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html("<p class=\"text-red-400\">分析データ取得エラー</p>".to_string());
+        }
+    };
     let scope_label = if !muni.is_empty() {
         format!("{} {}", pref, muni)
     } else if !pref.is_empty() {
@@ -320,10 +393,25 @@ pub async fn comp_report(
         return Html("<p>都道府県を選択してください</p>".to_string());
     }
 
-    let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp, ftype, stype)
-    } else {
-        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp, ftype, stype)
+    let db_clone = db.clone();
+    let jt = job_type.clone();
+    let pref_owned = pref.to_string();
+    let muni_owned = muni.to_string();
+    let emp_owned = emp.to_string();
+    let ftype_owned = ftype.to_string();
+    let stype_owned = stype.to_string();
+    let postings = match tokio::task::spawn_blocking(move || {
+        if nearby && !muni_owned.is_empty() {
+            fetch_nearby_postings(&db_clone, &jt, &pref_owned, &muni_owned, radius_km, &emp_owned, &ftype_owned, &stype_owned)
+        } else {
+            fetch_postings(&db_clone, &jt, &pref_owned, if muni_owned.is_empty() { None } else { Some(&muni_owned) }, &emp_owned, &ftype_owned, &stype_owned)
+        }
+    }).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html("<p>データ取得エラー</p>".to_string());
+        }
     };
 
     let stats = calc_salary_stats(&postings);

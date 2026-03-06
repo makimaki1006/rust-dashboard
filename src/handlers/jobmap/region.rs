@@ -223,15 +223,30 @@ pub async fn region_posting_stats(
     let pref = params.prefecture.clone();
     let muni = params.municipality.clone();
 
+    // 全DBクエリをspawn_blockingで実行
+    let db_clone = geocoded_db.clone();
+    let db_result = match tokio::task::spawn_blocking(move || {
+        let emp_sql = "SELECT employment_type, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 GROUP BY employment_type ORDER BY cnt DESC";
+        let emp_rows = db_clone.query(emp_sql, &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni]);
+
+        let salary_sql = "SELECT salary_type, AVG(salary_min) as avg_min, AVG(salary_max) as avg_max, MIN(salary_min) as min_min, MAX(salary_max) as max_max, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND salary_min > 0 GROUP BY salary_type";
+        let salary_rows = db_clone.query(salary_sql, &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni]);
+
+        let svc_sql = "SELECT service_type, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND service_type != '' GROUP BY service_type ORDER BY cnt DESC LIMIT 5";
+        let svc_rows = db_clone.query(svc_sql, &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni]);
+
+        (emp_rows, salary_rows, svc_rows)
+    }).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html(r#"<p class="text-red-400 text-xs">データ取得エラー</p>"#.to_string());
+        }
+    };
+
+    let (emp_rows, salary_rows, svc_rows) = db_result;
+
     let mut html = String::with_capacity(2048);
-
-    // 雇用形態別件数
-    let emp_sql = "SELECT employment_type, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 GROUP BY employment_type ORDER BY cnt DESC";
-    let emp_rows = geocoded_db.query(
-        emp_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
-
     html.push_str(r#"<div class="space-y-3 text-xs">"#);
 
     // 雇用形態テーブル
@@ -251,12 +266,6 @@ pub async fn region_posting_stats(
     html.push_str("</tbody></table></div>");
 
     // 給与統計
-    let salary_sql = "SELECT salary_type, AVG(salary_min) as avg_min, AVG(salary_max) as avg_max, MIN(salary_min) as min_min, MAX(salary_max) as max_max, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND salary_min > 0 GROUP BY salary_type";
-    let salary_rows = geocoded_db.query(
-        salary_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
-
     html.push_str(r#"<div><div class="text-gray-400 mb-1 font-medium">給与レンジ</div>"#);
     html.push_str(r#"<table class="w-full"><thead><tr class="text-gray-500"><th class="text-left">区分</th><th class="text-right">平均下限</th><th class="text-right">平均上限</th><th class="text-right">件</th></tr></thead><tbody>"#);
     if let Ok(rows) = &salary_rows {
@@ -277,12 +286,6 @@ pub async fn region_posting_stats(
     html.push_str("</tbody></table></div>");
 
     // サービス形態TOP5
-    let svc_sql = "SELECT service_type, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND service_type != '' GROUP BY service_type ORDER BY cnt DESC LIMIT 5";
-    let svc_rows = geocoded_db.query(
-        svc_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
-
     html.push_str(r#"<div><div class="text-gray-400 mb-1 font-medium">サービス形態 TOP5</div>"#);
     if let Ok(rows) = &svc_rows {
         let max_cnt = rows.first().map(|r| get_i64(r, "cnt")).unwrap_or(1).max(1);
@@ -336,16 +339,30 @@ pub async fn region_segments(
     let pref = params.prefecture.clone();
     let muni = params.municipality.clone();
 
+    // 全DBクエリをspawn_blockingで実行
+    let db_clone = geocoded_db.clone();
+    let db_result = match tokio::task::spawn_blocking(move || {
+        let tier3_sql = "SELECT tier3_label_short, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND tier3_label_short != '' GROUP BY tier3_label_short ORDER BY cnt DESC LIMIT 10";
+        let tier3_rows = db_clone.query(tier3_sql, &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni]);
+
+        let eq_sql = "SELECT exp_qual_segment, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND exp_qual_segment != '' GROUP BY exp_qual_segment ORDER BY cnt DESC LIMIT 10";
+        let eq_rows = db_clone.query(eq_sql, &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni]);
+
+        (tier3_rows, eq_rows)
+    }).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html(r#"<p class="text-red-400 text-xs">データ取得エラー</p>"#.to_string());
+        }
+    };
+
+    let (tier3_rows, eq_rows) = db_result;
+
     let mut html = String::with_capacity(2048);
     html.push_str(r#"<div class="space-y-3 text-xs">"#);
 
     // Tier3セグメント分布TOP10
-    let tier3_sql = "SELECT tier3_label_short, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND tier3_label_short != '' GROUP BY tier3_label_short ORDER BY cnt DESC LIMIT 10";
-    let tier3_rows = geocoded_db.query(
-        tier3_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
-
     html.push_str(r#"<div><div class="text-gray-400 mb-1 font-medium">求人セグメント TOP10</div>"#);
     if let Ok(rows) = &tier3_rows {
         if rows.is_empty() {
@@ -375,12 +392,6 @@ pub async fn region_segments(
     html.push_str("</div>");
 
     // 経験・資格セグメント分布TOP10
-    let eq_sql = "SELECT exp_qual_segment, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND exp_qual_segment != '' GROUP BY exp_qual_segment ORDER BY cnt DESC LIMIT 10";
-    let eq_rows = geocoded_db.query(
-        eq_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
-
     html.push_str(r#"<div><div class="text-gray-400 mb-1 font-medium">経験・資格セグメント</div>"#);
     if let Ok(rows) = &eq_rows {
         if rows.is_empty() {

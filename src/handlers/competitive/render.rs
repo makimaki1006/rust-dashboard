@@ -57,7 +57,7 @@ pub(crate) fn render_competitive(job_type: &str, stats: &CompStats, pref_options
         .join("\n");
 
     include_str!("../../../templates/tabs/competitive.html")
-        .replace("{{JOB_TYPE}}", job_type)
+        .replace("{{JOB_TYPE}}", &escape_html(job_type))
         .replace("{{TOTAL_POSTINGS}}", &format_number(stats.total_postings))
         .replace("{{TOTAL_FACILITIES}}", &format_number(stats.total_facilities))
         .replace("{{PREF_LABELS}}", &format!("[{}]", pref_labels.join(",")))
@@ -414,9 +414,9 @@ pub(crate) fn render_analysis_html(job_type: &str, data: &AnalysisData) -> Strin
 
 pub(crate) fn render_analysis_html_with_scope(job_type: &str, scope: &str, data: &AnalysisData) -> String {
     if data.total == 0 {
-        return format!(
-            r#"<p class="text-slate-400 text-sm">「{}」の求人データがありません</p>"#,
-            escape_html(job_type)
+        return crate::handlers::render_empty_state(
+            "求人データなし",
+            &format!("「{}」の求人データがありません。職種や地域を変更してお試しください。", escape_html(job_type)),
         );
     }
 

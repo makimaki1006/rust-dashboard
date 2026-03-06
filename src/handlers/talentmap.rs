@@ -11,6 +11,7 @@ use crate::AppState;
 use crate::geo::pref_name_to_code;
 
 use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, make_location_label};
+use super::competitive::escape_html;
 
 /// タブ7用クエリパラメータ（地図クリック等から受け取る）
 #[derive(Deserialize, Default)]
@@ -339,8 +340,8 @@ fn render_talentmap(job_type: &str, prefecture: &str, municipality: &str, stats:
     let data_summary = build_data_summary(stats);
 
     include_str!("../../templates/tabs/talentmap.html")
-        .replace("{{JOB_TYPE}}", job_type)
-        .replace("{{LOCATION_LABEL}}", &location_label)
+        .replace("{{JOB_TYPE}}", &escape_html(job_type))
+        .replace("{{LOCATION_LABEL}}", &escape_html(&location_label))
         .replace("{{MAP_LAT}}", &format!("{:.4}", map_lat))
         .replace("{{MAP_LNG}}", &format!("{:.4}", map_lng))
         .replace("{{MAP_ZOOM}}", &map_zoom.to_string())
@@ -365,9 +366,6 @@ fn render_talentmap(job_type: &str, prefecture: &str, municipality: &str, stats:
         .replace("{{GENDER_SEL_M}}", "")
         .replace("{{GENDER_SEL_F}}", "")
         .replace("{{MODE_BASIC}}", "checked")
-        .replace("{{MODE_INFLOW}}", "")
-        .replace("{{MODE_BALANCE}}", "")
-        .replace("{{MODE_COMPETING}}", "")
 }
 
 // ===== サイドバー詳細API（HTMX用） =====
@@ -710,12 +708,12 @@ fn build_legend(mode: &str) -> String {
             "薄橙: ほぼ競合なし",
         ],
         _ => vec![ // basic
-            "🗺️ ポリゴン色: 求職者数（濃い青=多い、薄い青=少ない）",
-            "⚪ マーカー: 市区町村の求職者数",
+            "<span style='color:#ffffcc;'>&#9632;</span> 薄黄: 少ない → <span style='color:#41b6c4;'>&#9632;</span> 青緑: 中程度 → <span style='color:#253494;'>&#9632;</span> 濃紺: 多い",
+            "&#9675; マーカー: 市区町村の求職者数",
             "  小(4px): ~200人、中(8px): ~400人、大(12px): 600人~",
-            "━ フロー線: 居住地→希望勤務地",
+            "&#9473; フロー線: 居住地→希望勤務地",
             "  細(1px): ~100人、太(8px): 800人~",
-            "🖱️ クリックで市区町村を選択",
+            "クリックで市区町村を選択",
         ],
     };
 

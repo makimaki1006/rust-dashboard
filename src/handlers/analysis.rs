@@ -6,6 +6,7 @@ use tower_sessions::Session;
 
 use crate::db::analytics;
 use crate::AppState;
+use crate::models::job_seeker::PREFECTURE_ORDER;
 use super::competitive::escape_html;
 use super::overview::{get_session_filters, make_location_label, format_number};
 
@@ -72,6 +73,12 @@ pub struct AnalysisParams {
     pub cluster_id: Option<i32>,
 }
 
+/// 地域比較用パラメータ
+#[derive(Deserialize)]
+pub struct CompareParams {
+    pub pref2: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // メインタブ: /tab/analysis
 // ---------------------------------------------------------------------------
@@ -95,7 +102,13 @@ pub async fn tab_analysis(
     };
 
     // サマリー取得（都道府県・市区町村フィルター対応）
-    let summary = analytics::query_analysis_summary(db, &job_type, &prefecture, &municipality).unwrap_or_default();
+    let db_clone = db.clone();
+    let jt = job_type.clone();
+    let pref = prefecture.clone();
+    let muni = municipality.clone();
+    let summary = tokio::task::spawn_blocking(move || {
+        analytics::query_analysis_summary(&db_clone, &jt, &pref, &muni).unwrap_or_default()
+    }).await.unwrap_or_default();
     let salary_count = summary.get("salary_stat_count").and_then(|v| v.as_i64()).unwrap_or(0);
     let cluster_count = summary.get("cluster_count").and_then(|v| v.as_i64()).unwrap_or(0);
     let keyword_count = summary.get("keyword_count").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -136,11 +149,11 @@ pub async fn tab_analysis(
             <div class="text-xl font-bold text-white">{keyword_count}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <div class="text-xs text-gray-400">共起パターン</div>
+            <div class="text-xs text-gray-400">条件の組み合わせ</div>
             <div class="text-xl font-bold text-white">{cooccurrence_count}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <div class="text-xs text-gray-400">原稿品質</div>
+            <div class="text-xs text-gray-400">求人原稿の充実度</div>
             <div class="text-xl font-bold {grade_color}">{grade}</div>
         </div>
     </div>
@@ -153,7 +166,7 @@ pub async fn tab_analysis(
                     onclick="setAnalysisSubTab(this)">💰 給与分析</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/facility" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">🏢 法人集中度</button>
+                    onclick="setAnalysisSubTab(this)">🏢 法人の分布</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/employment" hx-target="#analysis-content" hx-swap="innerHTML"
                     onclick="setAnalysisSubTab(this)">📋 雇用多様性</button>
@@ -162,16 +175,19 @@ pub async fn tab_analysis(
                     onclick="setAnalysisSubTab(this)">🔑 キーワード</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/cooccurrence" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">🔗 条件共起</button>
+                    onclick="setAnalysisSubTab(this)">🔗 条件の組み合わせ</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/quality" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">📝 原稿品質</button>
+                    onclick="setAnalysisSubTab(this)">📝 求人原稿の充実度</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/clusters" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">🎯 クラスタ</button>
+                    onclick="setAnalysisSubTab(this)">🎯 求人タイプ</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/heatmap" hx-target="#analysis-content" hx-swap="innerHTML"
                     onclick="setAnalysisSubTab(this)">🗺️ 地域分布</button>
+            <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
+                    hx-get="/api/analysis/compare" hx-target="#analysis-content" hx-swap="innerHTML"
+                    onclick="setAnalysisSubTab(this)">🔄 地域比較</button>
         </nav>
     </div>
 
@@ -233,9 +249,13 @@ pub async fn api_salary(
 
     if use_postings {
         // postings テーブルから salary_min/salary_max の統計を取得
-        let prows = match analytics::query_salary_from_postings(db, &job_type, &prefecture, &municipality) {
-            Ok(r) => r,
-            Err(e) => return Html(error_html(&e)),
+        let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
+        let prows = match tokio::task::spawn_blocking(move || {
+            analytics::query_salary_from_postings(&db_c, &jt, &pref, &muni)
+        }).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => return Html(error_html(&e)),
+            Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
         };
         if prows.is_empty() {
             return Html(empty_html("給与統計データがありません"));
@@ -265,12 +285,15 @@ pub async fn api_salary(
     }
 
     // 都道府県レベル: 事前計算テーブルからもpostingsからも下限/上限を取得
-    let prows = analytics::query_salary_from_postings(db, &job_type, &prefecture, "").unwrap_or_default();
-
-    // 従来テーブルも取得（フォールバック用）
-    let rows = match analytics::query_salary_stats(db, &job_type, &prefecture) {
-        Ok(r) => r,
-        Err(e) => return Html(error_html(&e)),
+    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
+    let (prows, rows) = match tokio::task::spawn_blocking(move || {
+        let prows = analytics::query_salary_from_postings(&db_c, &jt, &pref, "").unwrap_or_default();
+        let rows = analytics::query_salary_stats(&db_c, &jt, &pref);
+        (prows, rows)
+    }).await {
+        Ok((prows, Ok(rows))) => (prows, rows),
+        Ok((_, Err(e))) => return Html(error_html(&e)),
+        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
     };
 
     // いずれかにデータがあればOK
@@ -389,16 +412,17 @@ pub async fn api_facility(
     };
 
     // 市区町村指定時は postings テーブルから直接計算
-    let rows = if !municipality.is_empty() {
-        match analytics::query_facility_from_postings(db, &job_type, &prefecture, &municipality) {
-            Ok(r) => r,
-            Err(e) => return Html(error_html(&e)),
+    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
+    let rows = match tokio::task::spawn_blocking(move || {
+        if !muni.is_empty() {
+            analytics::query_facility_from_postings(&db_c, &jt, &pref, &muni)
+        } else {
+            analytics::query_facility_concentration(&db_c, &jt, &pref)
         }
-    } else {
-        match analytics::query_facility_concentration(db, &job_type, &prefecture) {
-            Ok(r) => r,
-            Err(e) => return Html(error_html(&e)),
-        }
+    }).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return Html(error_html(&e)),
+        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
     };
 
     if rows.is_empty() {
@@ -422,7 +446,7 @@ pub async fn api_facility(
 
     let mut html = format!(r##"
 <div class="space-y-4">
-    <h3 class="text-lg font-semibold text-white">🏢 法人集中度分析 — {location}</h3>
+    <h3 class="text-lg font-semibold text-white">🏢 求人を出している法人の分布 — {location}</h3>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
@@ -434,13 +458,14 @@ pub async fn api_facility(
             <div class="text-xl font-bold text-cyan-400">{unique}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <div class="text-xs text-gray-400">HHI指数</div>
+            <div class="text-xs text-gray-400">市場の集中度</div>
             <div class="text-xl font-bold {hhi_color}">{hhi:.4}</div>
             <div class="text-xs {hhi_color}">{hhi_label}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <div class="text-xs text-gray-400">Zipf指数</div>
+            <div class="text-xs text-gray-400">大手偏り度</div>
             <div class="text-xl font-bold text-purple-400">{zipf:.3}</div>
+            <div class="text-xs text-gray-500">小さいほど大手に集中</div>
         </div>
     </div>
 
@@ -468,14 +493,17 @@ pub async fn api_facility(
     );
 
     // 全都道府県比較チャート（Zipf指数）
-    let all_prefs = analytics::query_facility_all_prefectures(db, &job_type).unwrap_or_default();
+    let db_c = db.clone(); let jt = job_type.clone();
+    let all_prefs = tokio::task::spawn_blocking(move || {
+        analytics::query_facility_all_prefectures(&db_c, &jt).unwrap_or_default()
+    }).await.unwrap_or_default();
     let pref_rows: Vec<_> = all_prefs.iter().filter(|r| {
         r.get("prefecture").and_then(|v| v.as_str()).unwrap_or("") != "全国"
     }).collect();
 
     if !pref_rows.is_empty() {
         html.push_str(r#"<div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 Zipf指数比較</h4>
+            <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 大手偏り度の比較（値が小さいほど大手法人に求人が集中）</h4>
             <div id="facility-zipf-pref-chart" style="width:100%;height:500px;"></div>
         </div>"#);
     }
@@ -501,7 +529,6 @@ pub async fn api_facility(
                     label: {{ show: true, position: 'right', color: '#e2e8f0', formatter: '{{c}}%' }}
                 }}]
             }});
-            window.addEventListener('resize', function() {{ c1.resize(); }});
         }}
     }})();
     </script>
@@ -550,7 +577,6 @@ pub async fn api_facility(
                         label: {{ show: false }}
                     }}]
                 }});
-                window.addEventListener('resize', function() {{ c.resize(); }});
             }}
         }})();
         </script>
@@ -580,16 +606,17 @@ pub async fn api_employment(
     };
 
     // 市区町村指定時は postings テーブルから直接計算
-    let rows = if !municipality.is_empty() {
-        match analytics::query_employment_from_postings(db, &job_type, &prefecture, &municipality) {
-            Ok(r) => r,
-            Err(e) => return Html(error_html(&e)),
+    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
+    let rows = match tokio::task::spawn_blocking(move || {
+        if !muni.is_empty() {
+            analytics::query_employment_from_postings(&db_c, &jt, &pref, &muni)
+        } else {
+            analytics::query_employment_diversity(&db_c, &jt, &pref)
         }
-    } else {
-        match analytics::query_employment_diversity(db, &job_type, &prefecture) {
-            Ok(r) => r,
-            Err(e) => return Html(error_html(&e)),
-        }
+    }).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return Html(error_html(&e)),
+        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
     };
 
     if rows.is_empty() {
@@ -633,7 +660,7 @@ pub async fn api_employment(
             <div class="text-xl font-bold text-cyan-400">{n_types}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <div class="text-xs text-gray-400">Shannon Entropy</div>
+            <div class="text-xs text-gray-400">雇用形態の多様性</div>
             <div class="text-xl font-bold text-purple-400">{entropy:.3}</div>
             <div class="text-xs text-gray-500">/ {max_entropy:.3}</div>
         </div>
@@ -662,7 +689,10 @@ pub async fn api_employment(
     );
 
     // 全都道府県比較（Shannon entropy）
-    let all_prefs = analytics::query_employment_all_prefectures(db, &job_type).unwrap_or_default();
+    let db_c = db.clone(); let jt = job_type.clone();
+    let all_prefs = tokio::task::spawn_blocking(move || {
+        analytics::query_employment_all_prefectures(&db_c, &jt).unwrap_or_default()
+    }).await.unwrap_or_default();
     let pref_rows: Vec<_> = all_prefs.iter().filter(|r| {
         r.get("prefecture").and_then(|v| v.as_str()).unwrap_or("") != "全国"
     }).collect();
@@ -675,7 +705,7 @@ pub async fn api_employment(
                 <div id="emp-stacked-chart" style="width:100%;height:600px;"></div>
             </div>
             <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-                <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 Shannon Entropy</h4>
+                <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 雇用形態の多様性</h4>
                 <div id="emp-entropy-chart" style="width:100%;height:600px;"></div>
             </div>
         </div>"#);
@@ -755,7 +785,7 @@ pub async fn api_employment(
                     yAxis: {{ type: 'category', data: [{prefs}], axisLabel: {{ color: '#94a3b8', fontSize: 9 }}, inverse: true }},
                     series: [{series}]
                 }});
-                window.addEventListener('resize', function() {{ c1.resize(); }});
+
             }}
             // Entropy 横棒グラフ
             var dom2 = document.getElementById('emp-entropy-chart');
@@ -765,7 +795,7 @@ pub async fn api_employment(
                     backgroundColor: 'transparent',
                     tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'shadow' }} }},
                     grid: {{ left: 70, right: 30, top: 10, bottom: 20 }},
-                    xAxis: {{ type: 'value', name: 'Shannon Entropy', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }} }},
+                    xAxis: {{ type: 'value', name: '多様性（高いほど形態が均等）', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }} }},
                     yAxis: {{ type: 'category', data: [{prefs}], axisLabel: {{ color: '#94a3b8', fontSize: 9 }}, inverse: true }},
                     series: [{{
                         type: 'bar',
@@ -774,7 +804,7 @@ pub async fn api_employment(
                         itemStyle: {{ color: function(p) {{ var cs = [{entropy_colors}]; return cs[p.dataIndex]; }} }}
                     }}]
                 }});
-                window.addEventListener('resize', function() {{ c2.resize(); }});
+
             }}
         }})();
         </script>
@@ -806,7 +836,7 @@ pub async fn api_employment(
                     emphasis: {{ itemStyle: {{ shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.5)' }} }}
                 }}]
             }});
-            window.addEventListener('resize', function() {{ c.resize(); }});
+
         }}
     }})();
     </script>
@@ -835,7 +865,11 @@ pub async fn api_keywords(
 
     let layer = params.layer.as_deref();
     // フォールバック付きで取得（都道府県データなし→全国にフォールバック）
-    let (rows, is_fallback) = analytics::query_keywords_with_fallback(db, &job_type, &prefecture, layer, Some(50));
+    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
+    let layer_owned = layer.map(|s| s.to_string());
+    let (rows, is_fallback) = tokio::task::spawn_blocking(move || {
+        analytics::query_keywords_with_fallback(&db_c, &jt, &pref, layer_owned.as_deref(), Some(50))
+    }).await.unwrap_or_else(|_| (Vec::new(), false));
 
     let location_label = make_location_label(&prefecture, &municipality);
     let active_layer = layer.unwrap_or("all");
@@ -938,7 +972,7 @@ pub async fn api_keywords(
                         label: {{ show: true, position: 'right', color: '#94a3b8', fontSize: 10, formatter: '{{c}}%' }}
                     }}]
                 }});
-                window.addEventListener('resize', function() {{ c.resize(); }});
+
             }}
         }})();
         </script>
@@ -1016,7 +1050,10 @@ pub async fn api_cooccurrence(
 
     let min_lift = params.min_lift;
     // フォールバック付きで取得（都道府県データなし→全国にフォールバック）
-    let (rows, is_fallback) = analytics::query_cooccurrence_with_fallback(db, &job_type, &prefecture, min_lift);
+    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
+    let (rows, is_fallback) = tokio::task::spawn_blocking(move || {
+        analytics::query_cooccurrence_with_fallback(&db_c, &jt, &pref, min_lift)
+    }).await.unwrap_or_else(|_| (Vec::new(), false));
 
     let location_label = make_location_label(&prefecture, &municipality);
 
@@ -1043,12 +1080,12 @@ pub async fn api_cooccurrence(
 
     let mut html = format!(
         r#"<div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white">🔗 条件パッケージ共起分析 — {location}</h3>
+        <h3 class="text-lg font-semibold text-white">🔗 よく一緒に提示される条件の組み合わせ — {location}</h3>
         {fallback_note}{municipality_note}
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700 text-sm text-gray-300 space-y-2">
-            <p><span class="text-cyan-400 font-semibold">関連強度 (Lift)</span>: 2つの条件が独立に出現する場合と比べて、何倍共起しやすいか。1.0=無相関、2.0以上で強い関連。</p>
-            <p><span class="text-purple-400 font-semibold">相関度 (Phi)</span>: -1〜+1の統計的相関指標。0.3以上で実用的に意味のある関連性。</p>
-            <p><span class="text-amber-400 font-semibold">Support%</span>: 全求人中でこの条件ペアが同時に出現する割合。</p>
+            <p><span class="text-cyan-400 font-semibold">セット度</span>: ある条件Aを掲げる求人が、条件Bもセットで提示する傾向の強さ。値が大きいほど「セット売り」される頻度が高い。</p>
+            <p><span class="text-purple-400 font-semibold">結びつき</span>: 2つの条件がどれだけ強く結びついているか（-1〜+1）。0.3以上なら明確な関連あり。</p>
+            <p><span class="text-amber-400 font-semibold">出現率</span>: この組み合わせが全求人の何%に登場するか。大きいほどメジャーな組み合わせ。</p>
         </div>"#,
         location = escape_html(&location_label),
         fallback_note = fallback_note,
@@ -1066,17 +1103,15 @@ pub async fn api_cooccurrence(
             let lift = row.get("lift").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let phi = row.get("phi_coefficient").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let support = row.get("support_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            // バブルサイズ: support_pctを基準に可視化
-            let size = (support * 3.0).max(4.0).min(40.0);
             scatter_data.push(format!(
                 "[{:.2},{:.3},{:.1},'{}+{}']",
-                lift, phi, size, flag_a, flag_b
+                lift, phi, support, flag_a, flag_b
             ));
         }
 
         html.push_str(&format!(r##"
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <h4 class="text-sm font-semibold text-gray-300 mb-2">共起バブルチャート (X=関連強度, Y=相関度, サイズ=Support)</h4>
+            <h4 class="text-sm font-semibold text-gray-300 mb-2">条件の組み合わせマップ（右上ほど強い結びつき、円が大きいほど頻出）</h4>
             <div id="cooccur-bubble-chart" style="width:100%;height:400px;"></div>
         </div>
         <script>
@@ -1090,24 +1125,24 @@ pub async fn api_cooccurrence(
                     tooltip: {{
                         formatter: function(p) {{
                             var d = p.data;
-                            return d[3] + '<br>Lift: ' + d[0].toFixed(2) + '<br>Phi: ' + d[1].toFixed(3) + '<br>Support: ' + (d[2]/3).toFixed(1) + '%';
+                            return d[3] + '<br>セット度: ' + d[0].toFixed(2) + '倍<br>結びつき: ' + d[1].toFixed(3) + '<br>出現率: ' + d[2].toFixed(1) + '%';
                         }}
                     }},
                     grid: {{ left: 60, right: 30, top: 30, bottom: 50 }},
                     xAxis: {{
-                        type: 'value', name: '関連強度 (Lift)', nameLocation: 'center', nameGap: 30,
+                        type: 'value', name: 'セット度（高いほど一緒に掲示されやすい）', nameLocation: 'center', nameGap: 30,
                         axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }},
                         splitLine: {{ lineStyle: {{ color: '#334155' }} }}
                     }},
                     yAxis: {{
-                        type: 'value', name: '相関度 (Phi)', nameLocation: 'center', nameGap: 40,
+                        type: 'value', name: '結びつきの強さ', nameLocation: 'center', nameGap: 40,
                         axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }},
                         splitLine: {{ lineStyle: {{ color: '#334155' }} }}
                     }},
                     series: [{{
                         type: 'scatter',
                         data: rawData,
-                        symbolSize: function(d) {{ return d[2]; }},
+                        symbolSize: function(d) {{ return Math.max(Math.sqrt(d[2]) * 6, 4); }},
                         itemStyle: {{
                             color: function(p) {{
                                 var lift = p.data[0];
@@ -1126,7 +1161,7 @@ pub async fn api_cooccurrence(
                         }}
                     }}]
                 }});
-                window.addEventListener('resize', function() {{ c.resize(); }});
+
             }}
         }})();
         </script>
@@ -1141,10 +1176,10 @@ pub async fn api_cooccurrence(
             <thead><tr class="text-gray-400 border-b border-slate-700">
                 <th class="text-left p-1.5">条件A</th>
                 <th class="text-left p-1.5">条件B</th>
-                <th class="text-right p-1.5">共起数</th>
-                <th class="text-right p-1.5">関連強度(Lift)</th>
-                <th class="text-right p-1.5">相関度(Phi)</th>
-                <th class="text-right p-1.5">Support%</th>
+                <th class="text-right p-1.5">同時掲載数</th>
+                <th class="text-right p-1.5">セット度</th>
+                <th class="text-right p-1.5">結びつき</th>
+                <th class="text-right p-1.5">出現率</th>
             </tr></thead><tbody>"#);
 
         for row in &rows {
@@ -1198,20 +1233,22 @@ pub async fn api_quality(
     };
 
     // 市区町村指定時はpostingsテーブルから直接計算してKPIに使う
-    let muni_quality = if !municipality.is_empty() {
-        analytics::query_quality_from_postings(db, &job_type, &prefecture, &municipality).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-
-    // 全国データで全体概要を取得（散布図/バーチャート用）
-    let national = analytics::query_text_quality(db, &job_type, "").unwrap_or_default();
+    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
+    let (muni_quality, national) = tokio::task::spawn_blocking(move || {
+        let mq = if !muni.is_empty() {
+            analytics::query_quality_from_postings(&db_c, &jt, &pref, &muni).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let nat = analytics::query_text_quality(&db_c, &jt, "").unwrap_or_default();
+        (mq, nat)
+    }).await.unwrap_or_else(|_| (Vec::new(), Vec::new()));
 
     let location_label = make_location_label(&prefecture, &municipality);
 
     let mut html = format!(
         r#"<div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white">📝 原稿品質分析 — {location}</h3>"#,
+        <h3 class="text-lg font-semibold text-white">📝 求人原稿の充実度 — {location}</h3>"#,
         location = escape_html(&location_label),
     );
 
@@ -1248,7 +1285,7 @@ pub async fn api_quality(
             <div class="text-3xl font-bold {grade_color} px-3 py-1 rounded inline-block">{grade}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <div class="text-xs text-gray-400">テキストEntropy</div>
+            <div class="text-xs text-gray-400">表現の豊かさ</div>
             <div class="text-xl font-bold text-white">{entropy:.3}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
@@ -1291,8 +1328,12 @@ pub async fn api_quality(
             target_prefs.push(neighbor);
         }
 
-        let muni_rows = analytics::query_quality_by_municipality(db, &job_type, &target_prefs)
-            .unwrap_or_default();
+        let db_c = db.clone(); let jt = job_type.clone();
+        let target_prefs_owned: Vec<String> = target_prefs.iter().map(|s| s.to_string()).collect();
+        let muni_rows = tokio::task::spawn_blocking(move || {
+            let refs: Vec<&str> = target_prefs_owned.iter().map(|s| s.as_str()).collect();
+            analytics::query_quality_by_municipality(&db_c, &jt, &refs).unwrap_or_default()
+        }).await.unwrap_or_default();
 
         if !muni_rows.is_empty() {
             // 選択市区町村のデータを特定
@@ -1370,9 +1411,9 @@ pub async fn api_quality(
 
             // チャート見出し
             let chart_heading_bar = if !selected_muni_name.is_empty() {
-                format!("近隣市区町村 Entropy比較（{} {} + 周辺）", escape_html(&prefecture), escape_html(&selected_muni_name))
+                format!("近隣市区町村 表現の豊かさの比較（{} {} + 周辺）", escape_html(&prefecture), escape_html(&selected_muni_name))
             } else {
-                format!("近隣市区町村 Entropy比較（{} + 隣接県）", escape_html(&prefecture))
+                format!("近隣市区町村 表現の豊かさの比較（{} + 隣接県）", escape_html(&prefecture))
             };
             let chart_heading_scatter = if !selected_muni_name.is_empty() {
                 format!("品質マップ（{} {} + 近隣市区町村）", escape_html(&prefecture), escape_html(&selected_muni_name))
@@ -1452,7 +1493,7 @@ pub async fn api_quality(
                 backgroundColor: 'transparent',
                 tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'shadow' }} }},
                 grid: {{ left: 100, right: 20, top: 10, bottom: 20 }},
-                xAxis: {{ type: 'value', name: 'Entropy (mean)', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }} }},
+                xAxis: {{ type: 'value', name: '表現の豊かさ', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }} }},
                 yAxis: {{ type: 'category', data: [{muni_names}], axisLabel: {{ color: '#94a3b8', fontSize: 9 }}, inverse: true }},
                 series: [{{
                     type: 'bar',
@@ -1461,7 +1502,6 @@ pub async fn api_quality(
                     itemStyle: {{ color: function(p) {{ var cs = [{entropy_colors}]; return cs[p.dataIndex]; }} }}
                 }}]
             }});
-            window.addEventListener('resize', function() {{ c1.resize(); }});
         }}
         var dom2 = document.getElementById('quality-scatter-chart');
         if (dom2) {{
@@ -1477,7 +1517,7 @@ pub async fn api_quality(
                 backgroundColor: 'transparent',
                 legend: {{ show: true, data: [{legend_items}], textStyle: {{ color: '#94a3b8', fontSize: 10 }}, top: 0 }},
                 tooltip: {{
-                    formatter: function(p) {{ return p.data[2] + '<br>漢字比率: ' + p.data[0].toFixed(1) + '%<br>Entropy: ' + p.data[1].toFixed(3) + '<br>求人数: ' + p.data[3]; }}
+                    formatter: function(p) {{ return p.data[2] + '<br>漢字比率: ' + p.data[0].toFixed(1) + '%<br>表現の豊かさ: ' + p.data[1].toFixed(3) + '<br>求人数: ' + p.data[3]; }}
                 }},
                 grid: {{ left: 50, right: 20, top: 40, bottom: 50 }},
                 xAxis: {{
@@ -1487,14 +1527,13 @@ pub async fn api_quality(
                     splitLine: {{ lineStyle: {{ color: '#334155' }} }}
                 }},
                 yAxis: {{
-                    type: 'value', name: 'Entropy (mean)', nameLocation: 'center', nameGap: 35,
+                    type: 'value', name: '表現の豊かさ', nameLocation: 'center', nameGap: 35,
                     min: minY, max: maxY,
                     axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }},
                     splitLine: {{ lineStyle: {{ color: '#334155' }} }}
                 }},
                 series: [{scatter_series}]
             }});
-            window.addEventListener('resize', function() {{ c2.resize(); }});
         }}
     }})();
     </script>
@@ -1528,7 +1567,7 @@ pub async fn api_quality(
                     <th class="text-left p-1.5">市区町村</th>
                     <th class="text-center p-1.5">Grade</th>
                     <th class="text-right p-1.5">件数</th>
-                    <th class="text-right p-1.5">Entropy</th>
+                    <th class="text-right p-1.5">多様性</th>
                     <th class="text-right p-1.5">品質</th>
                     <th class="text-right p-1.5">福利厚生</th>
                 </tr></thead><tbody>"#,
@@ -1602,7 +1641,7 @@ pub async fn api_quality(
 
             html.push_str(&format!(r##"
     <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-        <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 Entropy概況</h4>
+        <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 表現の豊かさ</h4>
         <div class="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-300 mb-2">
             ※ 都道府県を選択すると、近隣市区町村との詳細比較が表示されます。
         </div>
@@ -1617,7 +1656,7 @@ pub async fn api_quality(
                 backgroundColor: 'transparent',
                 tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'shadow' }} }},
                 grid: {{ left: 80, right: 20, top: 10, bottom: 20 }},
-                xAxis: {{ type: 'value', name: 'Entropy (mean)', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }} }},
+                xAxis: {{ type: 'value', name: '表現の豊かさ', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }} }},
                 yAxis: {{ type: 'category', data: [{prefs}], axisLabel: {{ color: '#94a3b8', fontSize: 9 }}, inverse: true }},
                 series: [{{
                     type: 'bar',
@@ -1626,7 +1665,6 @@ pub async fn api_quality(
                     itemStyle: {{ color: '#06b6d4' }}
                 }}]
             }});
-            window.addEventListener('resize', function() {{ c1.resize(); }});
         }}
     }})();
     </script>
@@ -1655,9 +1693,13 @@ pub async fn api_clusters(
         None => return Html(error_html("DB未接続")),
     };
 
-    let rows = match analytics::query_cluster_profiles(db, &job_type) {
-        Ok(r) => r,
-        Err(e) => return Html(error_html(&e)),
+    let db_c = db.clone(); let jt = job_type.clone();
+    let rows = match tokio::task::spawn_blocking(move || {
+        analytics::query_cluster_profiles(&db_c, &jt)
+    }).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return Html(error_html(&e)),
+        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
     };
 
     if rows.is_empty() {
@@ -1765,7 +1807,6 @@ pub async fn api_clusters(
                     emphasis: {{ itemStyle: {{ shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' }} }}
                 }}]
             }});
-            window.addEventListener('resize', function() {{ c1.resize(); }});
         }}
         // レーダーチャート
         var dom2 = document.getElementById('cluster-radar-chart');
@@ -1789,7 +1830,6 @@ pub async fn api_clusters(
                     data: [{radar_data}]
                 }}]
             }});
-            window.addEventListener('resize', function() {{ c2.resize(); }});
         }}
     }})();
     </script>
@@ -1843,7 +1883,7 @@ pub async fn api_clusters(
             <div><span class="text-gray-500">平均給与:</span> <span class="text-white font-mono">{salary_mean}</span></div>
             <div><span class="text-gray-500">中央給与:</span> <span class="text-white font-mono">{salary_median}</span></div>
             <div><span class="text-gray-500">正職員率:</span> <span class="text-white">{fulltime:.1}%</span></div>
-            <div><span class="text-gray-500">Entropy:</span> <span class="text-white">{ent:.3}</span></div>
+            <div><span class="text-gray-500">表現の豊かさ:</span> <span class="text-white">{ent:.3}</span></div>
             <div><span class="text-gray-500">福利厚生:</span> <span class="text-white">{ben:.1}</span></div>
         </div>
         <div class="mt-1">{benefits_html}</div>
@@ -1884,9 +1924,13 @@ pub async fn api_heatmap(
     };
 
     // 全都道府県 x 全クラスタ取得（ヒートマップ用）
-    let all_rows = match analytics::query_region_heatmap(db, &job_type, "", None) {
-        Ok(r) => r,
-        Err(e) => return Html(error_html(&e)),
+    let db_c = db.clone(); let jt = job_type.clone();
+    let all_rows = match tokio::task::spawn_blocking(move || {
+        analytics::query_region_heatmap(&db_c, &jt, "", None)
+    }).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return Html(error_html(&e)),
+        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
     };
 
     if all_rows.is_empty() {
@@ -2010,7 +2054,7 @@ pub async fn api_heatmap(
                     }}
                 }}]
             }});
-            window.addEventListener('resize', function() {{ c.resize(); }});
+
         }}
     }})();
     </script>
@@ -2026,9 +2070,13 @@ pub async fn api_heatmap(
 
     // テーブルも残す（フィルター対象のデータ）
     let display_rows = if !prefecture.is_empty() {
-        match analytics::query_region_heatmap(db, &job_type, &prefecture, params.cluster_id) {
-            Ok(r) => r,
-            Err(_) => Vec::new(),
+        let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
+        let cid = params.cluster_id;
+        match tokio::task::spawn_blocking(move || {
+            analytics::query_region_heatmap(&db_c, &jt, &pref, cid)
+        }).await {
+            Ok(Ok(r)) => r,
+            _ => Vec::new(),
         }
     } else {
         // 全国表示の場合はheatmapで表現したので、テーブルは省略しても良いが
@@ -2113,22 +2161,11 @@ fn format_yen(val: f64) -> String {
 }
 
 fn error_html(msg: &str) -> String {
-    format!(
-        r#"<div class="p-4 text-red-400 bg-red-900/20 rounded-lg border border-red-700">
-            <p class="font-semibold">エラー</p>
-            <p class="text-sm mt-1">{}</p>
-        </div>"#,
-        escape_html(msg)
-    )
+    super::render_error_state("エラー", &escape_html(msg))
 }
 
 fn empty_html(msg: &str) -> String {
-    format!(
-        r#"<div class="p-8 text-center text-gray-500">
-            <p>{}</p>
-        </div>"#,
-        escape_html(msg)
-    )
+    super::render_empty_state("データがありません", &escape_html(msg))
 }
 
 /// 給与グループ棒グラフ（従来のlayer_a_salary_statsデータ用）
@@ -2203,7 +2240,7 @@ fn render_salary_grouped_chart(
                     {{ name: '平均', type: 'scatter', data: [{mean}], symbolSize: 14, itemStyle: {{ color: '#f59e0b' }}, z: 10 }}
                 ]
             }});
-            window.addEventListener('resize', function() {{ c.resize(); }});
+
         }}
     }})();
     </script>
@@ -2303,7 +2340,7 @@ fn render_salary_minmax_chart(
                     {{ name: '上限P90', type: 'bar', data: [{p90_max}], itemStyle: {{ color: '#a855f7' }} }}
                 ]
             }});
-            window.addEventListener('resize', function() {{ c.resize(); }});
+
         }}
     }})();
     </script>
@@ -2381,4 +2418,296 @@ fn render_salary_minmax_table(rows: &[std::collections::HashMap<String, serde_js
 
     html.push_str("</tbody></table></div></div>");
     html
+}
+
+// ---------------------------------------------------------------------------
+// 地域比較 API
+// ---------------------------------------------------------------------------
+
+/// 2地域の市場データを並列比較するサブタブ
+pub async fn api_compare(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<CompareParams>,
+) -> Html<String> {
+    let (job_type, prefecture, _municipality) = get_session_filters(&session).await;
+    let db = match &state.geocoded_db {
+        Some(db) => db,
+        None => return Html(error_html("DB未接続")),
+    };
+
+    let pref1 = if prefecture.is_empty() { "東京都".to_string() } else { prefecture };
+    let pref2 = params.pref2.unwrap_or_default();
+
+    // 都道府県ドロップダウン生成
+    let pref_options: String = PREFECTURE_ORDER
+        .iter()
+        .filter(|p| **p != pref1)
+        .map(|p| {
+            let sel = if *p == pref2 { " selected" } else { "" };
+            format!(r#"<option value="{p}"{sel}>{p}</option>"#)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // pref2 が未選択なら選択UIのみ返す
+    if pref2.is_empty() {
+        let html = format!(
+            r##"<div class="space-y-6">
+    <h3 class="text-lg font-semibold text-white">🔄 地域比較 — {job_type}</h3>
+    <p class="text-sm text-gray-400">現在の選択: <span class="text-cyan-300">{pref1}</span> — 比較先を選んでください</p>
+    <div class="flex items-center gap-4">
+        <div class="bg-navy-800 rounded-lg px-4 py-3 border border-slate-700">
+            <span class="text-sm text-gray-400">基準地域:</span>
+            <span class="text-white font-bold ml-2">{pref1}</span>
+        </div>
+        <span class="text-gray-500">vs</span>
+        <select id="compare-pref2" class="bg-navy-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"
+                hx-get="/api/analysis/compare" hx-target="#analysis-content" hx-swap="innerHTML"
+                hx-include="this" name="pref2">
+            <option value="">比較先を選択...</option>
+            {pref_options}
+        </select>
+    </div>
+</div>"##,
+            job_type = escape_html(&job_type),
+            pref1 = escape_html(&pref1),
+            pref_options = pref_options,
+        );
+        return Html(html);
+    }
+
+    // --- データ取得 ---
+    let db_c = db.clone(); let jt = job_type.clone();
+    let p1 = pref1.clone(); let p2 = pref2.clone();
+    let (salary1, salary2, emp1, emp2, fac1, fac2) = tokio::task::spawn_blocking(move || {
+        let s1 = analytics::query_salary_stats(&db_c, &jt, &p1).unwrap_or_default();
+        let s2 = analytics::query_salary_stats(&db_c, &jt, &p2).unwrap_or_default();
+        let e1 = analytics::query_employment_diversity(&db_c, &jt, &p1).unwrap_or_default();
+        let e2 = analytics::query_employment_diversity(&db_c, &jt, &p2).unwrap_or_default();
+        let f1 = analytics::query_facility_concentration(&db_c, &jt, &p1).unwrap_or_default();
+        let f2 = analytics::query_facility_concentration(&db_c, &jt, &p2).unwrap_or_default();
+        (s1, s2, e1, e2, f1, f2)
+    }).await.unwrap_or_else(|_| (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()));
+
+    // 給与中央値の抽出（正職員優先、なければ全体にフォールバック）
+    let extract_median = |rows: &[std::collections::HashMap<String, serde_json::Value>], stype: &str| -> f64 {
+        // まず正職員を探す
+        let seishokuin = rows.iter().find(|r| {
+            r.get("salary_type").and_then(|v| v.as_str()).unwrap_or("") == stype
+                && r.get("employment_type").and_then(|v| v.as_str()).unwrap_or("") == "正職員"
+        });
+        // なければ「全体」にフォールバック
+        let row = seishokuin.or_else(|| rows.iter().find(|r| {
+            r.get("salary_type").and_then(|v| v.as_str()).unwrap_or("") == stype
+                && r.get("employment_type").and_then(|v| v.as_str()).unwrap_or("") == "全体"
+        }));
+        row.and_then(|r| r.get("median").and_then(|v| v.as_f64()))
+            .unwrap_or(0.0)
+    };
+    let med1_monthly = extract_median(&salary1, "月給");
+    let med2_monthly = extract_median(&salary2, "月給");
+    let med1_hourly = extract_median(&salary1, "時給");
+    let med2_hourly = extract_median(&salary2, "時給");
+
+    // 法人集中度
+    let extract_fac = |rows: &[std::collections::HashMap<String, serde_json::Value>], key: &str| -> f64 {
+        rows.first()
+            .and_then(|r| r.get(key).and_then(|v| v.as_f64()))
+            .unwrap_or(0.0)
+    };
+    let hhi1 = extract_fac(&fac1, "hhi");
+    let hhi2 = extract_fac(&fac2, "hhi");
+    let top10_1 = extract_fac(&fac1, "top10_pct");
+    let top10_2 = extract_fac(&fac2, "top10_pct");
+    let total1 = fac1.first().and_then(|r| r.get("total_postings").and_then(|v| v.as_i64())).unwrap_or(0);
+    let total2 = fac2.first().and_then(|r| r.get("total_postings").and_then(|v| v.as_i64())).unwrap_or(0);
+
+    // 雇用多様性
+    let extract_emp_count = |rows: &[std::collections::HashMap<String, serde_json::Value>], etype: &str| -> i64 {
+        rows.iter()
+            .find(|r| r.get("employment_type").and_then(|v| v.as_str()).unwrap_or("") == etype)
+            .and_then(|r| r.get("count").and_then(|v| v.as_i64()))
+            .unwrap_or(0)
+    };
+
+    // 差分ハイライト色（高い方が緑、低い方が赤）
+    let diff_class = |a: f64, b: f64| -> (&'static str, &'static str) {
+        if a > b { ("text-emerald-400", "text-red-400") }
+        else if b > a { ("text-red-400", "text-emerald-400") }
+        else { ("text-white", "text-white") }
+    };
+    let (mc1, mc2) = diff_class(med1_monthly, med2_monthly);
+    let (hc1, hc2) = diff_class(med1_hourly, med2_hourly);
+    let (tc1, tc2) = diff_class(total1 as f64, total2 as f64);
+
+    // ECharts チャート: 月給/時給の並列棒グラフ
+    let chart_id = "compare-salary-chart";
+    let chart_config = format!(
+        r#"{{"tooltip":{{"trigger":"axis"}},"legend":{{"data":["{}","{}"],"textStyle":{{"color":"{}"}}}},"xAxis":{{"type":"category","data":["月給(中央値)","時給(中央値)"],"axisLabel":{{"color":"{}"}}}},"yAxis":{{"type":"value","axisLabel":{{"color":"{}","formatter":"{{value}}"}}}},"series":[{{"name":"{}","type":"bar","data":[{},{}],"itemStyle":{{"color":"{}"}}}},{{"name":"{}","type":"bar","data":[{},{}],"itemStyle":{{"color":"{}"}}}}]}}"#,
+        pref1, pref2, "#94a3b8", "#94a3b8", "#94a3b8",
+        pref1, med1_monthly, med1_hourly, "#3b82f6",
+        pref2, med2_monthly, med2_hourly, "#f59e0b",
+    );
+
+    // 雇用形態比較チャート
+    let emp_types = ["正職員", "パート", "契約職員", "業務委託"];
+    let emp1_vals: Vec<i64> = emp_types.iter().map(|t| extract_emp_count(&emp1, t)).collect();
+    let emp2_vals: Vec<i64> = emp_types.iter().map(|t| extract_emp_count(&emp2, t)).collect();
+    let emp_chart_id = "compare-emp-chart";
+    let e1_str = emp1_vals.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+    let e2_str = emp2_vals.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+    let emp_chart_config = format!(
+        r#"{{"tooltip":{{"trigger":"axis"}},"legend":{{"data":["{}","{}"],"textStyle":{{"color":"{}"}}}},"xAxis":{{"type":"category","data":["正職員","パート","契約職員","業務委託"],"axisLabel":{{"color":"{}"}}}},"yAxis":{{"type":"value","axisLabel":{{"color":"{}"}}}},"series":[{{"name":"{}","type":"bar","data":[{}],"itemStyle":{{"color":"{}"}}}},{{"name":"{}","type":"bar","data":[{}],"itemStyle":{{"color":"{}"}}}}]}}"#,
+        pref1, pref2, "#94a3b8", "#94a3b8", "#94a3b8",
+        pref1, e1_str, "#3b82f6",
+        pref2, e2_str, "#f59e0b",
+    );
+
+    let html = format!(
+        r##"<div class="space-y-6">
+    <h3 class="text-lg font-semibold text-white">🔄 地域比較 — {job_type}</h3>
+
+    <!-- 地域選択UI -->
+    <div class="flex items-center gap-4 flex-wrap">
+        <div class="bg-navy-800 rounded-lg px-4 py-3 border border-blue-500/30">
+            <span class="text-sm text-gray-400">基準:</span>
+            <span class="text-blue-400 font-bold ml-2">{pref1}</span>
+        </div>
+        <span class="text-gray-500 text-lg">vs</span>
+        <div class="flex items-center gap-2">
+            <select id="compare-pref2" class="bg-navy-800 border border-amber-500/30 rounded-lg px-3 py-2 text-amber-400 font-bold text-sm"
+                    hx-get="/api/analysis/compare" hx-target="#analysis-content" hx-swap="innerHTML"
+                    hx-include="this" name="pref2">
+                <option value="">比較先を変更...</option>
+                {pref_options}
+            </select>
+        </div>
+    </div>
+
+    <!-- 比較カード: 求人数 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-navy-800 rounded-lg p-5 border border-blue-500/20">
+            <div class="text-sm text-blue-400 mb-1">{pref1}</div>
+            <div class="text-2xl font-bold {tc1}">{total1} 件</div>
+            <div class="text-xs text-gray-500 mt-1">総求人数</div>
+        </div>
+        <div class="bg-navy-800 rounded-lg p-5 border border-amber-500/20">
+            <div class="text-sm text-amber-400 mb-1">{pref2}</div>
+            <div class="text-2xl font-bold {tc2}">{total2} 件</div>
+            <div class="text-xs text-gray-500 mt-1">総求人数</div>
+        </div>
+    </div>
+
+    <!-- 給与比較テーブル -->
+    <div class="bg-navy-800 rounded-lg p-5 border border-slate-700">
+        <h4 class="text-white font-semibold mb-3">💰 給与比較（中央値）</h4>
+        <table class="data-table w-full">
+            <thead>
+                <tr>
+                    <th class="p-2">給与タイプ</th>
+                    <th class="p-2 text-right text-blue-400">{pref1}</th>
+                    <th class="p-2 text-right text-amber-400">{pref2}</th>
+                    <th class="p-2 text-right">差額</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="border-b border-slate-800">
+                    <td class="p-2 text-gray-300">月給</td>
+                    <td class="p-2 text-right font-mono {mc1}">{med1_m}</td>
+                    <td class="p-2 text-right font-mono {mc2}">{med2_m}</td>
+                    <td class="p-2 text-right font-mono text-gray-400">{diff_m}</td>
+                </tr>
+                <tr>
+                    <td class="p-2 text-gray-300">時給</td>
+                    <td class="p-2 text-right font-mono {hc1}">{med1_h}</td>
+                    <td class="p-2 text-right font-mono {hc2}">{med2_h}</td>
+                    <td class="p-2 text-right font-mono text-gray-400">{diff_h}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 給与チャート -->
+    <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+        <div id="{chart_id}" class="echart" style="height:320px" data-chart-config='{chart_config}'></div>
+    </div>
+
+    <!-- 法人集中度比較 -->
+    <div class="bg-navy-800 rounded-lg p-5 border border-slate-700">
+        <h4 class="text-white font-semibold mb-3">🏢 法人集中度比較</h4>
+        <table class="data-table w-full">
+            <thead>
+                <tr>
+                    <th class="p-2">指標</th>
+                    <th class="p-2 text-right text-blue-400">{pref1}</th>
+                    <th class="p-2 text-right text-amber-400">{pref2}</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="border-b border-slate-800">
+                    <td class="p-2 text-gray-300">HHI（集中度指数）</td>
+                    <td class="p-2 text-right font-mono">{hhi1:.4}</td>
+                    <td class="p-2 text-right font-mono">{hhi2:.4}</td>
+                </tr>
+                <tr>
+                    <td class="p-2 text-gray-300">上位10法人シェア</td>
+                    <td class="p-2 text-right font-mono">{top10_1:.1}%</td>
+                    <td class="p-2 text-right font-mono">{top10_2:.1}%</td>
+                </tr>
+            </tbody>
+        </table>
+        <p class="text-xs text-gray-500 mt-2">HHI: 値が小さいほど競争的。0.15以上は寡占傾向。</p>
+    </div>
+
+    <!-- 雇用形態比較チャート -->
+    <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+        <h4 class="text-white font-semibold mb-3">📋 雇用形態比較</h4>
+        <div id="{emp_chart_id}" class="echart" style="height:320px" data-chart-config='{emp_chart_config}'></div>
+    </div>
+</div>
+
+<script>
+(function() {{
+    // EChartsの初期化
+    [{chart_id_js}, {emp_chart_id_js}].forEach(function(id) {{
+        var el = document.getElementById(id);
+        if (el && typeof echarts !== 'undefined') {{
+            var existing = echarts.getInstanceByDom(el);
+            if (existing) existing.dispose();
+            var chart = echarts.init(el);
+            try {{
+                chart.setOption(JSON.parse(el.getAttribute('data-chart-config')));
+            }} catch(e) {{ console.warn('[compare] chart error:', e); }}
+        }}
+    }});
+}})();
+</script>"##,
+        job_type = escape_html(&job_type),
+        pref1 = escape_html(&pref1),
+        pref2 = escape_html(&pref2),
+        pref_options = pref_options,
+        tc1 = tc1, tc2 = tc2,
+        total1 = format_number(total1),
+        total2 = format_number(total2),
+        mc1 = mc1, mc2 = mc2,
+        hc1 = hc1, hc2 = hc2,
+        med1_m = format_yen(med1_monthly),
+        med2_m = format_yen(med2_monthly),
+        med1_h = format_yen(med1_hourly),
+        med2_h = format_yen(med2_hourly),
+        diff_m = format_yen(med1_monthly - med2_monthly),
+        diff_h = format_yen(med1_hourly - med2_hourly),
+        hhi1 = hhi1, hhi2 = hhi2,
+        top10_1 = top10_1,
+        top10_2 = top10_2,
+        chart_id = chart_id,
+        chart_config = chart_config,
+        emp_chart_id = emp_chart_id,
+        emp_chart_config = emp_chart_config,
+        chart_id_js = format!(r#""{}""#, chart_id),
+        emp_chart_id_js = format!(r#""{}""#, emp_chart_id),
+    );
+
+    Html(html)
 }

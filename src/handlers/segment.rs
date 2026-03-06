@@ -17,6 +17,17 @@ pub struct SegmentParams {
     pub facility_type: Option<String>,
 }
 
+/// クロス集計パラメータ
+#[derive(Deserialize)]
+pub struct CrossTabParams {
+    pub prefecture: Option<String>,
+    pub municipality: Option<String>,
+    pub employment_type: Option<String>,
+    pub facility_type: Option<String>,
+    pub axis_x: Option<String>,
+    pub axis_y: Option<String>,
+}
+
 /// DB職種名 → セグメントDB職種名へのマッピング（tags/text_features用）
 fn map_job_type_to_segment(job_type: &str) -> Option<&str> {
     match job_type {
@@ -267,12 +278,7 @@ pub async fn segment_overview(
     }
     let sql = union_parts.join(" UNION ALL ");
 
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
-
-    let rows = match db.query(&sql, &params_ref) {
+    let rows = match db.query_owned(sql, all_params).await {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Segment overview query failed: {e}");
@@ -434,17 +440,12 @@ pub async fn segment_tier3(
 
     let (where_clause, param_values) = build_postings_where(&job_type, pref, muni, emp, &ftypes);
 
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
-
     // 総件数（tier3_idあり）を取得
     let total_sql = format!(
         "SELECT COUNT(*) FROM job_postings {} AND tier3_id != ''",
         where_clause
     );
-    let total: i64 = db.query_scalar::<i64>(&total_sql, &params_ref)
+    let total: i64 = db.query_scalar_owned(total_sql, param_values.clone()).await
         .unwrap_or(1)
         .max(1);
 
@@ -457,7 +458,7 @@ pub async fn segment_tier3(
          GROUP BY axis, level ORDER BY axis, level",
         where_clause
     );
-    let tier1_rows = db.query(&tier1_sql, &params_ref).unwrap_or_default();
+    let tier1_rows = db.query_owned(tier1_sql, param_values.clone()).await.unwrap_or_default();
 
     // 軸別にTier1分布を集計
     let mut tier1_data: std::collections::HashMap<String, Vec<(i64, i64)>> = std::collections::HashMap::new();
@@ -526,7 +527,7 @@ pub async fn segment_tier3(
          GROUP BY code ORDER BY code",
         where_clause
     );
-    let tier2_rows = db.query(&tier2_sql, &params_ref).unwrap_or_default();
+    let tier2_rows = db.query_owned(tier2_sql, param_values.clone()).await.unwrap_or_default();
 
     let mut tier2_labels = Vec::new();
     let mut tier2_values = Vec::new();
@@ -556,7 +557,7 @@ pub async fn segment_tier3(
         where_clause
     );
 
-    let rows = match db.query(&sql, &params_ref) {
+    let rows = match db.query_owned(sql, param_values).await {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Segment tier3 query failed: {e}");
@@ -749,7 +750,7 @@ pub async fn segment_tags(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         db, "segment_tags", seg_job, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -770,18 +771,13 @@ pub async fn segment_tags(
         )
     };
 
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
-
     let sql = format!(
         "SELECT tag, SUM(count) as count, SUM(total) as total \
          FROM segment_tags {} GROUP BY tag ORDER BY count DESC LIMIT 15",
         where_clause
     );
 
-    let rows = match db.query(&sql, &params_ref) {
+    let rows = match db.query_owned(sql, param_values).await {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Segment tags query failed: {e}");
@@ -884,7 +880,7 @@ pub async fn segment_text_features(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         db, "segment_text_features", seg_job, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -905,18 +901,13 @@ pub async fn segment_text_features(
         )
     };
 
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
-
     let sql = format!(
         "SELECT category, label, SUM(count) as count, SUM(total) as total \
          FROM segment_text_features {} GROUP BY category, label ORDER BY category, count DESC",
         where_clause
     );
 
-    let rows = match db.query(&sql, &params_ref) {
+    let rows = match db.query_owned(sql, param_values).await {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Segment text_features query failed: {e}");
@@ -1028,12 +1019,9 @@ pub async fn segment_text_features(
 // =============================================================
 
 fn no_segment_data_html(job_type: &str) -> String {
-    format!(
-        r#"<div class="stat-card text-center py-8">
-            <p class="text-slate-400 text-sm">「{}」のセグメントデータはありません</p>
-            <p class="text-slate-500 text-xs mt-1">セグメント分類済みの求人データが必要です</p>
-        </div>"#,
-        escape_html(job_type)
+    super::render_empty_state(
+        "セグメントデータなし",
+        &format!("「{}」のセグメント分類済み求人データが必要です", escape_html(job_type)),
     )
 }
 
@@ -1049,7 +1037,7 @@ fn build_scope_label(pref: &str, muni: &str) -> String {
 
 /// municipalityレベルのデータ有無をチェック
 /// データがない場合はmuniを空にしてprefectureレベルにフォールバック
-fn resolve_municipality_fallback(
+async fn resolve_municipality_fallback(
     db: &crate::db::local_sqlite::LocalDb,
     table: &str,
     job_type: &str,
@@ -1067,8 +1055,7 @@ fn resolve_municipality_fallback(
         table
     );
     let params: Vec<String> = vec![job_type.to_string(), emp_type.to_string(), pref.to_string(), muni.to_string()];
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    match db.query(&check_sql, &params_ref) {
+    match db.query_owned(check_sql, params).await {
         Ok(rows) => {
             let cnt = rows.first()
                 .and_then(|r| r.get("cnt"))
@@ -1098,10 +1085,10 @@ pub async fn tab_segment(
 
     // segment_dbから雇用形態一覧を取得
     let emp_options: Vec<String> = if let Some(db) = &state.segment_db {
-        match db.query(
-            "SELECT DISTINCT employment_type FROM segment_prefecture ORDER BY employment_type",
-            &[] as &[&dyn rusqlite::types::ToSql],
-        ) {
+        match db.query_owned(
+            "SELECT DISTINCT employment_type FROM segment_prefecture ORDER BY employment_type".to_string(),
+            vec![],
+        ).await {
             Ok(rows) => rows.iter()
                 .filter_map(|r| r.get("employment_type").and_then(|v| v.as_str()).map(|s| s.to_string()))
                 .filter(|s| s != "全て")
@@ -1157,6 +1144,7 @@ pub async fn tab_segment(
         <button class="seg-subtab px-3 py-1.5 text-sm rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600" data-panel="workschedule">勤務時間帯</button>
         <button class="seg-subtab px-3 py-1.5 text-sm rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600" data-panel="holidays">休日分析</button>
         <button class="seg-subtab px-3 py-1.5 text-sm rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600" data-panel="salaryshift">給与×シフト</button>
+        <button class="seg-subtab px-3 py-1.5 text-sm rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600" data-panel="crosstab">軸間クロス集計</button>
     </div>
 
     <!-- パネル: 5軸分布 -->
@@ -1239,6 +1227,13 @@ pub async fn tab_segment(
     <!-- パネル: 給与×シフト -->
     <div id="seg-panel-salaryshift" class="seg-panel hidden"
          hx-get="/api/segment/salary_shift?prefecture={pref_enc}&municipality={muni_enc}&employment_type={emp_enc}"
+         hx-trigger="revealed" hx-swap="innerHTML">
+        <div class="text-center py-8"><span class="text-slate-400">読み込み中...</span></div>
+    </div>
+
+    <!-- パネル: 軸間クロス集計 -->
+    <div id="seg-panel-crosstab" class="seg-panel hidden"
+         hx-get="/api/segment/crosstab?prefecture={pref_enc}&municipality={muni_enc}&employment_type={emp_enc}&axis_x=A&axis_y=C"
          hx-trigger="revealed" hx-swap="innerHTML">
         <div class="text-center py-8"><span class="text-slate-400">読み込み中...</span></div>
     </div>
@@ -1343,7 +1338,7 @@ pub async fn segment_salary_compare(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_salary", seg_jt, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -1379,12 +1374,8 @@ pub async fn segment_salary_compare(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
 
-    let rows = match seg_db.query(query, &params_ref) {
+    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -1483,7 +1474,7 @@ pub async fn segment_job_desc_insights(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_job_desc", seg_jt, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -1516,12 +1507,8 @@ pub async fn segment_job_desc_insights(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
 
-    let rows = match seg_db.query(query, &params_ref) {
+    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -1663,7 +1650,7 @@ pub async fn segment_age_decade(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_age_decade", seg_jt, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -1696,12 +1683,8 @@ pub async fn segment_age_decade(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
 
-    let rows = match seg_db.query(query, &params_ref) {
+    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -1851,7 +1834,7 @@ pub async fn segment_gender_lifecycle(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_gender_lifecycle", seg_jt, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -1884,12 +1867,8 @@ pub async fn segment_gender_lifecycle(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
 
-    let rows = match seg_db.query(query, &params_ref) {
+    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -2097,7 +2076,7 @@ pub async fn segment_exp_qual(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_exp_qual", seg_jt, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -2130,12 +2109,8 @@ pub async fn segment_exp_qual(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
 
-    let rows = match seg_db.query(query, &params_ref) {
+    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -2288,7 +2263,7 @@ pub async fn segment_work_schedule(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_work_schedule", seg_jt, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -2334,12 +2309,8 @@ pub async fn segment_work_schedule(
             all_params.push(muni.to_string());
         }
         all_params.push(dim.to_string());
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
-            .iter()
-            .map(|s| s as &dyn rusqlite::types::ToSql)
-            .collect();
 
-        let rows = match seg_db.query(query, &params_ref) {
+        let rows = match seg_db.query_owned(query.to_string(), all_params).await {
             Ok(r) => r,
             Err(_) => {
                 dim_data.push(Vec::new());
@@ -2591,7 +2562,7 @@ pub async fn segment_holidays(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_holidays", seg_jt, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -2649,12 +2620,8 @@ pub async fn segment_holidays(
             all_params.push(muni.to_string());
         }
         all_params.push(dim.to_string());
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
-            .iter()
-            .map(|s| s as &dyn rusqlite::types::ToSql)
-            .collect();
 
-        let rows = match seg_db.query(query, &params_ref) {
+        let rows = match seg_db.query_owned(query.to_string(), all_params).await {
             Ok(r) => r,
             Err(_) => {
                 dim_data.push(Vec::new());
@@ -2855,7 +2822,7 @@ pub async fn segment_salary_shift(
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_salary_shift", seg_jt, emp_type, pref_raw, muni_raw,
-    );
+    ).await;
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -2908,12 +2875,8 @@ pub async fn segment_salary_shift(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
 
-    let rows = match seg_db.query(query, &params_ref) {
+    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -3133,4 +3096,200 @@ fn build_salary_shift_charts(
         </script>
     </div>"##,
     )
+}
+
+// =============================================================
+// API: /api/segment/crosstab — 2軸クロス集計ヒートマップ
+// =============================================================
+
+pub async fn segment_crosstab(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<CrossTabParams>,
+) -> Html<String> {
+    let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
+
+    let db = match &state.local_db {
+        Some(db) => db,
+        None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
+    };
+
+    let pref = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let ftypes = parse_facility_types(params.facility_type.as_deref().unwrap_or(""));
+
+    let axis_x = params.axis_x.as_deref().unwrap_or("A");
+    let axis_y = params.axis_y.as_deref().unwrap_or("C");
+
+    // 軸コード → カラム名
+    let axis_to_col = |a: &str| -> Option<&str> {
+        match a {
+            "A" => Some("tier1_experience"),
+            "B" => Some("tier1_career_stage"),
+            "C" => Some("tier1_lifestyle"),
+            "D" => Some("tier1_appeal"),
+            "E" => Some("tier1_urgency"),
+            _ => None,
+        }
+    };
+    let col_x = match axis_to_col(axis_x) {
+        Some(c) => c,
+        None => return Html(r#"<p class="text-red-400 text-sm">無効な軸コード</p>"#.to_string()),
+    };
+    let col_y = match axis_to_col(axis_y) {
+        Some(c) => c,
+        None => return Html(r#"<p class="text-red-400 text-sm">無効な軸コード</p>"#.to_string()),
+    };
+
+    let (where_clause, base_params) = build_postings_where(&job_type, pref, muni, emp, &ftypes);
+
+    let sql = format!(
+        "SELECT {col_x} as cat_x, {col_y} as cat_y, COUNT(*) as count \
+         FROM job_postings {where_clause} AND {col_x} != '' AND {col_y} != '' \
+         GROUP BY {col_x}, {col_y} ORDER BY count DESC"
+    );
+
+    let rows = match db.query_owned(sql, base_params).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("Crosstab query failed: {e}");
+            return Html(format!(r#"<p class="text-red-400 text-sm">クエリエラー: {}</p>"#, escape_html(&e)));
+        }
+    };
+
+    if rows.is_empty() {
+        return Html(no_segment_data_html(&job_type));
+    }
+
+    // カテゴリ列挙（出現順）
+    let mut x_cats: Vec<String> = Vec::new();
+    let mut y_cats: Vec<String> = Vec::new();
+    let mut counts: std::collections::HashMap<(String, String), i64> = std::collections::HashMap::new();
+
+    for row in &rows {
+        let cx = row.get("cat_x").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let cy = row.get("cat_y").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let cnt = row.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+        if !x_cats.contains(&cx) { x_cats.push(cx.clone()); }
+        if !y_cats.contains(&cy) { y_cats.push(cy.clone()); }
+        counts.insert((cx, cy), cnt);
+    }
+
+    // ラベル化
+    let x_labels_json: String = x_cats.iter()
+        .map(|c| format!(r#""{}""#, tier2_label(c)))
+        .collect::<Vec<_>>().join(",");
+    let y_labels_json: String = y_cats.iter()
+        .map(|c| format!(r#""{}""#, tier2_label(c)))
+        .collect::<Vec<_>>().join(",");
+
+    // ヒートマップデータ: [x_index, y_index, value]
+    let max_val = counts.values().copied().max().unwrap_or(1) as f64;
+    let mut heatmap_data = Vec::new();
+    for (xi, xc) in x_cats.iter().enumerate() {
+        for (yi, yc) in y_cats.iter().enumerate() {
+            let val = counts.get(&(xc.clone(), yc.clone())).copied().unwrap_or(0);
+            heatmap_data.push(format!("[{},{},{}]", xi, yi, val));
+        }
+    }
+
+    let scope_label = build_scope_label_ext(pref, muni, emp, &ftypes);
+
+    // 軸選択ドロップダウン生成
+    let axes = [("A", "経験レベル"), ("B", "キャリアステージ"), ("C", "ライフスタイル"), ("D", "訴求軸"), ("E", "採用姿勢")];
+    let make_axis_options = |selected: &str| -> String {
+        axes.iter()
+            .map(|(code, label)| {
+                let sel = if *code == selected { " selected" } else { "" };
+                format!(r#"<option value="{code}"{sel}>{label}（{code}軸）</option>"#)
+            })
+            .collect::<Vec<_>>().join("\n")
+    };
+
+    let chart_id = format!("crosstab-heatmap-{}-{}", axis_x, axis_y);
+
+    let html = format!(
+        r##"<div class="space-y-4">
+    <div class="flex items-center justify-between flex-wrap gap-3">
+        <h3 class="text-lg font-semibold text-white">🔀 軸間クロス集計 <span class="text-sm font-normal text-slate-400">（{scope}）</span></h3>
+    </div>
+
+    <!-- 軸選択 -->
+    <div class="flex items-center gap-3 flex-wrap bg-navy-800 rounded-lg p-3 border border-slate-700">
+        <label class="text-sm text-gray-400">横軸:</label>
+        <select id="crosstab-axis-x" class="bg-slate-700 text-white text-sm rounded-lg px-3 py-1.5 border border-slate-600">
+            {x_options}
+        </select>
+        <span class="text-gray-500">×</span>
+        <label class="text-sm text-gray-400">縦軸:</label>
+        <select id="crosstab-axis-y" class="bg-slate-700 text-white text-sm rounded-lg px-3 py-1.5 border border-slate-600">
+            {y_options}
+        </select>
+        <button id="crosstab-apply" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-500">
+            更新
+        </button>
+    </div>
+
+    <!-- ヒートマップ -->
+    <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+        <div id="{chart_id}" style="height:400px;width:100%"></div>
+    </div>
+</div>
+
+<script>
+(function() {{
+    var c = echarts.init(document.getElementById('{chart_id}'), 'dark');
+    var xData = [{x_labels}];
+    var yData = [{y_labels}];
+    var data = [{heatmap_data}];
+    c.setOption({{
+        tooltip: {{
+            position: 'top',
+            backgroundColor: 'rgba(15,23,42,0.95)',
+            borderColor: '#334155',
+            textStyle: {{color:'#e2e8f0'}},
+            formatter: function(p) {{
+                return '<b>' + xData[p.value[0]] + '</b> × <b>' + yData[p.value[1]] + '</b><br>件数: <span style="color:#60a5fa;font-weight:bold">' + p.value[2] + '</span>';
+            }}
+        }},
+        xAxis: {{type:'category', data:xData, axisLabel:{{color:'#94a3b8',fontSize:10,rotate:30}}, name:'{x_axis_label}', nameTextStyle:{{color:'#94a3b8'}}}},
+        yAxis: {{type:'category', data:yData, axisLabel:{{color:'#94a3b8',fontSize:10}}, name:'{y_axis_label}', nameTextStyle:{{color:'#94a3b8'}}}},
+        visualMap: {{min:0, max:{max_val}, calculable:true, orient:'horizontal', left:'center', bottom:0,
+            inRange:{{color:['#0f172a','#1e40af','#3b82f6','#60a5fa','#93c5fd']}},
+            textStyle:{{color:'#94a3b8'}}}},
+        series: [{{
+            type:'heatmap', data:data,
+            label:{{show:true, color:'#e2e8f0', fontSize:11, formatter:function(p){{return p.value[2]>0?p.value[2]:'';}} }},
+            emphasis:{{itemStyle:{{shadowBlur:10,shadowColor:'rgba(0,0,0,0.5)'}}}}
+        }}],
+        grid: {{left:'18%', right:'5%', top:'5%', bottom:'18%'}}
+    }});
+    new ResizeObserver(function(){{c.resize();}}).observe(document.getElementById('{chart_id}'));
+
+    // 軸変更ボタン
+    document.getElementById('crosstab-apply').addEventListener('click', function() {{
+        var ax = document.getElementById('crosstab-axis-x').value;
+        var ay = document.getElementById('crosstab-axis-y').value;
+        if (ax === ay) {{ alert('異なる2軸を選んでください'); return; }}
+        var panel = document.getElementById('seg-panel-crosstab');
+        var url = panel.getAttribute('hx-get');
+        url = url.replace(/axis_x=[^&]*/, 'axis_x=' + ax).replace(/axis_y=[^&]*/, 'axis_y=' + ay);
+        htmx.ajax('GET', url, {{target: panel, swap: 'innerHTML'}});
+    }});
+}})();
+</script>"##,
+        scope = escape_html(&scope_label),
+        x_options = make_axis_options(axis_x),
+        y_options = make_axis_options(axis_y),
+        chart_id = chart_id,
+        x_labels = x_labels_json,
+        y_labels = y_labels_json,
+        heatmap_data = heatmap_data.join(","),
+        x_axis_label = axis_label(axis_x),
+        y_axis_label = axis_label(axis_y),
+        max_val = max_val as i64,
+    );
+
+    Html(html)
 }

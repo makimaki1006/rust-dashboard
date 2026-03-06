@@ -27,6 +27,17 @@ use db::cache::AppCache;
 use db::turso::TursoClient;
 use models::job_seeker::{JOB_TYPES, PREFECTURE_ORDER};
 
+/// キャッシュキーのタブ名プレフィックス一覧
+const TAB_CACHE_PREFIXES: &[&str] = &[
+    "overview_",
+    "demographics_",
+    "mobility_",
+    "balance_",
+    "workstyle_",
+    "talentmap_",
+    "competitive_",
+];
+
 /// アプリケーション共有状態
 pub struct AppState {
     pub config: AppConfig,
@@ -41,8 +52,11 @@ pub struct AppState {
 /// アプリケーションRouter構築（統合テストでも使用）
 pub fn build_app(state: Arc<AppState>) -> Router {
     let session_store = MemoryStore::default();
+    // 本番環境(Render.com)ではSecure=true, SameSite=Lax
+    let is_production = std::env::var("RENDER").is_ok() || std::env::var("SECURE_COOKIES").is_ok();
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(false)
+        .with_secure(is_production)
+        .with_same_site(tower_sessions::cookie::SameSite::Lax)
         .with_expiry(Expiry::OnInactivity(time::Duration::hours(24)));
 
     let protected_routes = Router::new()
@@ -134,6 +148,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/analysis/quality", get(handlers::analysis::api_quality))
         .route("/api/analysis/clusters", get(handlers::analysis::api_clusters))
         .route("/api/analysis/heatmap", get(handlers::analysis::api_heatmap))
+        .route("/api/analysis/compare", get(handlers::analysis::api_compare))
         // セグメント分析タブ (Tab 10)
         .route(
             "/tab/segment",
@@ -188,6 +203,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/segment/salary_shift",
             get(handlers::segment::segment_salary_shift),
         )
+        .route(
+            "/api/segment/crosstab",
+            get(handlers::segment::segment_crosstab),
+        )
+        // 求人作成タブ
+        .route("/tab/job_creator", get(handlers::job_creator::tab_job_creator))
         .route("/api/status", get(api_status))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -202,6 +223,18 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             http::HeaderValue::from_static("public, max-age=86400"),
         ));
 
+    // CSP: CDN (tailwind, htmx, echarts, leaflet) + inline scripts/styles 許可
+    let csp_value = http::HeaderValue::from_static(
+        "default-src 'self'; \
+         script-src 'self' 'unsafe-inline' 'unsafe-eval' cdn.tailwindcss.com unpkg.com cdn.jsdelivr.net; \
+         style-src 'self' 'unsafe-inline' unpkg.com; \
+         img-src 'self' data: https://*.tile.openstreetmap.org; \
+         connect-src 'self'; \
+         font-src 'self'; \
+         frame-src 'none'; \
+         object-src 'none'"
+    );
+
     Router::new()
         .route("/health", get(health_check))
         .route("/login", get(login_page).post(login_submit))
@@ -213,6 +246,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             tower::ServiceBuilder::new()
                 .layer(session_layer)
                 .layer(CompressionLayer::new())
+                .layer(SetResponseHeaderLayer::overriding(
+                    http::header::HeaderName::from_static("content-security-policy"),
+                    csp_value,
+                ))
         )
 }
 
@@ -302,10 +339,18 @@ async fn login_submit(
     }
 
     state.rate_limiter.record_success(&client_ip);
-    let _ = session.insert(SESSION_USER_KEY, &form.email).await;
-    let _ = session.insert(SESSION_JOB_TYPE_KEY, "介護職").await;
-    let _ = session.insert(SESSION_PREFECTURE_KEY, "").await;
-    let _ = session.insert(SESSION_MUNICIPALITY_KEY, "").await;
+    if let Err(e) = session.insert(SESSION_USER_KEY, &form.email).await {
+        tracing::error!("Session insert failed (user_email): {}", e);
+    }
+    if let Err(e) = session.insert(SESSION_JOB_TYPE_KEY, "介護職").await {
+        tracing::error!("Session insert failed (job_type): {}", e);
+    }
+    if let Err(e) = session.insert(SESSION_PREFECTURE_KEY, "").await {
+        tracing::error!("Session insert failed (prefecture): {}", e);
+    }
+    if let Err(e) = session.insert(SESSION_MUNICIPALITY_KEY, "").await {
+        tracing::error!("Session insert failed (municipality): {}", e);
+    }
 
     Redirect::to("/").into_response()
 }
@@ -397,7 +442,8 @@ async fn dashboard_page(
         String::new()
     };
 
-    let turso_ok = !pref_list.is_empty() || state.turso.test_connection().await.is_ok();
+    // 起動時にmain.rsでtest_connection済み。pref_listの有無でDB状態を判定
+    let turso_ok = !pref_list.is_empty() || state.geocoded_db.is_some();
     let turso_warning = if turso_ok {
         String::new()
     } else {
@@ -434,8 +480,19 @@ async fn set_job_type(
     session: Session,
     Form(form): Form<SetJobTypeForm>,
 ) -> impl IntoResponse {
+    let old_job_type: String = session
+        .get(SESSION_JOB_TYPE_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let _ = session.insert(SESSION_JOB_TYPE_KEY, &form.job_type).await;
-    state.cache.clear();
+    // 職種変更: 旧職種スコープのキャッシュのみ無効化
+    if !old_job_type.is_empty() {
+        for prefix in TAB_CACHE_PREFIXES {
+            state.cache.remove_prefix(&format!("{}{}", prefix, old_job_type));
+        }
+    }
     Html("OK".to_string())
 }
 
@@ -449,11 +506,36 @@ async fn set_prefecture(
     session: Session,
     Form(form): Form<SetPrefectureForm>,
 ) -> impl IntoResponse {
+    let old_pref: String = session
+        .get(SESSION_PREFECTURE_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let job_type: String = session
+        .get(SESSION_JOB_TYPE_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let _ = session
         .insert(SESSION_PREFECTURE_KEY, &form.prefecture)
         .await;
     let _ = session.insert(SESSION_MUNICIPALITY_KEY, "").await;
-    state.cache.clear();
+    // 都道府県変更: 旧都道府県スコープのキャッシュのみ無効化
+    if !old_pref.is_empty() && !job_type.is_empty() {
+        let scope = format!("{}_{}", job_type, old_pref);
+        for prefix in TAB_CACHE_PREFIXES {
+            state.cache.remove_prefix(&format!("{}_{}", prefix, scope));
+        }
+    }
+    // 新都道府県スコープも無効化（古いデータが残っている可能性）
+    if !form.prefecture.is_empty() && !job_type.is_empty() {
+        let scope = format!("{}_{}", job_type, form.prefecture);
+        for prefix in TAB_CACHE_PREFIXES {
+            state.cache.remove_prefix(&format!("{}_{}", prefix, scope));
+        }
+    }
     Html("OK".to_string())
 }
 
@@ -467,10 +549,28 @@ async fn set_municipality(
     session: Session,
     Form(form): Form<SetMunicipalityForm>,
 ) -> impl IntoResponse {
+    let job_type: String = session
+        .get(SESSION_JOB_TYPE_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let prefecture: String = session
+        .get(SESSION_PREFECTURE_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let _ = session
         .insert(SESSION_MUNICIPALITY_KEY, &form.municipality)
         .await;
-    state.cache.clear();
+    // 市区町村変更: 該当職種+都道府県スコープのキャッシュのみ無効化
+    if !job_type.is_empty() && !prefecture.is_empty() {
+        let scope = format!("{}_{}", job_type, prefecture);
+        for prefix in TAB_CACHE_PREFIXES {
+            state.cache.remove_prefix(&format!("{}_{}", prefix, scope));
+        }
+    }
     Html("OK".to_string())
 }
 
@@ -496,10 +596,14 @@ async fn fetch_prefecture_list(state: &AppState, job_type: &str) -> Vec<String> 
     // Tursoが空の場合、geocoded_db（ローカルSQLite）からフォールバック
     if prefs.is_empty() {
         if let Some(db) = &state.geocoded_db {
-            if let Ok(rows) = db.query(
-                "SELECT DISTINCT prefecture FROM postings WHERE job_type = ?1 AND prefecture IS NOT NULL AND prefecture != ''",
-                &[&job_type as &dyn rusqlite::types::ToSql],
-            ) {
+            let db_clone = db.clone();
+            let jt = job_type.to_string();
+            if let Ok(Ok(rows)) = tokio::task::spawn_blocking(move || {
+                db_clone.query(
+                    "SELECT DISTINCT prefecture FROM postings WHERE job_type = ?1 AND prefecture IS NOT NULL AND prefecture != ''",
+                    &[&jt as &dyn rusqlite::types::ToSql],
+                )
+            }).await {
                 prefs = rows.iter()
                     .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
                     .collect();
@@ -542,13 +646,18 @@ async fn fetch_municipality_list(
     // Tursoが空の場合、geocoded_db（ローカルSQLite）からフォールバック
     if munis.is_empty() {
         if let Some(db) = &state.geocoded_db {
-            if let Ok(rows) = db.query(
-                "SELECT DISTINCT municipality FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
-                &[
-                    &job_type as &dyn rusqlite::types::ToSql,
-                    &prefecture as &dyn rusqlite::types::ToSql,
-                ],
-            ) {
+            let db_clone = db.clone();
+            let jt = job_type.to_string();
+            let pref = prefecture.to_string();
+            if let Ok(Ok(rows)) = tokio::task::spawn_blocking(move || {
+                db_clone.query(
+                    "SELECT DISTINCT municipality FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
+                    &[
+                        &jt as &dyn rusqlite::types::ToSql,
+                        &pref as &dyn rusqlite::types::ToSql,
+                    ],
+                )
+            }).await {
                 munis = rows.iter()
                     .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
                     .collect();
@@ -581,8 +690,11 @@ async fn api_status(
 
     let local_db_ok = state.local_db.is_some();
     let local_db_count = if let Some(db) = &state.local_db {
-        db.query_scalar::<i64>("SELECT COUNT(*) FROM job_postings", &[])
-            .unwrap_or(0)
+        let db_clone = db.clone();
+        tokio::task::spawn_blocking(move || {
+            db_clone.query_scalar::<i64>("SELECT COUNT(*) FROM job_postings", &[])
+                .unwrap_or(0)
+        }).await.unwrap_or(0)
     } else {
         0
     };
@@ -591,8 +703,11 @@ async fn api_status(
 
     let geocoded_db_ok = state.geocoded_db.is_some();
     let geocoded_db_count = if let Some(db) = &state.geocoded_db {
-        db.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
-            .unwrap_or(0)
+        let db_clone = db.clone();
+        tokio::task::spawn_blocking(move || {
+            db_clone.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
+                .unwrap_or(0)
+        }).await.unwrap_or(0)
     } else {
         0
     };

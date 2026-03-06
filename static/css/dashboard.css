@@ -238,6 +238,103 @@
 }
 
 /* ==========================================================
+   フィルタ操作中スピナー（UX-C2）
+   ========================================================== */
+.filter-loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(13, 21, 37, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    pointer-events: auto;
+}
+
+.filter-spinner {
+    width: 2rem;
+    height: 2rem;
+    border: 3px solid rgba(148, 163, 184, 0.3);
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ==========================================================
+   タブスクロールインジケータ（UX-C3）
+   ========================================================== */
+.tab-scroll-container {
+    position: relative;
+}
+
+.tab-scroll-fade-left,
+.tab-scroll-fade-right {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2.5rem;
+    z-index: 10;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+.tab-scroll-fade-left {
+    left: 0;
+    background: linear-gradient(to right, #0f172a, transparent);
+}
+
+.tab-scroll-fade-right {
+    right: 0;
+    background: linear-gradient(to left, #0f172a, transparent);
+}
+
+.tab-scroll-fade-hidden {
+    opacity: 0;
+}
+
+.tab-scroll-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 11;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(30, 41, 59, 0.9);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 50%;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    pointer-events: auto;
+    font-size: 0.875rem;
+    line-height: 1;
+}
+
+.tab-scroll-arrow:hover {
+    color: #e2e8f0;
+    background: rgba(30, 41, 59, 1);
+    border-color: rgba(148, 163, 184, 0.4);
+}
+
+.tab-scroll-arrow-left {
+    left: 0.25rem;
+}
+
+.tab-scroll-arrow-right {
+    right: 0.25rem;
+}
+
+/* タブバー内部のスクロールバーを非表示（フェード+矢印で代替） */
+#tab-nav::-webkit-scrollbar {
+    display: none;
+}
+
+/* ==========================================================
    HTMX読み込みインジケータ
    ========================================================== */
 .htmx-indicator {
@@ -389,10 +486,15 @@
         border-bottom: 1px solid #e2e8f0 !important;
     }
 
-    /* EChartsは背景透過のまま維持（チャートの色は保持） */
+    /* EChartsは背景透過 + ライトテーマ用の色調整 */
     .echart {
         break-inside: avoid;
         page-break-inside: avoid;
+        background: white !important;
+    }
+    /* EChartsキャンバスの文字色を暗色に */
+    .echart canvas {
+        filter: saturate(1.2) !important;
     }
 
     /* 地図はページ分割回避 */

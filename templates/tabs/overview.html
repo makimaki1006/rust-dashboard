@@ -50,45 +50,29 @@
             }'></div>
         </div>
 
-        <!-- 年齢帯別分布（棒グラフ） -->
+        <!-- 年齢帯 x 性別（グループ棒グラフ） -->
         <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">年齢帯別分布</h3>
+            <h3 class="text-sm text-slate-400 mb-3">年齢帯 x 性別</h3>
             <div class="echart" style="height:320px;" data-chart-config='{
                 "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "legend": {"data": ["男性", "女性"], "top": 4},
                 "xAxis": {"type": "category", "data": {{AGE_LABELS}}},
                 "yAxis": {"type": "value", "name": "人数"},
-                "series": [{
-                    "type": "bar",
-                    "data": {{AGE_VALUES}},
-                    "itemStyle": {"color": "#0072B2", "borderRadius": [4, 4, 0, 0]},
-                    "barWidth": "50%"
-                }]
+                "series": [
+                    {
+                        "name": "男性",
+                        "type": "bar",
+                        "data": {{AGE_MALE_VALUES}},
+                        "itemStyle": {"color": "#0072B2", "borderRadius": [4, 4, 0, 0]}
+                    },
+                    {
+                        "name": "女性",
+                        "type": "bar",
+                        "data": {{AGE_FEMALE_VALUES}},
+                        "itemStyle": {"color": "#E69F00", "borderRadius": [4, 4, 0, 0]}
+                    }
+                ]
             }'></div>
         </div>
-    </div>
-
-    <!-- 年齢帯 x 性別（グループ棒グラフ） -->
-    <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-3">年齢帯 x 性別</h3>
-        <div class="echart" style="height:360px;" data-chart-config='{
-            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-            "legend": {"data": ["男性", "女性"], "top": 4},
-            "xAxis": {"type": "category", "data": {{AGE_LABELS}}},
-            "yAxis": {"type": "value", "name": "人数"},
-            "series": [
-                {
-                    "name": "男性",
-                    "type": "bar",
-                    "data": {{AGE_MALE_VALUES}},
-                    "itemStyle": {"color": "#0072B2", "borderRadius": [4, 4, 0, 0]}
-                },
-                {
-                    "name": "女性",
-                    "type": "bar",
-                    "data": {{AGE_FEMALE_VALUES}},
-                    "itemStyle": {"color": "#E69F00", "borderRadius": [4, 4, 0, 0]}
-                }
-            ]
-        }'></div>
     </div>
 </div>

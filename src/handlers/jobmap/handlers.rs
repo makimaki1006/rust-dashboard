@@ -27,6 +27,15 @@ pub struct MarkerParams {
     pub employment_type: String,
     #[serde(default)]
     pub salary_type: String,
+    // ビューポートbounds検索用（V2バックポート）
+    #[serde(default)]
+    pub south: Option<f64>,
+    #[serde(default)]
+    pub north: Option<f64>,
+    #[serde(default)]
+    pub west: Option<f64>,
+    #[serde(default)]
+    pub east: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -56,12 +65,24 @@ pub async fn tab_jobmap(
         }
     };
 
-    // 選択職種のデータ存在チェック
-    if !fetch::has_job_type_data(geocoded_db, &job_type) {
+    // 選択職種のデータ存在チェック + 都道府県一覧取得（spawn_blocking）
+    let db_clone = geocoded_db.clone();
+    let jt = job_type.clone();
+    let (has_data, prefs) = match tokio::task::spawn_blocking(move || {
+        let has = fetch::has_job_type_data(&db_clone, &jt);
+        let prefs = if has { fetch::fetch_prefectures(&db_clone, &jt) } else { vec![] };
+        (has, prefs)
+    }).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html("<p class='text-red-400'>データ取得エラー</p>".to_string());
+        }
+    };
+
+    if !has_data {
         return Html(render::render_no_data_message(&job_type));
     }
-
-    let prefs = fetch::fetch_prefectures(geocoded_db, &job_type);
     let pref_options: String = std::iter::once(build_option("", "-- 都道府県 --"))
         .chain(prefs.iter().map(|p| {
             if p == &prefecture {
@@ -94,6 +115,27 @@ pub async fn jobmap_markers(
         None => return Json(serde_json::json!({"markers": [], "total": 0})),
     };
 
+    // ビューポートbounds検索（V2バックポート）
+    // south/north/west/east が全て指定された場合、矩形検索を優先
+    if let (Some(s), Some(n), Some(w), Some(e)) =
+        (params.south, params.north, params.west, params.east)
+    {
+        let db_clone = geocoded_db.clone();
+        let jt = job_type.clone();
+        let emp = params.employment_type.clone();
+        let sal = params.salary_type.clone();
+        let (markers, total_available) = match tokio::task::spawn_blocking(move || {
+            fetch::fetch_markers_by_bounds(&db_clone, &jt, &emp, &sal, s, n, w, e)
+        }).await {
+            Ok(r) => r,
+            Err(err) => {
+                tracing::error!("spawn_blocking failed: {err}");
+                return Json(serde_json::json!({"markers": [], "total": 0}));
+            }
+        };
+        return markers_to_json(&markers, None, total_available);
+    }
+
     let pref = if params.prefecture.is_empty() {
         &session_pref
     } else {
@@ -120,44 +162,50 @@ pub async fn jobmap_markers(
     let radius_km = params.radius.unwrap_or(10.0);
 
     // 市区町村中心座標を取得（local_db の municipality_geocode テーブル）
-    // 政令指定都市の区（例: 大阪市北区）は geocode テーブルに「大阪市」として格納
-    // → 完全一致で見つからない場合、親市名（「大阪市」部分）でフォールバック
-    let center = state.local_db.as_ref().and_then(|db| {
-        fetch::get_muni_center(db, pref, &params.municipality)
-            .or_else(|| {
-                // 「○○市△△区」→「○○市」にフォールバック
-                extract_parent_city(&params.municipality)
-                    .and_then(|parent| fetch::get_muni_center(db, pref, &parent))
-            })
-    });
-
-    let markers = if let Some((clat, clng)) = center {
-        // Bounding Box + Haversine半径検索（GAS方式）
-        // 半径検索時はmunicipalityフィルタを外す（円内の全求人を取得）
-        fetch::fetch_markers(
-            geocoded_db,
-            &job_type,
-            pref,
-            "",
-            &params.employment_type,
-            &params.salary_type,
-            clat,
-            clng,
-            radius_km,
-        )
+    let center = if let Some(db) = &state.local_db {
+        let db_clone = db.clone();
+        let pref_owned = pref.to_string();
+        let muni_owned = params.municipality.clone();
+        match tokio::task::spawn_blocking(move || {
+            fetch::get_muni_center(&db_clone, &pref_owned, &muni_owned)
+                .or_else(|| {
+                    extract_parent_city(&muni_owned)
+                        .and_then(|parent| fetch::get_muni_center(&db_clone, &pref_owned, &parent))
+                })
+        }).await {
+            Ok(c) => c,
+            Err(_) => None,
+        }
     } else {
-        // 座標取得失敗 → 市区町村フィルタで直接取得
-        fetch::fetch_markers_by_pref(
-            geocoded_db,
-            &job_type,
-            pref,
-            &params.municipality,
-            &params.employment_type,
-            &params.salary_type,
-        )
+        None
     };
 
-    markers_to_json(&markers, center)
+    let gdb_clone = geocoded_db.clone();
+    let jt = job_type.clone();
+    let pref_owned = pref.to_string();
+    let muni_owned = params.municipality.clone();
+    let emp_owned = params.employment_type.clone();
+    let sal_owned = params.salary_type.clone();
+    let (markers, total_available) = match tokio::task::spawn_blocking(move || {
+        if let Some((clat, clng)) = center {
+            fetch::fetch_markers(
+                &gdb_clone, &jt, &pref_owned, "", &emp_owned, &sal_owned,
+                clat, clng, radius_km,
+            )
+        } else {
+            fetch::fetch_markers_by_pref(
+                &gdb_clone, &jt, &pref_owned, &muni_owned, &emp_owned, &sal_owned,
+            )
+        }
+    }).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Json(serde_json::json!({"markers": [], "total": 0}));
+        }
+    };
+
+    markers_to_json(&markers, center, total_available)
 }
 
 /// 求人詳細カードHTML
@@ -167,12 +215,19 @@ pub async fn jobmap_detail(
 ) -> Html<String> {
     let geocoded_db = match &state.geocoded_db {
         Some(db) => db,
-        None => return Html("<p class='text-gray-400'>データなし</p>".to_string()),
+        None => return Html(crate::handlers::render_empty_state("データなし", "求人データベースに接続できません")),
     };
 
-    match fetch::fetch_detail(geocoded_db, posting_id) {
-        Some(detail) => Html(render::render_detail_card(&detail)),
-        None => Html("<p class='text-gray-400'>求人が見つかりません</p>".to_string()),
+    let db_clone = geocoded_db.clone();
+    match tokio::task::spawn_blocking(move || {
+        fetch::fetch_detail(&db_clone, posting_id)
+    }).await {
+        Ok(Some(detail)) => Html(render::render_detail_card(&detail)),
+        Ok(None) => Html(crate::handlers::render_empty_state("求人が見つかりません", "指定された求人は存在しないか削除されています")),
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            Html("<p class='text-red-400'>データ取得エラー</p>".to_string())
+        }
     }
 }
 
@@ -196,7 +251,18 @@ pub async fn jobmap_municipalities(
         None => return Html(build_option("", "-- 市区町村 --")),
     };
 
-    let munis = fetch::fetch_municipalities(geocoded_db, &job_type, &params.prefecture);
+    let db_clone = geocoded_db.clone();
+    let jt = job_type.clone();
+    let pref_owned = params.prefecture.clone();
+    let munis = match tokio::task::spawn_blocking(move || {
+        fetch::fetch_municipalities(&db_clone, &jt, &pref_owned)
+    }).await {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Html(build_option("", "-- 市区町村 --"));
+        }
+    };
     let options: String = std::iter::once(build_option("", "-- 市区町村 --"))
         .chain(munis.iter().map(|m| build_option(m, m)))
         .collect::<Vec<_>>()
@@ -215,7 +281,17 @@ pub async fn jobmap_detail_json(
         None => return Json(serde_json::json!({})),
     };
 
-    match fetch::fetch_detail(geocoded_db, posting_id) {
+    let db_clone = geocoded_db.clone();
+    let detail_opt = match tokio::task::spawn_blocking(move || {
+        fetch::fetch_detail(&db_clone, posting_id)
+    }).await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!("spawn_blocking failed: {e}");
+            return Json(serde_json::json!({}));
+        }
+    };
+    match detail_opt {
         Some(d) => Json(serde_json::json!({
             "facility_name": d.facility_name,
             "service_type": d.service_type,
@@ -385,6 +461,7 @@ pub async fn jobmap_seeker_detail(
 fn markers_to_json(
     markers: &[fetch::MarkerRow],
     center: Option<(f64, f64)>,
+    total_available: usize,
 ) -> Json<serde_json::Value> {
     let marker_arr: Vec<serde_json::Value> = markers
         .iter()
@@ -406,12 +483,12 @@ fn markers_to_json(
     let mut result = serde_json::json!({
         "markers": marker_arr,
         "total": markers.len(),
+        "totalAvailable": total_available,
     });
 
     if let Some((lat, lng)) = center {
         result["center"] = serde_json::json!({"lat": lat, "lng": lng});
     } else if !markers.is_empty() {
-        // マーカーの中心を計算
         let avg_lat: f64 = markers.iter().map(|m| m.lat).sum::<f64>() / markers.len() as f64;
         let avg_lng: f64 = markers.iter().map(|m| m.lng).sum::<f64>() / markers.len() as f64;
         result["center"] = serde_json::json!({"lat": avg_lat, "lng": avg_lng});

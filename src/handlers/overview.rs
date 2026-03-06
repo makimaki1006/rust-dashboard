@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::auth::{SESSION_JOB_TYPE_KEY, SESSION_PREFECTURE_KEY, SESSION_MUNICIPALITY_KEY};
+use super::competitive::escape_html;
 use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
@@ -489,16 +490,16 @@ fn build_comparison_section(stats: &NatStats, prefecture: &str, location_label: 
     <div class="flex items-center gap-2 text-sm">
         <span class="w-16 text-slate-400 shrink-0">全国</span>
         <div class="flex-1 bg-slate-700 rounded h-5 overflow-hidden flex">
-            <div style="background:#0072B2" class="h-full" style="width: {nat_male_pct}%"></div>
-            <div style="background:#E69F00" class="h-full" style="width: {nat_female_pct}%"></div>
+            <div style="background:#0072B2;width:{nat_male_pct}%" class="h-full"></div>
+            <div style="background:#E69F00;width:{nat_female_pct}%" class="h-full"></div>
         </div>
         <span class="w-16 text-right text-slate-300 text-xs">&#9794;{nat_male_pct:.0}%</span>
     </div>
     <div class="flex items-center gap-2 text-sm mt-1">
         <span class="w-16 text-cyan-400 shrink-0 truncate" title="{region_label}">{region_label_short}</span>
         <div class="flex-1 bg-slate-700 rounded h-5 overflow-hidden flex">
-            <div style="background:#0072B2" class="h-full" style="width: {reg_male_pct}%"></div>
-            <div style="background:#E69F00" class="h-full" style="width: {reg_female_pct}%"></div>
+            <div style="background:#0072B2;width:{reg_male_pct}%" class="h-full"></div>
+            <div style="background:#E69F00;width:{reg_female_pct}%" class="h-full"></div>
         </div>
         <span class="w-16 text-right text-slate-300 text-xs">&#9794;{reg_male_pct:.0}%</span>
     </div>
@@ -669,8 +670,6 @@ fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefe
 
     // 年齢帯別のデータ（JSON配列）
     let age_labels: Vec<String> = stats.age_distribution.iter().map(|(a, _)| format!("\"{}\"", a)).collect();
-    let age_values: Vec<String> = stats.age_distribution.iter().map(|(_, v)| v.to_string()).collect();
-
     // 性別×年齢
     let age_male_vals: Vec<String> = stats.age_gender.iter().map(|(_, m, _)| m.to_string()).collect();
     let age_female_vals: Vec<String> = stats.age_gender.iter().map(|(_, _, f)| f.to_string()).collect();
@@ -681,8 +680,8 @@ fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefe
     let comparison_section = build_comparison_section(stats, prefecture, location_label);
 
     include_str!("../../templates/tabs/overview.html")
-        .replace("{{JOB_TYPE}}", job_type)
-        .replace("{{LOCATION_LABEL}}", location_label)
+        .replace("{{JOB_TYPE}}", &escape_html(job_type))
+        .replace("{{LOCATION_LABEL}}", &escape_html(location_label))
         .replace("{{DIAGNOSIS_SECTION}}", &diagnosis_section)
         .replace("{{COMPARISON_SECTION}}", &comparison_section)
         .replace("{{TOTAL_COUNT}}", &format_number(total))
@@ -694,7 +693,6 @@ fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefe
         .replace("{{MALE_COUNT_RAW}}", &stats.male_count.to_string())
         .replace("{{FEMALE_COUNT_RAW}}", &stats.female_count.to_string())
         .replace("{{AGE_LABELS}}", &format!("[{}]", age_labels.join(",")))
-        .replace("{{AGE_VALUES}}", &format!("[{}]", age_values.join(",")))
         .replace("{{AGE_MALE_VALUES}}", &format!("[{}]", age_male_vals.join(",")))
         .replace("{{AGE_FEMALE_VALUES}}", &format!("[{}]", age_female_vals.join(",")))
 }

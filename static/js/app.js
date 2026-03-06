@@ -102,17 +102,20 @@
     });
 
     // ウィンドウリサイズ時: 全EChartsインスタンスをリサイズ
+    // data-chart-config経由のチャートとanalysis.rsのインラインチャートの両方を対象
     var resizeTimer = null;
     window.addEventListener('resize', function() {
         if (resizeTimer) clearTimeout(resizeTimer);
         resizeTimer = setTimeout(function() {
-            var charts = document.querySelectorAll('.echart[data-chart-config]');
-            charts.forEach(function(el) {
-                var instance = echarts.getInstanceByDom(el);
-                if (instance) {
-                    instance.resize();
-                }
-            });
+            if (typeof echarts !== 'undefined') {
+                // data-chart-config要素 + style="width:100%;height:XXXpx"のチャートコンテナ
+                var selectors = '.echart[data-chart-config], [id$="-chart"]';
+                var containers = document.querySelectorAll(selectors);
+                containers.forEach(function(el) {
+                    var instance = echarts.getInstanceByDom(el);
+                    if (instance) instance.resize();
+                });
+            }
             // Leaflet地図もリサイズ
             if (typeof window.resizeLeafletMaps === 'function') {
                 window.resizeLeafletMaps();
