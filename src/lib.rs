@@ -36,6 +36,8 @@ const TAB_CACHE_PREFIXES: &[&str] = &[
     "workstyle_",
     "talentmap_",
     "competitive_",
+    "analysis_",
+    "segment_",
 ];
 
 /// アプリケーション共有状態
@@ -224,10 +226,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         ));
 
     // CSP: CDN (tailwind, htmx, echarts, leaflet) + inline scripts/styles 許可
+    // CDN統合: jsdelivr.net に一本化
     let csp_value = http::HeaderValue::from_static(
         "default-src 'self'; \
-         script-src 'self' 'unsafe-inline' 'unsafe-eval' cdn.tailwindcss.com unpkg.com cdn.jsdelivr.net; \
-         style-src 'self' 'unsafe-inline' unpkg.com; \
+         script-src 'self' 'unsafe-inline' 'unsafe-eval' cdn.tailwindcss.com cdn.jsdelivr.net; \
+         style-src 'self' 'unsafe-inline' cdn.jsdelivr.net; \
          img-src 'self' data: https://*.tile.openstreetmap.org; \
          connect-src 'self'; \
          font-src 'self'; \
@@ -822,7 +825,7 @@ pub fn decompress_db_if_needed(db_path: &str) {
         let f = File::open(&gz_path)?;
         let mut decoder = GzDecoder::new(f);
         let mut out = File::create(db_path)?;
-        let mut buf = vec![0u8; 1024 * 1024];
+        let mut buf = vec![0u8; 8 * 1024 * 1024]; // 8MBバッファ（解凍スループット向上）
         let mut total: u64 = 0;
         loop {
             let n = decoder.read(&mut buf)?;
@@ -865,7 +868,7 @@ fn decompress_gz_file(gz_path: &str, out_path: &str) {
             return;
         }
     };
-    let mut buf = vec![0u8; 1024 * 1024];
+    let mut buf = vec![0u8; 8 * 1024 * 1024]; // 8MBバッファ（解凍スループット向上）
     loop {
         match decoder.read(&mut buf) {
             Ok(0) => break,

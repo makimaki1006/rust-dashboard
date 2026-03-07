@@ -1,6 +1,7 @@
 use axum::extract::{Query, State};
 use axum::response::Html;
 use serde::Deserialize;
+use serde_json::Value;
 use std::sync::Arc;
 use tower_sessions::Session;
 
@@ -89,6 +90,14 @@ pub async fn tab_analysis(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_tab_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let location_label = make_location_label(&prefecture, &municipality);
 
     let db = match &state.geocoded_db {
@@ -225,6 +234,7 @@ function setAnalysisSubTab(el) {{
         grade_color = grade_color,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -237,6 +247,14 @@ pub async fn api_salary(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_salary_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -281,6 +299,7 @@ pub async fn api_salary(
         // テーブル（下限/上限分離）
         html.push_str(&render_salary_minmax_table(&prows));
         html.push_str("</div>");
+        state.cache.set(cache_key, Value::String(html.clone()));
         return Html(html);
     }
 
@@ -394,6 +413,7 @@ pub async fn api_salary(
     }
 
     html.push_str("</div>");
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -406,6 +426,14 @@ pub async fn api_facility(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_facility_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -588,6 +616,7 @@ pub async fn api_facility(
     }
 
     html.push_str("</div>");
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -600,6 +629,14 @@ pub async fn api_employment(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_employment_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -845,6 +882,7 @@ pub async fn api_employment(
     ));
 
     html.push_str("</div>");
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -858,12 +896,19 @@ pub async fn api_keywords(
     Query(params): Query<AnalysisParams>,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let layer = params.layer.as_deref();
+    let cache_key = format!("analysis_keywords_{}_{}_{}_{}", job_type, prefecture, municipality, layer.unwrap_or("all"));
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
     };
-
-    let layer = params.layer.as_deref();
     // フォールバック付きで取得（都道府県データなし→全国にフォールバック）
     let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
     let layer_owned = layer.map(|s| s.to_string());
@@ -1030,6 +1075,7 @@ pub async fn api_keywords(
     }
 
     html.push_str("</div>");
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1043,12 +1089,19 @@ pub async fn api_cooccurrence(
     Query(params): Query<AnalysisParams>,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let min_lift = params.min_lift;
+    let cache_key = format!("analysis_cooccurrence_{}_{}_{}_{:.1}", job_type, prefecture, municipality, min_lift.unwrap_or(0.0));
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
     };
-
-    let min_lift = params.min_lift;
     // フォールバック付きで取得（都道府県データなし→全国にフォールバック）
     let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
     let (rows, is_fallback) = tokio::task::spawn_blocking(move || {
@@ -1215,6 +1268,7 @@ pub async fn api_cooccurrence(
     }
 
     html.push_str("</div>");
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1227,6 +1281,14 @@ pub async fn api_quality(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_quality_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -1676,6 +1738,7 @@ pub async fn api_quality(
     }
 
     html.push_str("</div>");
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1688,6 +1751,14 @@ pub async fn api_clusters(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_clusters_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -1905,6 +1976,7 @@ pub async fn api_clusters(
     }
 
     html.push_str("</div>");
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1918,6 +1990,15 @@ pub async fn api_heatmap(
     Query(params): Query<AnalysisParams>,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cluster_id = params.cluster_id;
+    let cache_key = format!("analysis_heatmap_{}_{}_{}_{}", job_type, prefecture, municipality, cluster_id.unwrap_or(-1));
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
@@ -2143,6 +2224,7 @@ pub async fn api_heatmap(
     }
 
     html.push_str("</div>");
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -2431,13 +2513,21 @@ pub async fn api_compare(
     Query(params): Query<CompareParams>,
 ) -> Html<String> {
     let (job_type, prefecture, _municipality) = get_session_filters(&session).await;
+
+    let pref1 = if prefecture.is_empty() { "東京都".to_string() } else { prefecture };
+    let pref2 = params.pref2.unwrap_or_default();
+
+    let cache_key = format!("analysis_compare_{}_{}_{}", job_type, pref1, pref2);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.geocoded_db {
         Some(db) => db,
         None => return Html(error_html("DB未接続")),
     };
-
-    let pref1 = if prefecture.is_empty() { "東京都".to_string() } else { prefecture };
-    let pref2 = params.pref2.unwrap_or_default();
 
     // 都道府県ドロップダウン生成
     let pref_options: String = PREFECTURE_ORDER
@@ -2474,6 +2564,7 @@ pub async fn api_compare(
             pref1 = escape_html(&pref1),
             pref_options = pref_options,
         );
+        state.cache.set(cache_key, Value::String(html.clone()));
         return Html(html);
     }
 
@@ -2709,5 +2800,6 @@ pub async fn api_compare(
         emp_chart_id_js = format!(r#""{}""#, emp_chart_id),
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }

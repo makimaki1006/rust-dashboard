@@ -4,18 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ダッシュボード - 求職者データ分析</title>
+    <!-- CDN統合: jsdelivr.net に一本化（HTTP/2マルチプレキシング最適化） -->
     <link rel="preload" href="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" as="script">
-    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script">
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" as="script">
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js" as="script">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
             theme: { extend: { colors: { navy: { 900: '#0d1525', 800: '#0f172a', 700: '#1e293b' } } } }
         }
     </script>
-    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" defer></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" defer></script>
     <link rel="stylesheet" href="/static/css/dashboard.css">
 </head>
 <body class="bg-navy-900 text-slate-100 min-h-screen">

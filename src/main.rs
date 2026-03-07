@@ -39,9 +39,22 @@ async fn main() {
     }
 
     decompress_geojson_if_needed();
-    decompress_db_if_needed(&config.local_db_path);
-    decompress_db_if_needed(&config.segment_db_path);
-    decompress_db_if_needed(&config.geocoded_db_path);
+
+    // DB解凍を並列実行（コールドスタート高速化）
+    let local_path_clone = config.local_db_path.clone();
+    let segment_path_clone = config.segment_db_path.clone();
+    let geocoded_path_clone = config.geocoded_db_path.clone();
+
+    let handles: Vec<_> = vec![
+        std::thread::spawn(move || decompress_db_if_needed(&local_path_clone)),
+        std::thread::spawn(move || decompress_db_if_needed(&segment_path_clone)),
+        std::thread::spawn(move || decompress_db_if_needed(&geocoded_path_clone)),
+    ];
+    for h in handles {
+        if let Err(e) = h.join() {
+            tracing::error!("DB decompression thread panic: {:?}", e);
+        }
+    }
 
     let local_db = match LocalDb::new(&config.local_db_path) {
         Ok(db) => {
@@ -70,13 +83,31 @@ async fn main() {
             tracing::info!("Geocoded postings SQLite loaded: {}", config.geocoded_db_path);
             // パフォーマンス向上: インデックス自動作成
             let idx_sqls = [
+                // 既存インデックス
                 "CREATE INDEX IF NOT EXISTS idx_postings_job_pref ON postings (job_type, prefecture)",
                 "CREATE INDEX IF NOT EXISTS idx_postings_job_lat_lng ON postings (job_type, lat, lng)",
+                // 追加インデックス（市区町村・雇用形態・施設種別フィルタ高速化）
+                "CREATE INDEX IF NOT EXISTS idx_postings_job_pref_muni ON postings (job_type, prefecture, municipality)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_job_pref_emp ON postings (job_type, prefecture, employment_type)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_job_pref_fac ON postings (job_type, prefecture, facility_type)",
+                // Layer A-C 分析テーブル用インデックス
+                "CREATE INDEX IF NOT EXISTS idx_salary_job_pref ON layer_a_salary_stats (job_type, prefecture)",
+                "CREATE INDEX IF NOT EXISTS idx_facility_job_pref ON layer_a_facility_concentration (job_type, prefecture)",
+                "CREATE INDEX IF NOT EXISTS idx_emp_div_job_pref ON layer_a_employment_diversity (job_type, prefecture)",
+                "CREATE INDEX IF NOT EXISTS idx_keywords_job_pref ON layer_b_keywords (job_type, prefecture)",
+                "CREATE INDEX IF NOT EXISTS idx_cooc_job_pref ON layer_b_cooccurrence (job_type, prefecture)",
+                "CREATE INDEX IF NOT EXISTS idx_quality_job_pref ON layer_b_text_quality (job_type, prefecture)",
+                "CREATE INDEX IF NOT EXISTS idx_clusters_job_pref ON layer_c_clusters (job_type, prefecture)",
+                "CREATE INDEX IF NOT EXISTS idx_heatmap_job_pref ON layer_c_region_heatmap (job_type, prefecture)",
             ];
             for sql in &idx_sqls {
                 if let Err(e) = db.execute(sql, &[]) {
                     tracing::warn!("Index creation failed: {e}");
                 }
+            }
+            // PRAGMA mmap_size: 256MB memory-mapped I/O（最大DBで効果大）
+            if let Err(e) = db.execute("PRAGMA mmap_size=268435456", &[]) {
+                tracing::warn!("PRAGMA mmap_size failed: {e}");
             }
             Some(db)
         }

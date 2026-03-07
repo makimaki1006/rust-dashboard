@@ -1,6 +1,7 @@
 use axum::extract::{Query, State};
 use axum::response::Html;
 use serde::Deserialize;
+use serde_json::Value;
 use std::sync::Arc;
 use tower_sessions::Session;
 
@@ -242,18 +243,26 @@ pub async fn segment_overview(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let db = match &state.local_db {
-        Some(db) => db,
-        None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
-    };
-
     // クエリパラメータが空ならsessionから取得（グローバルフィルタ変更対応）
     let pref = params.prefecture.as_deref()
         .filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
     let muni = params.municipality.as_deref()
         .filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
     let emp = params.employment_type.as_deref().unwrap_or("");
-    let ftypes = parse_facility_types(params.facility_type.as_deref().unwrap_or(""));
+    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
+    let ftypes = parse_facility_types(ftype_raw);
+
+    let cache_key = format!("segment_overview_{}_{}_{}_{}_{}", job_type, pref, muni, emp, ftype_raw);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
+    let db = match &state.local_db {
+        Some(db) => db,
+        None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
+    };
 
     let (where_clause, base_params) = build_postings_where(&job_type, pref, muni, emp, &ftypes);
 
@@ -412,6 +421,7 @@ pub async fn segment_overview(
         axis_charts = axis_charts,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -426,17 +436,25 @@ pub async fn segment_tier3(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let db = match &state.local_db {
-        Some(db) => db,
-        None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
-    };
-
     let pref = params.prefecture.as_deref()
         .filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
     let muni = params.municipality.as_deref()
         .filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
     let emp = params.employment_type.as_deref().unwrap_or("");
-    let ftypes = parse_facility_types(params.facility_type.as_deref().unwrap_or(""));
+    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
+    let ftypes = parse_facility_types(ftype_raw);
+
+    let cache_key = format!("segment_tier3_{}_{}_{}_{}_{}", job_type, pref, muni, emp, ftype_raw);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
+    let db = match &state.local_db {
+        Some(db) => db,
+        None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
+    };
 
     let (where_clause, param_values) = build_postings_where(&job_type, pref, muni, emp, &ftypes);
 
@@ -716,6 +734,7 @@ pub async fn segment_tier3(
         table_rows = table_rows,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -729,6 +748,20 @@ pub async fn segment_tags(
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
+
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
+
+    let cache_key = format!("segment_tags_{}_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type, ftype_raw);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_job = match map_job_type_to_segment(&job_type) {
         Some(j) => j,
         None => return Html(no_segment_data_html(&job_type)),
@@ -738,13 +771,6 @@ pub async fn segment_tags(
         Some(db) => db,
         None => return Html(r#"<p class="text-red-400 text-sm">セグメントDBが利用できません</p>"#.to_string()),
     };
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
     let has_facility_filter = !ftype_raw.is_empty() && ftype_raw != "全て";
 
     // municipalityフォールバックチェック
@@ -846,6 +872,7 @@ pub async fn segment_tags(
         values = values.join(","),
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -859,6 +886,20 @@ pub async fn segment_text_features(
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
+
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
+
+    let cache_key = format!("segment_text_features_{}_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type, ftype_raw);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_job = match map_job_type_to_segment(&job_type) {
         Some(j) => j,
         None => return Html(no_segment_data_html(&job_type)),
@@ -869,12 +910,6 @@ pub async fn segment_text_features(
         None => return Html(r#"<p class="text-red-400 text-sm">セグメントDBが利用できません</p>"#.to_string()),
     };
 
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
     let has_facility_filter = !ftype_raw.is_empty() && ftype_raw != "全て";
 
     // municipalityフォールバックチェック
@@ -1011,6 +1046,7 @@ pub async fn segment_text_features(
         cat_charts = cat_charts,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1081,6 +1117,14 @@ pub async fn tab_segment(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("segment_tab_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let scope_label = build_scope_label(&prefecture, &municipality);
 
     // segment_dbから雇用形態一覧を取得
@@ -1305,6 +1349,7 @@ document.getElementById('seg-facility-filter').addEventListener('change', functi
         emp_options = emp_options_html,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1319,6 +1364,18 @@ pub async fn segment_salary_compare(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
+    let cache_key = format!("segment_salary_compare_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -1328,12 +1385,6 @@ pub async fn segment_salary_compare(
         Some(jt) => jt,
         None => return Html(no_segment_data_html(&job_type)),
     };
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
@@ -1440,6 +1491,7 @@ pub async fn segment_salary_compare(
         tables = tables_html,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1454,6 +1506,18 @@ pub async fn segment_job_desc_insights(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
+    let cache_key = format!("segment_job_desc_insights_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -1463,13 +1527,6 @@ pub async fn segment_job_desc_insights(
         Some(jt) => jt,
         None => return Html(no_segment_data_html(&job_type)),
     };
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    // 仕事内容カテゴリの分布を取得
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
@@ -1617,6 +1674,7 @@ pub async fn segment_job_desc_insights(
         bar_html = bar_html,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1631,6 +1689,18 @@ pub async fn segment_age_decade(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
+    let cache_key = format!("segment_age_decade_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -1640,12 +1710,6 @@ pub async fn segment_age_decade(
         Some(jt) => jt,
         None => return Html(no_segment_data_html(&job_type)),
     };
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
@@ -1801,6 +1865,7 @@ pub async fn segment_age_decade(
         bar_html = bar_html,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1815,6 +1880,18 @@ pub async fn segment_gender_lifecycle(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
+    let cache_key = format!("segment_gender_lifecycle_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -1824,12 +1901,6 @@ pub async fn segment_gender_lifecycle(
         Some(jt) => jt,
         None => return Html(no_segment_data_html(&job_type)),
     };
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
@@ -2043,6 +2114,7 @@ pub async fn segment_gender_lifecycle(
         lifecycle_html = lifecycle_html,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -2057,6 +2129,18 @@ pub async fn segment_exp_qual(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
+    let cache_key = format!("segment_exp_qual_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -2066,12 +2150,6 @@ pub async fn segment_exp_qual(
         Some(jt) => jt,
         None => return Html(no_segment_data_html(&job_type)),
     };
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
@@ -2230,6 +2308,7 @@ pub async fn segment_exp_qual(
         grid_html = grid_html,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -2244,6 +2323,18 @@ pub async fn segment_work_schedule(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
+    let cache_key = format!("segment_work_schedule_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -2253,12 +2344,6 @@ pub async fn segment_work_schedule(
         Some(jt) => jt,
         None => return Html(no_segment_data_html(&job_type)),
     };
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
@@ -2512,6 +2597,7 @@ pub async fn segment_work_schedule(
         ot_vals = ot_vals,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -2543,6 +2629,18 @@ pub async fn segment_holidays(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
+    let cache_key = format!("segment_holidays_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -2552,12 +2650,6 @@ pub async fn segment_holidays(
         Some(jt) => jt,
         None => return Html(no_segment_data_html(&job_type)),
     };
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
@@ -2789,6 +2881,7 @@ pub async fn segment_holidays(
         ann_vals = ann_vals,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -2803,6 +2896,18 @@ pub async fn segment_salary_shift(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
+    let cache_key = format!("segment_salary_shift_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -2812,12 +2917,6 @@ pub async fn segment_salary_shift(
         Some(jt) => jt,
         None => return Html(no_segment_data_html(&job_type)),
     };
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
@@ -2935,6 +3034,7 @@ pub async fn segment_salary_shift(
         hourly_html = hourly_html,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -3109,18 +3209,25 @@ pub async fn segment_crosstab(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let pref = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
+    let ftypes = parse_facility_types(ftype_raw);
+    let axis_x = params.axis_x.as_deref().unwrap_or("A");
+    let axis_y = params.axis_y.as_deref().unwrap_or("C");
+
+    let cache_key = format!("segment_crosstab_{}_{}_{}_{}_{}_{}_{}", job_type, pref, muni, emp, ftype_raw, axis_x, axis_y);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let db = match &state.local_db {
         Some(db) => db,
         None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
     };
-
-    let pref = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let ftypes = parse_facility_types(params.facility_type.as_deref().unwrap_or(""));
-
-    let axis_x = params.axis_x.as_deref().unwrap_or("A");
-    let axis_y = params.axis_y.as_deref().unwrap_or("C");
 
     // 軸コード → カラム名
     let axis_to_col = |a: &str| -> Option<&str> {
@@ -3291,5 +3398,6 @@ pub async fn segment_crosstab(
         max_val = max_val as i64,
     );
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
