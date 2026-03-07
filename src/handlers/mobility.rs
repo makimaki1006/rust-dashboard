@@ -813,7 +813,7 @@ fn build_region_summary(stats: &MobilityStats) -> String {
     format!(
         r##"<div class="stat-card">
     <div class="flex items-center gap-2 mb-2">
-        <span class="text-xl">📊</span>
+        <span class="text-xl"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'/></svg> </span>
         <span class="text-lg font-semibold text-white">地域サマリー</span>
     </div>
     <p class="text-sm text-slate-500 mb-4">選択地域の人材プロファイル概要</p>
@@ -899,7 +899,7 @@ fn build_retention_section(stats: &MobilityStats) -> String {
     if stats.retention_rates.is_empty() {
         return r##"<div class="stat-card">
     <div class="flex items-center gap-2 mb-2">
-        <span class="text-xl">🏠</span>
+        <span class="text-xl"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25'/></svg> </span>
         <span class="text-lg font-semibold text-white">資格別定着率</span>
     </div>
     <p class="text-sm text-slate-500">定着率データがありません</p>
@@ -928,7 +928,7 @@ fn build_retention_section(stats: &MobilityStats) -> String {
     format!(
         r##"<div class="stat-card">
     <div class="flex items-center gap-2 mb-2">
-        <span class="text-xl">🏠</span>
+        <span class="text-xl"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25'/></svg> </span>
         <span class="text-lg font-semibold text-white">資格別定着率</span>
     </div>
     <p class="text-sm text-slate-500 mb-4">資格保有者の地元定着傾向（1.0以上＝地元志向）</p>

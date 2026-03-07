@@ -136,7 +136,7 @@ pub async fn tab_analysis(
     let html = format!(r##"
 <div class="p-6 space-y-6">
     <div class="flex items-center justify-between mb-2">
-        <h2 class="text-2xl font-bold text-white">📊 市場分析 — {job_type} ({location})</h2>
+        <h2 class="text-2xl font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'/></svg> 市場分析 — {job_type} ({location})</h2>
     </div>
 
     <!-- サマリーカード -->
@@ -172,31 +172,31 @@ pub async fn tab_analysis(
         <nav class="flex gap-1 overflow-x-auto" id="analysis-subtabs">
             <button class="analysis-sub-btn active px-4 py-2 text-sm rounded-t-lg bg-navy-700 text-white border border-slate-600 border-b-0"
                     hx-get="/api/analysis/salary" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">💰 給与分析</button>
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M4.5 4.5l7.5 9 7.5-9M4.5 12h15M4.5 15h15M12 12v9'/></svg>  給与分析</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/facility" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">🏢 法人の分布</button>
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21'/></svg>  法人の分布</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/employment" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">📋 雇用多様性</button>
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15a2.25 2.25 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V19.5a2.25 2.25 0 002.25 2.25h.75'/></svg>  雇用多様性</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/keywords" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">🔑 キーワード</button>
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z'/></svg>  キーワード</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/cooccurrence" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">🔗 条件の組み合わせ</button>
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244'/></svg>  条件の組み合わせ</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/quality" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">📝 求人原稿の充実度</button>
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z'/></svg>  求人原稿の充実度</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/clusters" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">🎯 求人タイプ</button>
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M12 2.25v2.25m0 15v2.25M2.25 12h2.25m15 0h2.25M12 6a6 6 0 100 12 6 6 0 000-12z'/></svg>  求人タイプ</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/heatmap" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">🗺️ 地域分布</button>
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z'/></svg>  地域分布</button>
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/compare" hx-target="#analysis-content" hx-swap="innerHTML"
-                    onclick="setAnalysisSubTab(this)">🔄 地域比較</button>
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3'/></svg>  地域比較</button>
         </nav>
     </div>
 
@@ -281,7 +281,7 @@ pub async fn api_salary(
 
         let mut html = format!(
             r#"<div class="space-y-6">
-            <h3 class="text-lg font-semibold text-white">💰 給与分布分析 — {}</h3>"#,
+            <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M4.5 4.5l7.5 9 7.5-9M4.5 12h15M4.5 15h15M12 12v9'/></svg>  給与分布分析 — {}</h3>"#,
             escape_html(&location_label)
         );
 
@@ -322,7 +322,7 @@ pub async fn api_salary(
 
     let mut html = format!(
         r#"<div class="space-y-6">
-        <h3 class="text-lg font-semibold text-white">💰 給与分布分析 — {}</h3>"#,
+        <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M4.5 4.5l7.5 9 7.5-9M4.5 12h15M4.5 15h15M12 12v9'/></svg>  給与分布分析 — {}</h3>"#,
         escape_html(&location_label)
     );
 
@@ -483,7 +483,7 @@ pub async fn api_facility(
 
     let mut html = format!(r##"
 <div class="space-y-4">
-    <h3 class="text-lg font-semibold text-white">🏢 求人を出している法人の分布 — {location}</h3>
+    <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21'/></svg>  求人を出している法人の分布 — {location}</h3>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
@@ -695,7 +695,7 @@ pub async fn api_employment(
 
     let mut html = format!(r##"
 <div class="space-y-4">
-    <h3 class="text-lg font-semibold text-white">📋 雇用形態多様性 — {location}</h3>
+    <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15a2.25 2.25 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V19.5a2.25 2.25 0 002.25 2.25h.75'/></svg>  雇用形態多様性 — {location}</h3>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
@@ -953,13 +953,13 @@ pub async fn api_keywords(
 
     let mut html = format!(
         "<div class=\"space-y-4\">\
-        <h3 class=\"text-lg font-semibold text-white\">🔑 キーワード分析 — {location}</h3>\
+        <h3 class=\"text-lg font-semibold text-white\"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z'/></svg>  キーワード分析 — {location}</h3>\
         {fallback_note}{municipality_note}\
         <div class=\"flex gap-2 mb-3\">\
             <button class=\"px-3 py-1 text-xs rounded {all_cls}\" hx-get=\"/api/analysis/keywords\" hx-target=\"{target}\" hx-swap=\"innerHTML\">全て</button>\
             <button class=\"px-3 py-1 text-xs rounded {uni_cls}\" hx-get=\"/api/analysis/keywords?layer=universal\" hx-target=\"{target}\" hx-swap=\"innerHTML\">🌐 業界共通</button>\
             <button class=\"px-3 py-1 text-xs rounded {jt_cls}\" hx-get=\"/api/analysis/keywords?layer=job_type\" hx-target=\"{target}\" hx-swap=\"innerHTML\">🏷️ 職種特有</button>\
-            <button class=\"px-3 py-1 text-xs rounded {reg_cls}\" hx-get=\"/api/analysis/keywords?layer=regional\" hx-target=\"{target}\" hx-swap=\"innerHTML\">📍 地域特有</button>\
+            <button class=\"px-3 py-1 text-xs rounded {reg_cls}\" hx-get=\"/api/analysis/keywords?layer=regional\" hx-target=\"{target}\" hx-swap=\"innerHTML\"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M15 10.5a3 3 0 11-6 0 3 3 0 016 0z'/><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z'/></svg>  地域特有</button>\
         </div>",
         location = escape_html(&location_label),
         fallback_note = fallback_note,
@@ -1143,7 +1143,7 @@ pub async fn api_cooccurrence(
 
     let mut html = format!(
         r#"<div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white">🔗 よく一緒に提示される条件の組み合わせ — {location}</h3>
+        <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244'/></svg>  よく一緒に提示される条件の組み合わせ — {location}</h3>
         {fallback_note}{municipality_note}
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700 text-sm text-gray-300 space-y-2">
             <p><span class="text-cyan-400 font-semibold">セット度</span>: ある条件Aを掲げる求人が、条件Bもセットで提示する傾向の強さ。値が大きいほど「セット売り」される頻度が高い。</p>
@@ -1320,7 +1320,7 @@ pub async fn api_quality(
 
     let mut html = format!(
         r#"<div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white">📝 求人原稿の充実度 — {location}</h3>"#,
+        <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z'/></svg>  求人原稿の充実度 — {location}</h3>"#,
         location = escape_html(&location_label),
     );
 
@@ -1800,7 +1800,7 @@ pub async fn api_clusters(
 
     let mut html = format!(
         r#"<div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white">🎯 求人クラスタ分析 — {location}</h3>
+        <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M12 2.25v2.25m0 15v2.25M2.25 12h2.25m15 0h2.25M12 6a6 6 0 100 12 6 6 0 000-12z'/></svg>  求人クラスタ分析 — {location}</h3>
         {scope_note}"#,
         location = escape_html(&location_label),
         scope_note = scope_note,
@@ -2080,7 +2080,7 @@ pub async fn api_heatmap(
 
     let mut html = format!(r##"
 <div class="space-y-4">
-    <h3 class="text-lg font-semibold text-white">🗺️ 地域×クラスタ分布 — {location}</h3>
+    <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z'/></svg>  地域×クラスタ分布 — {location}</h3>
     <p class="text-sm text-gray-400">各都道府県内でのクラスタ構成比 (%)。色が濃いほど構成比が高い。</p>
     {municipality_note}
 
@@ -2554,7 +2554,7 @@ pub async fn api_compare(
     if pref2.is_empty() {
         let html = format!(
             r##"<div class="space-y-6">
-    <h3 class="text-lg font-semibold text-white">🔄 地域比較 — {job_type}</h3>
+    <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3'/></svg>  地域比較 — {job_type}</h3>
     <p class="text-sm text-gray-400">現在の選択: <span class="text-cyan-300">{pref1}</span> — 比較先を選んでください</p>
     <div class="flex items-center gap-4">
         <div class="bg-navy-800 rounded-lg px-4 py-3 border border-slate-700">
@@ -2667,7 +2667,7 @@ pub async fn api_compare(
 
     let html = format!(
         r##"<div class="space-y-6">
-    <h3 class="text-lg font-semibold text-white">🔄 地域比較 — {job_type}</h3>
+    <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3'/></svg>  地域比較 — {job_type}</h3>
 
     <!-- 地域選択UI -->
     <div class="flex items-center gap-4 flex-wrap">
@@ -2702,7 +2702,7 @@ pub async fn api_compare(
 
     <!-- 給与比較テーブル -->
     <div class="bg-navy-800 rounded-lg p-5 border border-slate-700">
-        <h4 class="text-white font-semibold mb-3">💰 給与比較（中央値）</h4>
+        <h4 class="text-white font-semibold mb-3"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M4.5 4.5l7.5 9 7.5-9M4.5 12h15M4.5 15h15M12 12v9'/></svg>  給与比較（中央値）</h4>
         <table class="data-table w-full">
             <thead>
                 <tr>
@@ -2736,7 +2736,7 @@ pub async fn api_compare(
 
     <!-- 法人集中度比較 -->
     <div class="bg-navy-800 rounded-lg p-5 border border-slate-700">
-        <h4 class="text-white font-semibold mb-3">🏢 法人集中度比較</h4>
+        <h4 class="text-white font-semibold mb-3"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21'/></svg>  法人集中度比較</h4>
         <table class="data-table w-full">
             <thead>
                 <tr>
@@ -2763,7 +2763,7 @@ pub async fn api_compare(
 
     <!-- 雇用形態比較チャート -->
     <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-        <h4 class="text-white font-semibold mb-3">📋 雇用形態比較</h4>
+        <h4 class="text-white font-semibold mb-3"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15a2.25 2.25 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V19.5a2.25 2.25 0 002.25 2.25h.75'/></svg>  雇用形態比較</h4>
         <div id="{emp_chart_id}" class="echart" style="height:320px" data-chart-config='{emp_chart_config}'></div>
     </div>
 </div>

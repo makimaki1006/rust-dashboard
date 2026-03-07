@@ -208,7 +208,7 @@ fn truncate(s: &str, max_chars: usize) -> String {
 pub(crate) fn render_no_data_message(job_type: &str) -> String {
     format!(
         r#"<div class="p-8 text-center">
-            <div class="text-6xl mb-4">🗺️</div>
+            <div class="text-6xl mb-4"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z'/></svg> </div>
             <h2 class="text-2xl font-bold text-white mb-2">求人地図</h2>
             <div class="bg-yellow-900/30 border border-yellow-700 rounded-lg p-6 max-w-lg mx-auto">
                 <p class="text-yellow-300 text-lg font-medium mb-2">データ未連携</p>

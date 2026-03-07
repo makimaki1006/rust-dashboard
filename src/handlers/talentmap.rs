@@ -532,7 +532,7 @@ pub(crate) fn build_sidebar(muni: &str, pref: &str, detail: &Option<MuniDetail>,
 
     // タイトル
     html.push_str(&format!(
-        r##"<div class="text-lg font-bold mb-2" style="color: #56B4E9;">📍 {}</div>
+        r##"<div class="text-lg font-bold mb-2" style="color: #56B4E9;"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M15 10.5a3 3 0 11-6 0 3 3 0 016 0z'/><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z'/></svg>  {}</div>
         <div style="border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 8px;"></div>"##,
         muni
     ));
@@ -540,7 +540,7 @@ pub(crate) fn build_sidebar(muni: &str, pref: &str, detail: &Option<MuniDetail>,
     if let Some(d) = detail {
         // 基本情報
         html.push_str(r##"<div class="mb-3">
-            <div class="text-sm font-bold text-white mb-1">📊 基本情報</div>"##);
+            <div class="text-sm font-bold text-white mb-1"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'/></svg>  基本情報</div>"##);
         html.push_str(&format!(
             r##"<div class="text-xs text-slate-400">求職者数: {}人</div>"##,
             format_number(d.count)
@@ -561,7 +561,7 @@ pub(crate) fn build_sidebar(muni: &str, pref: &str, detail: &Option<MuniDetail>,
         // 年齢×性別構成（EChartsピラミッドチャート）
         if !d.age_gender.is_empty() {
             html.push_str(r##"<div class="mb-3">
-                <div class="text-sm font-bold text-white mb-1">👥 年齢×性別構成</div>"##);
+                <div class="text-sm font-bold text-white mb-1"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z'/></svg>  年齢×性別構成</div>"##);
 
             let age_order = ["20代", "30代", "40代", "50代", "60代", "70歳以上"];
             let mut labels = Vec::new();
@@ -644,7 +644,7 @@ pub(crate) fn build_sidebar(muni: &str, pref: &str, detail: &Option<MuniDetail>,
         // 雇用形態分布
         if !d.workstyle_dist.is_empty() {
             html.push_str(r##"<div class="mb-3">
-                <div class="text-sm font-bold text-white mb-1">💼 希望雇用形態（上位5件）</div>"##);
+                <div class="text-sm font-bold text-white mb-1"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0'/></svg>  希望雇用形態（上位5件）</div>"##);
 
             let ws_total: i64 = d.workstyle_dist.iter().map(|(_, c)| c).sum();
             for (ws, cnt) in d.workstyle_dist.iter().take(5) {
@@ -659,7 +659,7 @@ pub(crate) fn build_sidebar(muni: &str, pref: &str, detail: &Option<MuniDetail>,
     } else if let Some(m) = marker {
         // 詳細データなし、マーカーのみ
         html.push_str(r##"<div class="mb-3">
-            <div class="text-sm font-bold text-white mb-1">📊 基本情報</div>"##);
+            <div class="text-sm font-bold text-white mb-1"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'/></svg>  基本情報</div>"##);
         html.push_str(&format!(
             r##"<div class="text-xs text-slate-400">求職者数: {}人</div>"##,
             format_number(m.count)
@@ -673,12 +673,12 @@ pub(crate) fn build_sidebar(muni: &str, pref: &str, detail: &Option<MuniDetail>,
 }
 
 fn build_sidebar_placeholder() -> String {
-    r##"<div class="text-lg font-bold mb-2" style="color: #e2e8f0;">📍 市区町村詳細</div>
+    r##"<div class="text-lg font-bold mb-2" style="color: #e2e8f0;"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M15 10.5a3 3 0 11-6 0 3 3 0 016 0z'/><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z'/></svg>  市区町村詳細</div>
     <div style="border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 8px;"></div>
     <div class="text-sm text-slate-400">地図上で市区町村をクリックすると</div>
     <div class="text-sm text-slate-400">詳細情報が表示されます</div>
     <div style="margin: 16px 0;"></div>
-    <div class="text-sm font-bold text-white">💡 ヒント</div>
+    <div class="text-sm font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18'/></svg>  ヒント</div>
     <div class="text-xs text-slate-400 mt-1">• ポリゴンをクリックで選択</div>
     <div class="text-xs text-slate-400">• 表示モードで分析切替</div>
     <div class="text-xs text-slate-400">• フィルタで絞り込み可能</div>"##.to_string()
