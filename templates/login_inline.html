@@ -19,6 +19,7 @@
         </div>
         {{ERROR_HTML}}
         <form method="POST" action="/login" class="space-y-4">
+            <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
             <div>
                 <label for="email" class="block text-sm text-slate-300 mb-1">メールアドレス</label>
                 <input type="email" id="email" name="email" required

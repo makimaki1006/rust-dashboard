@@ -277,10 +277,15 @@ async fn auth_middleware(
 struct LoginForm {
     email: String,
     password: String,
+    csrf_token: String,
 }
 
-async fn login_page(State(state): State<Arc<AppState>>) -> Html<String> {
-    render_login(&state, None)
+const SESSION_CSRF_KEY: &str = "csrf_token";
+
+async fn login_page(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
+    let csrf_token = uuid::Uuid::new_v4().to_string();
+    let _ = session.insert(SESSION_CSRF_KEY, &csrf_token).await;
+    render_login(&state, None, &csrf_token)
 }
 
 async fn login_submit(
@@ -307,14 +312,30 @@ async fn login_submit(
     let Form(form) = match axum::extract::Form::<LoginForm>::from_request(req, &()).await {
         Ok(f) => f,
         Err(_) => {
-            return render_login(&state, Some("無効なリクエストです".to_string())).into_response();
+            let new_token = uuid::Uuid::new_v4().to_string();
+            let _ = session.insert(SESSION_CSRF_KEY, &new_token).await;
+            return render_login(&state, Some("無効なリクエストです".to_string()), &new_token).into_response();
         }
     };
+
+    // CSRFトークン検証
+    let stored_token: Option<String> = session.get(SESSION_CSRF_KEY).await.unwrap_or(None);
+    let new_token = uuid::Uuid::new_v4().to_string();
+    let _ = session.insert(SESSION_CSRF_KEY, &new_token).await;
+    if stored_token.as_deref() != Some(&form.csrf_token) {
+        return render_login(
+            &state,
+            Some("セッションが無効です。再度お試しください。".to_string()),
+            &new_token,
+        )
+        .into_response();
+    }
 
     if !state.rate_limiter.is_allowed(&client_ip) {
         return render_login(
             &state,
             Some("ログイン試行回数超過。しばらく待ってください。".to_string()),
+            &new_token,
         )
         .into_response();
     }
@@ -324,6 +345,7 @@ async fn login_submit(
         return render_login(
             &state,
             Some("許可されていないメールドメインです".to_string()),
+            &new_token,
         )
         .into_response();
     }
@@ -337,6 +359,7 @@ async fn login_submit(
         return render_login(
             &state,
             Some("パスワードが正しくありません".to_string()),
+            &new_token,
         )
         .into_response();
     }
@@ -727,7 +750,7 @@ async fn api_status(
     }))
 }
 
-fn render_login(state: &AppState, error_message: Option<String>) -> Html<String> {
+fn render_login(state: &AppState, error_message: Option<String>, csrf_token: &str) -> Html<String> {
     let domains = state
         .config
         .allowed_domains
@@ -746,7 +769,8 @@ fn render_login(state: &AppState, error_message: Option<String>) -> Html<String>
 
     let html = include_str!("../templates/login_inline.html")
         .replace("{{ERROR_HTML}}", &error_html)
-        .replace("{{DOMAINS}}", &domains);
+        .replace("{{DOMAINS}}", &domains)
+        .replace("{{CSRF_TOKEN}}", csrf_token);
 
     Html(html)
 }
