@@ -366,10 +366,10 @@ pub async fn api_salary(
                         <th class="text-right p-1.5">件数</th>
                         <th class="text-right p-1.5">平均</th>
                         <th class="text-right p-1.5">中央値</th>
-                        <th class="text-right p-1.5">P25</th>
-                        <th class="text-right p-1.5">P75</th>
-                        <th class="text-right p-1.5">P90</th>
-                        <th class="text-right p-1.5">Gini</th>
+                        <th class="text-right p-1.5" title="下位25%ライン：この金額以下が全体の25%">下位25%</th>
+                        <th class="text-right p-1.5" title="上位25%ライン：この金額以上が全体の25%">上位25%</th>
+                        <th class="text-right p-1.5" title="上位10%ライン：この金額以上が全体の10%">上位10%</th>
+                        <th class="text-right p-1.5" title="給与の偏り度合い。0に近いほど均等、1に近いほど偏りが大きい">給与の偏り</th>
                     </tr>
                 </thead>
                 <tbody>"#);
@@ -395,7 +395,7 @@ pub async fn api_salary(
                     <td class="p-1.5 text-right font-mono text-gray-400">{p25}</td>
                     <td class="p-1.5 text-right font-mono text-gray-400">{p75}</td>
                     <td class="p-1.5 text-right font-mono text-gray-400">{p90}</td>
-                    <td class="p-1.5 text-right">{gini:.3}</td>
+                    <td class="p-1.5 text-right">{gini_cell}</td>
                 </tr>"#,
                 salary_type = escape_html(salary_type),
                 emp_type = escape_html(emp_type),
@@ -405,7 +405,16 @@ pub async fn api_salary(
                 p25 = format_yen(p25),
                 p75 = format_yen(p75),
                 p90 = format_yen(p90),
-                gini = gini,
+                gini_cell = {
+                    let (color, label) = if gini < 0.05 {
+                        ("text-green-400", "均等")
+                    } else if gini < 0.10 {
+                        ("text-blue-400", "やや偏り")
+                    } else {
+                        ("text-amber-400", "偏りあり")
+                    };
+                    format!(r#"<span class="font-mono">{:.3}</span> <span class="{} text-[10px]">{}</span>"#, gini, color, label)
+                },
             ));
         }
 
@@ -486,9 +495,10 @@ pub async fn api_facility(
             <div class="text-xl font-bold text-cyan-400">{unique}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <div class="text-xs text-gray-400">市場の集中度</div>
+            <div class="text-xs text-gray-400" title="HHI: 求人が少数の法人に集中しているかを示す指標">市場の集中度</div>
             <div class="text-xl font-bold {hhi_color}">{hhi:.4}</div>
             <div class="text-xs {hhi_color}">{hhi_label}</div>
+            <div class="text-xs text-gray-600 mt-0.5">小さいほど競争的</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
             <div class="text-xs text-gray-400">大手偏り度</div>
@@ -595,7 +605,7 @@ pub async fn api_facility(
                     backgroundColor: 'transparent',
                     tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'shadow' }} }},
                     grid: {{ left: 70, right: 20, top: 20, bottom: 30 }},
-                    xAxis: {{ type: 'value', name: 'Zipf指数', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8' }} }},
+                    xAxis: {{ type: 'value', name: '大手偏り度（小さいほど大手に集中）', nameLocation: 'center', nameGap: 25, axisLabel: {{ color: '#94a3b8' }}, nameTextStyle: {{ color: '#94a3b8', fontSize: 11 }} }},
                     yAxis: {{ type: 'category', data: [{labels}], axisLabel: {{ color: '#94a3b8', fontSize: 10 }}, inverse: true }},
                     series: [{{
                         type: 'bar',
@@ -697,12 +707,12 @@ pub async fn api_employment(
             <div class="text-xl font-bold text-cyan-400">{n_types}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <div class="text-xs text-gray-400">雇用形態の多様性</div>
+            <div class="text-xs text-gray-400" title="雇用形態がどれだけ多様に分布しているか（シャノンエントロピー）">雇用形態の多様性</div>
             <div class="text-xl font-bold text-purple-400">{entropy:.3}</div>
-            <div class="text-xs text-gray-500">/ {max_entropy:.3}</div>
+            <div class="text-xs text-gray-500">最大 {max_entropy:.3}</div>
         </div>
         <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-            <div class="text-xs text-gray-400">均等度</div>
+            <div class="text-xs text-gray-400" title="1.0に近いほど各雇用形態が均等に分布。0に近いほど特定の形態に偏り">バランス度</div>
             <div class="text-xl font-bold text-amber-400">{evenness:.3}</div>
             <div class="text-xs text-amber-400/70">{evenness_label}</div>
         </div>
@@ -742,7 +752,7 @@ pub async fn api_employment(
                 <div id="emp-stacked-chart" style="width:100%;height:600px;"></div>
             </div>
             <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
-                <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 雇用形態の多様性</h4>
+                <h4 class="text-sm font-semibold text-gray-300 mb-2">都道府県別 雇用形態のバランス度</h4>
                 <div id="emp-entropy-chart" style="width:100%;height:600px;"></div>
             </div>
         </div>"#);
@@ -2737,7 +2747,7 @@ pub async fn api_compare(
             </thead>
             <tbody>
                 <tr class="border-b border-slate-800">
-                    <td class="p-2 text-gray-300">HHI（集中度指数）</td>
+                    <td class="p-2 text-gray-300" title="HHI: 値が小さいほど多くの法人が競争している状態">市場の集中度</td>
                     <td class="p-2 text-right font-mono">{hhi1:.4}</td>
                     <td class="p-2 text-right font-mono">{hhi2:.4}</td>
                 </tr>
@@ -2748,7 +2758,7 @@ pub async fn api_compare(
                 </tr>
             </tbody>
         </table>
-        <p class="text-xs text-gray-500 mt-2">HHI: 値が小さいほど競争的。0.15以上は寡占傾向。</p>
+        <p class="text-xs text-gray-500 mt-2">集中度: 値が小さいほど多くの法人が求人を出している競争的な市場。0.15以上は大手数社に求人が集中する寡占傾向。</p>
     </div>
 
     <!-- 雇用形態比較チャート -->

@@ -54,6 +54,22 @@
     font-weight: 600;
 }
 
+/* キーボードフォーカス表示（マウスクリック時は非表示） */
+.tab-btn:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: -2px;
+    border-radius: 4px;
+}
+
+*:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: 2px;
+}
+
+*:focus:not(:focus-visible) {
+    outline: none;
+}
+
 /* ==========================================================
    ブレッドクラム（フィルタ状態表示）
    ========================================================== */
