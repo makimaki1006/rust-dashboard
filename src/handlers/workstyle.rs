@@ -9,6 +9,7 @@ use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
 use super::overview::{get_str, get_i64, get_session_filters, build_location_filter, make_location_label};
+use super::competitive::escape_html;
 
 /// タブ5: 雇用形態分析
 pub async fn tab_workstyle(
@@ -280,8 +281,8 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
     let _mobility_section = build_mobility_section(stats);
 
     include_str!("../../templates/tabs/workstyle.html")
-        .replace("{{JOB_TYPE}}", job_type)
-        .replace("{{LOCATION_LABEL}}", &location_label)
+        .replace("{{JOB_TYPE}}", &escape_html(job_type))
+        .replace("{{LOCATION_LABEL}}", &escape_html(&location_label))
         .replace("{{WS_PIE_DATA}}", &ws_pie.join(","))
         .replace("{{WS_KPI_CARDS}}", &kpi_cards.join("\n"))
         .replace("{{AGE_CROSS_SERIES}}", &age_series.join(","))

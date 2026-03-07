@@ -25,7 +25,13 @@ impl RateLimiter {
 
     /// ログイン試行が許可されているか確認
     pub fn is_allowed(&self, ip: &str) -> bool {
-        let attempts = self.attempts.lock().unwrap();
+        let attempts = match self.attempts.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("RateLimiter mutex poisoned, recovering: ip={}", ip);
+                poisoned.into_inner()
+            }
+        };
         if let Some(info) = attempts.get(ip) {
             if let Some(until) = info.lockout_until {
                 if Instant::now() < until {
@@ -38,7 +44,13 @@ impl RateLimiter {
 
     /// 失敗を記録
     pub fn record_failure(&self, ip: &str) {
-        let mut attempts = self.attempts.lock().unwrap();
+        let mut attempts = match self.attempts.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("RateLimiter mutex poisoned, recovering: ip={}", ip);
+                poisoned.into_inner()
+            }
+        };
         let info = attempts.entry(ip.to_string()).or_insert(AttemptInfo {
             count: 0,
             lockout_until: None,
@@ -53,17 +65,25 @@ impl RateLimiter {
         }
 
         info.count += 1;
+        tracing::warn!("Login failure recorded: ip={}, attempt={}/{}", ip, info.count, self.max_attempts);
         if info.count >= self.max_attempts {
             info.lockout_until = Some(
                 Instant::now()
                     + std::time::Duration::from_secs(self.lockout_duration_secs),
             );
+            tracing::warn!("IP locked out: ip={}, duration={}s", ip, self.lockout_duration_secs);
         }
     }
 
     /// 成功時にリセット
     pub fn record_success(&self, ip: &str) {
-        let mut attempts = self.attempts.lock().unwrap();
+        let mut attempts = match self.attempts.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("RateLimiter mutex poisoned, recovering: ip={}", ip);
+                poisoned.into_inner()
+            }
+        };
         attempts.remove(ip);
     }
 }

@@ -593,6 +593,7 @@ fn build_postings_where(job_type: &str, prefecture: &str, municipality: &str) ->
 
 /// postingsテーブルから給与統計を直接計算する。
 /// salary_min/salary_max それぞれのP25/Median/P75/P90をsalary_type別、employment_type別に返す。
+/// 最適化: 1クエリで全データ取得 → Rust内で集計（N+1クエリ問題を解消）
 pub fn query_salary_from_postings(
     db: &LocalDb,
     job_type: &str,
@@ -602,81 +603,55 @@ pub fn query_salary_from_postings(
     let (where_clause, params) = build_postings_where(job_type, prefecture, municipality);
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
 
-    // 各salary_type, employment_type ごとにパーセンタイルを取得
-    let group_sql = format!(
-        "SELECT DISTINCT salary_type, employment_type
+    // 1クエリで全行取得
+    let sql = format!(
+        "SELECT salary_type, employment_type, salary_min, salary_max
          FROM postings
          WHERE {} AND salary_min > 0 AND salary_type IS NOT NULL
-         ORDER BY salary_type, employment_type",
+         ORDER BY salary_type, employment_type, salary_min",
         where_clause
     );
-    let groups = db.query(&group_sql, &param_refs)?;
+    let rows = db.query(&sql, &param_refs)?;
+
+    // Rust内でグループ集計
+    let mut groups: std::collections::BTreeMap<(String, String), Vec<(f64, f64)>> =
+        std::collections::BTreeMap::new();
+
+    for row in &rows {
+        let stype = row.get("salary_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let etype = row.get("employment_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let smin = row.get("salary_min").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let smax = row.get("salary_max").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        groups.entry((stype, etype)).or_default().push((smin, smax));
+    }
 
     let mut results = Vec::new();
 
-    for group in &groups {
-        let salary_type = group.get("salary_type").and_then(|v| v.as_str()).unwrap_or("");
-        let emp_type = group.get("employment_type").and_then(|v| v.as_str()).unwrap_or("");
-
-        // salary_min の統計
-        let mut min_params = params.clone();
-        min_params.push(salary_type.to_string());
-        min_params.push(emp_type.to_string());
-
-        let min_stat_sql = format!(
-            "SELECT COUNT(*) as count, AVG(salary_min) as mean_min, AVG(salary_max) as mean_max
-             FROM postings
-             WHERE {} AND salary_min > 0 AND salary_type = ?{} AND employment_type = ?{}",
-            where_clause, params.len() + 1, params.len() + 2
-        );
-        let min_stat_refs: Vec<&dyn rusqlite::types::ToSql> = min_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        let stat_rows = db.query(&min_stat_sql, &min_stat_refs)?;
-
-        let count = stat_rows.first().and_then(|r| r.get("count")).and_then(|v| v.as_i64()).unwrap_or(0);
-        let mean_min = stat_rows.first().and_then(|r| r.get("mean_min")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let mean_max = stat_rows.first().and_then(|r| r.get("mean_max")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-
+    for ((salary_type, emp_type), vals) in &groups {
+        let count = vals.len() as i64;
         if count == 0 { continue; }
 
-        // パーセンタイル計算 (salary_min)
-        let p_sql_min = format!(
-            "SELECT salary_min as val FROM postings
-             WHERE {} AND salary_min > 0 AND salary_type = ?{} AND employment_type = ?{}
-             ORDER BY salary_min",
-            where_clause, params.len() + 1, params.len() + 2
-        );
-        let p_rows_min = db.query(&p_sql_min, &min_stat_refs)?;
-        let min_vals: Vec<f64> = p_rows_min.iter()
-            .filter_map(|r| r.get("val").and_then(|v| v.as_f64()))
-            .collect();
-
+        // salary_min の集計
+        let mut min_vals: Vec<f64> = vals.iter().map(|(smin, _)| *smin).collect();
+        min_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mean_min = min_vals.iter().sum::<f64>() / count as f64;
         let (p25_min, med_min, p75_min, p90_min) = percentiles(&min_vals);
 
-        // パーセンタイル計算 (salary_max)
-        let p_sql_max = format!(
-            "SELECT salary_max as val FROM postings
-             WHERE {} AND salary_max > 0 AND salary_type = ?{} AND employment_type = ?{}
-             ORDER BY salary_max",
-            where_clause, params.len() + 1, params.len() + 2
-        );
-        let p_rows_max = db.query(&p_sql_max, &min_stat_refs)?;
-        let max_vals: Vec<f64> = p_rows_max.iter()
-            .filter_map(|r| r.get("val").and_then(|v| v.as_f64()))
-            .collect();
-
+        // salary_max の集計（salary_max > 0 のもののみ）
+        let mut max_vals: Vec<f64> = vals.iter().map(|(_, smax)| *smax).filter(|v| *v > 0.0).collect();
+        max_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mean_max = if max_vals.is_empty() { 0.0 } else { max_vals.iter().sum::<f64>() / max_vals.len() as f64 };
         let (p25_max, med_max, p75_max, p90_max) = percentiles(&max_vals);
 
         let mut row = HashMap::new();
-        row.insert("salary_type".to_string(), Value::String(salary_type.to_string()));
-        row.insert("employment_type".to_string(), Value::String(emp_type.to_string()));
+        row.insert("salary_type".to_string(), Value::String(salary_type.clone()));
+        row.insert("employment_type".to_string(), Value::String(emp_type.clone()));
         row.insert("count".to_string(), Value::from(count));
-        // salary_min 統計
         row.insert("mean_min".to_string(), Value::from(mean_min));
         row.insert("p25_min".to_string(), Value::from(p25_min));
         row.insert("median_min".to_string(), Value::from(med_min));
         row.insert("p75_min".to_string(), Value::from(p75_min));
         row.insert("p90_min".to_string(), Value::from(p90_min));
-        // salary_max 統計
         row.insert("mean_max".to_string(), Value::from(mean_max));
         row.insert("p25_max".to_string(), Value::from(p25_max));
         row.insert("median_max".to_string(), Value::from(med_max));
@@ -925,6 +900,42 @@ pub fn query_quality_by_municipality(
     }
 
     Ok(rows)
+}
+
+/// 2地域の給与統計を同時取得する（地域間比較用）。
+pub fn query_salary_stats_compare(
+    db: &LocalDb,
+    job_type: &str,
+    pref1: &str,
+    pref2: &str,
+) -> Result<(Vec<HashMap<String, Value>>, Vec<HashMap<String, Value>>), String> {
+    let rows1 = query_salary_stats(db, job_type, pref1)?;
+    let rows2 = query_salary_stats(db, job_type, pref2)?;
+    Ok((rows1, rows2))
+}
+
+/// 2地域の法人集中度を同時取得する。
+pub fn query_facility_compare(
+    db: &LocalDb,
+    job_type: &str,
+    pref1: &str,
+    pref2: &str,
+) -> Result<(Vec<HashMap<String, Value>>, Vec<HashMap<String, Value>>), String> {
+    let rows1 = query_facility_concentration(db, job_type, pref1)?;
+    let rows2 = query_facility_concentration(db, job_type, pref2)?;
+    Ok((rows1, rows2))
+}
+
+/// 2地域の雇用形態多様性を同時取得する。
+pub fn query_employment_compare(
+    db: &LocalDb,
+    job_type: &str,
+    pref1: &str,
+    pref2: &str,
+) -> Result<(Vec<HashMap<String, Value>>, Vec<HashMap<String, Value>>), String> {
+    let rows1 = query_employment_diversity(db, job_type, pref1)?;
+    let rows2 = query_employment_diversity(db, job_type, pref2)?;
+    Ok((rows1, rows2))
 }
 
 /// キーワードデータをフォールバック付きで取得する。

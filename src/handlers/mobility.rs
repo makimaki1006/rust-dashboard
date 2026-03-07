@@ -9,6 +9,7 @@ use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
 use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, build_location_filter, make_location_label};
+use super::competitive::escape_html;
 
 /// 隣接県マップ（NiceGUI版 ADJACENT_PREFECTURES 完全移植）
 fn adjacent_prefectures(pref: &str) -> &'static [&'static str] {
@@ -528,8 +529,8 @@ fn render_mobility(job_type: &str, prefecture: &str, municipality: &str, stats: 
     let retention_section = build_retention_section(stats);
 
     include_str!("../../templates/tabs/mobility.html")
-        .replace("{{JOB_TYPE}}", job_type)
-        .replace("{{LOCATION_LABEL}}", &location_label)
+        .replace("{{JOB_TYPE}}", &escape_html(job_type))
+        .replace("{{LOCATION_LABEL}}", &escape_html(&location_label))
         .replace("{{RECRUITMENT_AREA_CARD}}", &recruitment_area_card)
         .replace("{{FLOW_KPI_SECTION}}", &flow_kpi_section)
         .replace("{{PREF_FLOW_LIST}}", &pref_flow_list)

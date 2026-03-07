@@ -23,6 +23,14 @@ async fn main() {
     let port = config.port;
     tracing::info!("Starting rust_dashboard on port {}", port);
 
+    // セキュリティ警告: 平文パスワードフォールバック
+    if config.auth_password_hash.is_empty() && !config.auth_password.is_empty() {
+        tracing::warn!(
+            "⚠️ AUTH_PASSWORD_HASH未設定 — 平文パスワードで認証中。\
+             本番環境では AUTH_PASSWORD_HASH (bcrypt) の使用を推奨します。"
+        );
+    }
+
     let turso = TursoClient::new(&config.turso_url, &config.turso_auth_token);
 
     match turso.test_connection().await {

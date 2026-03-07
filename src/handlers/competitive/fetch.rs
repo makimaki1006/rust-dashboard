@@ -279,8 +279,9 @@ pub(crate) fn append_facility_type_filter(sql: &mut String, param_values: &mut V
     }
 }
 
-/// 事業形態フィルタのSQL条件を追加（大カテゴリ前方一致）
-/// service_type は "介護・福祉事業所 グループホーム" のように "大カテゴリ サブ" の形式
+/// 事業形態フィルタのSQL条件を追加（施設タイプ部分一致）
+/// プルダウン値は分解後の施設タイプ（"グループホーム"等）
+/// service_type の中に含まれていればマッチ
 pub(crate) fn append_service_type_filter(sql: &mut String, param_values: &mut Vec<String>, stype: &str) {
     if stype.is_empty() || stype == "全て" {
         return;
@@ -288,14 +289,15 @@ pub(crate) fn append_service_type_filter(sql: &mut String, param_values: &mut Ve
     if stype == "未分類" {
         sql.push_str(" AND (service_type = '' OR service_type IS NULL)");
     } else {
-        // 大カテゴリ前方一致: "介護・福祉事業所" → LIKE '介護・福祉事業所%'
-        sql.push_str(" AND (service_type = ? OR service_type LIKE ?)");
-        param_values.push(stype.to_string());
-        param_values.push(format!("{} %", stype));
+        // 施設タイプ部分一致: "グループホーム" → service_type LIKE '%グループホーム%'
+        sql.push_str(" AND service_type LIKE ?");
+        param_values.push(format!("%{}%", stype));
     }
 }
 
-/// 事業形態の大カテゴリ一覧を取得
+/// 事業形態の施設タイプ一覧を取得
+/// "介護・福祉事業所 通所介護・デイサービス、グループホーム" のようなカンマ区切りを分解し
+/// 個別の施設タイプ（通所介護・デイサービス、グループホーム等）ごとに件数集計
 pub(crate) fn fetch_service_types(
     state: &AppState,
     job_type: &str,
@@ -306,26 +308,15 @@ pub(crate) fn fetch_service_types(
         None => return Vec::new(),
     };
 
+    // サブカテゴリ（スペース以降）を取得
     let (sql, param_values) = if pref.is_empty() {
         (
-            "SELECT CASE \
-                WHEN service_type = '' OR service_type IS NULL THEN '未分類' \
-                WHEN INSTR(service_type, ' ') > 0 THEN SUBSTR(service_type, 1, INSTR(service_type, ' ') - 1) \
-                ELSE service_type \
-             END as stype_cat, COUNT(*) as cnt \
-             FROM job_postings WHERE job_type = ? \
-             GROUP BY stype_cat ORDER BY cnt DESC".to_string(),
+            "SELECT service_type FROM job_postings WHERE job_type = ?".to_string(),
             vec![job_type.to_string()],
         )
     } else {
         (
-            "SELECT CASE \
-                WHEN service_type = '' OR service_type IS NULL THEN '未分類' \
-                WHEN INSTR(service_type, ' ') > 0 THEN SUBSTR(service_type, 1, INSTR(service_type, ' ') - 1) \
-                ELSE service_type \
-             END as stype_cat, COUNT(*) as cnt \
-             FROM job_postings WHERE job_type = ? AND prefecture = ? \
-             GROUP BY stype_cat ORDER BY cnt DESC".to_string(),
+            "SELECT service_type FROM job_postings WHERE job_type = ? AND prefecture = ?".to_string(),
             vec![job_type.to_string(), pref.to_string()],
         )
     };
@@ -337,13 +328,46 @@ pub(crate) fn fetch_service_types(
 
     let rows = db.query(&sql, &params_ref).unwrap_or_default();
 
-    rows.iter()
-        .filter_map(|r| {
-            let cat = r.get("stype_cat").and_then(|v| v.as_str())?.to_string();
-            let cnt = r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
-            if cat.is_empty() { None } else { Some((cat, cnt)) }
-        })
-        .collect()
+    // Rust側でカンマ分割 + 集計
+    let mut counter: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut empty_count: i64 = 0;
+
+    for r in &rows {
+        let st = r.get("service_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        if st.is_empty() {
+            empty_count += 1;
+            continue;
+        }
+
+        // "大カテゴリ サブ" → サブカテゴリ部分を取得
+        let sub = if let Some(pos) = st.find(' ') {
+            &st[pos + 1..]
+        } else {
+            st
+        };
+
+        // カンマ（全角「、」）で分割して個別にカウント
+        for part in sub.split('\u{3001}') {
+            let part = part.trim();
+            if !part.is_empty() {
+                *counter.entry(part.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // 未分類を追加
+    if empty_count > 0 {
+        counter.insert("未分類".to_string(), empty_count);
+    }
+
+    // 件数降順でソートし上位20件に制限
+    let mut result: Vec<(String, i64)> = counter.into_iter().collect();
+    result.sort_by(|a, b| b.1.cmp(&a.1));
+    result.truncate(20);
+    result
 }
 
 pub(crate) fn fetch_nearby_postings(
@@ -377,18 +401,27 @@ pub(crate) fn fetch_nearby_postings(
          FROM job_postings WHERE job_type = ? \
          AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?"
     );
-    let mut param_values: Vec<String> = vec![
-        job_type.to_string(),
-        lat_min.to_string(), lat_max.to_string(),
-        lng_min.to_string(), lng_max.to_string(),
+    // SqlValue::Real でバインド（String→TEXT型だとBETWEENが常にFALSEになる）
+    use rusqlite::types::Value as SqlValue;
+    let mut param_values: Vec<SqlValue> = vec![
+        SqlValue::Text(job_type.to_string()),
+        SqlValue::Real(lat_min),
+        SqlValue::Real(lat_max),
+        SqlValue::Real(lng_min),
+        SqlValue::Real(lng_max),
     ];
 
     if !emp.is_empty() && emp != "全て" {
         sql.push_str(" AND employment_type = ?");
-        param_values.push(emp.to_string());
+        param_values.push(SqlValue::Text(emp.to_string()));
     }
-    append_facility_type_filter(&mut sql, &mut param_values, ftype);
-    append_service_type_filter(&mut sql, &mut param_values, stype);
+    // ヘルパー関数はVec<String>を期待 → 一時Vecで受けてSqlValue::Textに変換
+    let mut extra_text_params: Vec<String> = Vec::new();
+    append_facility_type_filter(&mut sql, &mut extra_text_params, ftype);
+    append_service_type_filter(&mut sql, &mut extra_text_params, stype);
+    for s in extra_text_params {
+        param_values.push(SqlValue::Text(s));
+    }
     sql.push_str(" ORDER BY salary_min DESC");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values

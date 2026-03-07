@@ -89,7 +89,7 @@ pub(crate) fn fetch_markers(
     lat: f64,
     lng: f64,
     radius_km: f64,
-) -> Vec<MarkerRow> {
+) -> (Vec<MarkerRow>, usize) {
     let lat_delta = radius_km / 111.0;
     let lng_delta = radius_km / (111.0 * lat.to_radians().cos().abs().max(0.01));
     let lat_min = lat - lat_delta;
@@ -126,8 +126,7 @@ pub(crate) fn fetch_markers(
         param_values.push(SqlValue::Text(salary_type.to_string()));
     }
     // Bounding Boxで粗くフィルタ → Haversineで正確に絞る
-    // LIMIT 2000は最終結果に適用するのでここではやや多めに取得
-    sql.push_str(" LIMIT 5000");
+    sql.push_str(" LIMIT 50000");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()
@@ -138,7 +137,7 @@ pub(crate) fn fetch_markers(
         Ok(r) => r,
         Err(e) => {
             tracing::error!("fetch_markers failed: {e}");
-            return Vec::new();
+            return (Vec::new(), 0);
         }
     };
 
@@ -167,9 +166,9 @@ pub(crate) fn fetch_markers(
         })
         .collect();
 
-    // 最大2000件に制限
-    result.truncate(2000);
-    result
+    let total_available = result.len();
+    result.truncate(5000);
+    (result, total_available)
 }
 
 /// 都道府県指定でマーカーを取得（半径なし・Bounding Boxなし）
@@ -180,7 +179,7 @@ pub(crate) fn fetch_markers_by_pref(
     municipality: &str,
     employment_type: &str,
     salary_type: &str,
-) -> Vec<MarkerRow> {
+) -> (Vec<MarkerRow>, usize) {
     let mut sql = String::from(
         "SELECT id, lat, lng, facility_name, service_type, employment_type, \
          salary_type, salary_min, salary_max \
@@ -200,7 +199,7 @@ pub(crate) fn fetch_markers_by_pref(
         sql.push_str(" AND salary_type = ?");
         param_values.push(salary_type.to_string());
     }
-    sql.push_str(" LIMIT 2000");
+    sql.push_str(" LIMIT 50000");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()
@@ -211,11 +210,11 @@ pub(crate) fn fetch_markers_by_pref(
         Ok(r) => r,
         Err(e) => {
             tracing::error!("fetch_markers_by_pref failed: {e}");
-            return Vec::new();
+            return (Vec::new(), 0);
         }
     };
 
-    rows.iter()
+    let mut result: Vec<MarkerRow> = rows.iter()
         .map(|r| MarkerRow {
             id: r.get("id").map(value_to_i64).unwrap_or(0),
             lat: r.get("lat").map(value_to_f64).unwrap_or(0.0),
@@ -227,7 +226,11 @@ pub(crate) fn fetch_markers_by_pref(
             salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
             salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
         })
-        .collect()
+        .collect();
+
+    let total_available = result.len();
+    result.truncate(5000);
+    (result, total_available)
 }
 
 /// 求人詳細を1件取得
@@ -350,6 +353,75 @@ pub(crate) fn has_job_type_data(db: &LocalDb, job_type: &str) -> bool {
         &[&job_type as &dyn rusqlite::types::ToSql],
     );
     matches!(rows, Ok(ref r) if !r.is_empty())
+}
+
+/// ビューポート矩形内のマーカーを取得（V2バックポート）
+pub(crate) fn fetch_markers_by_bounds(
+    db: &LocalDb,
+    job_type: &str,
+    employment_type: &str,
+    salary_type: &str,
+    south: f64,
+    north: f64,
+    west: f64,
+    east: f64,
+) -> (Vec<MarkerRow>, usize) {
+    let mut sql = String::from(
+        "SELECT id, lat, lng, facility_name, service_type, employment_type, \
+         salary_type, salary_min, salary_max \
+         FROM postings WHERE job_type = ? \
+         AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?",
+    );
+    use rusqlite::types::Value as SqlValue;
+    let mut param_values: Vec<SqlValue> = vec![
+        SqlValue::Text(job_type.to_string()),
+        SqlValue::Real(south),
+        SqlValue::Real(north),
+        SqlValue::Real(west),
+        SqlValue::Real(east),
+    ];
+
+    if !employment_type.is_empty() && employment_type != "全て選択" {
+        sql.push_str(" AND employment_type = ?");
+        param_values.push(SqlValue::Text(employment_type.to_string()));
+    }
+    if !salary_type.is_empty() && salary_type != "どちらも" {
+        sql.push_str(" AND salary_type = ?");
+        param_values.push(SqlValue::Text(salary_type.to_string()));
+    }
+    sql.push_str(" LIMIT 50000");
+
+    let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = match db.query(&sql, &params) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("fetch_markers_by_bounds failed: {e}");
+            return (Vec::new(), 0);
+        }
+    };
+
+    let mut result: Vec<MarkerRow> = rows
+        .iter()
+        .map(|r| MarkerRow {
+            id: r.get("id").map(value_to_i64).unwrap_or(0),
+            lat: r.get("lat").map(value_to_f64).unwrap_or(0.0),
+            lng: r.get("lng").map(value_to_f64).unwrap_or(0.0),
+            facility_name: value_to_str(r.get("facility_name")),
+            service_type: value_to_str(r.get("service_type")),
+            employment_type: value_to_str(r.get("employment_type")),
+            salary_type: value_to_str(r.get("salary_type")),
+            salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
+            salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
+        })
+        .collect();
+
+    let total_available = result.len();
+    result.truncate(5000);
+    (result, total_available)
 }
 
 /// 都道府県一覧取得

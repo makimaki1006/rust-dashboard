@@ -8,6 +8,7 @@ use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
 use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, make_location_label};
+use super::competitive::escape_html;
 
 /// タブ4: 需給バランス
 pub async fn tab_balance(
@@ -218,9 +219,9 @@ fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &
     let ratio_chart = build_ranking_chart(&stats.gap_rows, "ratio", "#56B4E9");
 
     include_str!("../../templates/tabs/balance.html")
-        .replace("{{JOB_TYPE}}", job_type)
-        .replace("{{LOCATION_LABEL}}", &location_label)
-        .replace("{{PREF_LABEL}}", pref_label)
+        .replace("{{JOB_TYPE}}", &escape_html(job_type))
+        .replace("{{LOCATION_LABEL}}", &escape_html(&location_label))
+        .replace("{{PREF_LABEL}}", &escape_html(pref_label))
         .replace("{{COMPETITION_SECTION}}", &competition_section)
         .replace("{{LOCATION_DISPLAY}}", &location_display)
         .replace("{{GAP_KPI_CARDS}}", &kpi_cards)

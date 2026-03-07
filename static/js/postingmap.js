@@ -23,6 +23,10 @@ var postingMap = (function() {
   var lastSearchMuni = '';
   var lastSearchPref = '';
 
+  // ビューポート連動（V2バックポート）
+  var viewportEnabled = false;
+  var viewportTimer = null;
+
   // 表示モード管理
   var currentViewMode = 'postings';
 
@@ -67,6 +71,7 @@ var postingMap = (function() {
       var e = document.getElementById(id);
       if (e) e.addEventListener('keydown', function(ev) { if (ev.key === 'Enter') search(); });
     });
+    map.on('moveend', onViewportChange);
     initResizeHandle();
     updateUIForMode();
   }
@@ -151,6 +156,50 @@ var postingMap = (function() {
       else { div.textContent = pair[1]; }
       content.appendChild(div);
     });
+  }
+
+  // ===== ビューポート連動検索（V2バックポート） =====
+
+  function onViewportChange() {
+    if (!viewportEnabled || currentViewMode !== 'postings') return;
+    if (viewportTimer) clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(loadViewportMarkers, 300);
+  }
+
+  function loadViewportMarkers() {
+    if (!map) return;
+    var bounds = map.getBounds();
+    var emp = document.getElementById('jm-emp');
+    var sal = document.getElementById('jm-salary-type');
+    var params = new URLSearchParams({
+      south: bounds.getSouth(),
+      north: bounds.getNorth(),
+      west: bounds.getWest(),
+      east: bounds.getEast(),
+      employment_type: emp ? emp.value : '',
+      salary_type: sal ? sal.value : ''
+    });
+    fetch('/api/jobmap/markers?' + params.toString())
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        // ビューポート結果で更新（ただし地図のsetViewはしない）
+        markerGroup.clearLayers(); allMarkers = [];
+        var markers = data.markers || [];
+        var totalAvail = data.totalAvailable || markers.length;
+        var countText = markers.length + ' \u4ef6';
+        if (totalAvail > markers.length) countText += ' / ' + totalAvail.toLocaleString() + ' \u4ef6\u4e2d';
+        document.getElementById('jm-count').textContent = countText;
+        markers.forEach(function(d) {
+          var marker = L.marker([d.lat, d.lng], { icon: defaultIcon });
+          var mi = { marker: marker, data: d, isPinned: false, isDetailActive: false };
+          allMarkers.push(mi);
+          marker.on('click', function() { onMarkerClick(mi); });
+          var salText = formatYen(d.salaryMin) + ' \u301c ' + formatYen(d.salaryMax);
+          marker.bindTooltip(escapeHtml(d.facility) + '\n' + escapeHtml(d.emp) + ' ' + salText, { direction: 'top', offset: [0, -8] });
+          markerGroup.addLayer(marker);
+        });
+      })
+      .catch(function(err) { console.warn('[postingmap] viewport load error:', err); });
   }
 
   // ===== 求職者レイヤー =====
@@ -364,6 +413,8 @@ var postingMap = (function() {
         document.getElementById('jm-search-btn').disabled = false;
         var rb = document.getElementById('jm-region-btn'); if (rb) rb.disabled = false;
         if (currentViewMode === 'hybrid') loadSeekerData(pref, muni);
+        // 初回検索後にビューポート連動を有効化
+        setTimeout(function() { viewportEnabled = true; }, 500);
       })
       .catch(function(err) {
         document.getElementById('jm-count').textContent = '\u30a8\u30e9\u30fc: ' + err.message;
@@ -375,7 +426,10 @@ var postingMap = (function() {
     clearPinnedCards(); markerGroup.clearLayers(); allMarkers = [];
     activeDetailMarker = null; detailJsonCache = {}; regionSectionsLoaded = {};
     var markers = data.markers || [];
-    document.getElementById('jm-count').textContent = markers.length + ' \u4ef6';
+    var totalAvail = data.totalAvailable || markers.length;
+    var countText = markers.length + ' \u4ef6';
+    if (totalAvail > markers.length) countText += ' / ' + totalAvail.toLocaleString() + ' \u4ef6\u4e2d';
+    document.getElementById('jm-count').textContent = countText;
     if (markers.length === 0) { document.getElementById('jm-count').textContent = '\u8a72\u5f53\u306a\u3057'; return; }
     markers.forEach(function(d) {
       var marker = L.marker([d.lat, d.lng], { icon: defaultIcon });

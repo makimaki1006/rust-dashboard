@@ -10,6 +10,7 @@ use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
 use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, build_location_filter, make_location_label};
+use super::competitive::escape_html;
 
 /// タブ2: ペルソナ分析 - HTMXパーシャルHTML
 pub async fn tab_demographics(
@@ -545,8 +546,8 @@ fn render_demographics(job_type: &str, prefecture: &str, municipality: &str, sta
     };
 
     include_str!("../../templates/tabs/demographics.html")
-        .replace("{{JOB_TYPE}}", job_type)
-        .replace("{{LOCATION_LABEL}}", &location_label)
+        .replace("{{JOB_TYPE}}", &escape_html(job_type))
+        .replace("{{LOCATION_LABEL}}", &escape_html(&location_label))
         .replace("{{VERBALIZATION_CARDS}}", &verbalization_cards)
         .replace("{{PERSONA_LIST}}", &persona_list)
         .replace("{{PERSONA_BAR_CHART}}", &persona_bar_chart)
