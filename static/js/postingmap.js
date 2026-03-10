@@ -758,11 +758,14 @@ var postingMap = (function() {
   function formatYen(n) { if (!n || n === 0) return '\u2212'; return '\u00A5' + n.toLocaleString(); }
   function escapeHtml(s) { if (!s) return ''; var d = document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.textContent; }
 
+  function invalidateSize() { if (map) map.invalidateSize(); }
+
   return {
     init: init, search: search, pinCard: pinCard, removeCard: removeCard,
     removePinnedCard: removePinnedCard, closePanel: closePanel, toggleStats: toggleStats,
     togglePinFields: togglePinFields, openRegionDashboard: openRegionDashboard,
     closeRegionDashboard: closeRegionDashboard, toggleRegionSection: toggleRegionSection,
-    switchViewMode: switchViewMode, toggleLayer: toggleLayer, closeSeekerStats: closeSeekerStats
+    switchViewMode: switchViewMode, toggleLayer: toggleLayer, closeSeekerStats: closeSeekerStats,
+    invalidateSize: invalidateSize
   };
 })();

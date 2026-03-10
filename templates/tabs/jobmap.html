@@ -1,47 +1,41 @@
-<div class="space-y-4">
-  <h2 class="text-xl font-bold text-white">🗺️ 地図分析
-    <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span>
-  </h2>
-
-  <!-- フィルタバー -->
-  <div class="stat-card">
-    <div class="flex flex-wrap items-end gap-3">
+<div class="space-y-1">
+  <!-- タイトル + フィルタバー（1行統合） -->
+  <div class="stat-card !py-2 !px-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <h2 class="text-base font-bold text-white whitespace-nowrap mr-1">🗺️ 地図分析
+        <span class="text-blue-400 text-sm font-normal">{{JOB_TYPE}}</span>
+      </h2>
       <!-- 表示モード -->
       <div>
-        <label class="block text-xs text-gray-400 mb-1">表示モード</label>
         <select id="jm-view-mode" onchange="postingMap.switchViewMode(this.value)"
-                class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+                class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600" title="表示モード">
           <option value="postings">求人マーカー</option>
           <option value="seekers">求職者分布</option>
           <option value="hybrid">求人+求職者</option>
         </select>
       </div>
       <div>
-        <label class="block text-xs text-gray-400 mb-1">都道府県</label>
         <select id="jm-pref" name="prefecture"
-                class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600"
+                class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600"
                 hx-get="/api/jobmap/municipalities"
                 hx-target="#jm-muni"
                 hx-swap="innerHTML"
-                hx-include="this">
+                hx-include="this" title="都道府県">
           {{PREFECTURE_OPTIONS}}
         </select>
       </div>
       <div>
-        <label class="block text-xs text-gray-400 mb-1">市区町村</label>
         <select id="jm-muni" name="municipality"
-                class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+                class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600" title="市区町村">
           <option value="">-- 市区町村 --</option>
         </select>
       </div>
       <div id="jm-radius-wrap">
-        <label class="block text-xs text-gray-400 mb-1">半径 (km)</label>
         <input type="number" id="jm-radius" value="10" min="1" max="100" step="1"
-               class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 w-20">
+               class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600 w-16" title="半径 (km)">
       </div>
       <div id="jm-emp-wrap">
-        <label class="block text-xs text-gray-400 mb-1">雇用形態</label>
-        <select id="jm-emp" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+        <select id="jm-emp" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600" title="雇用形態">
           <option value="全て選択">全て選択</option>
           <option value="正職員">正職員</option>
           <option value="契約職員">契約職員</option>
@@ -50,88 +44,93 @@
         </select>
       </div>
       <div id="jm-salary-type-wrap">
-        <label class="block text-xs text-gray-400 mb-1">給与区分</label>
-        <select id="jm-salary-type" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+        <select id="jm-salary-type" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600" title="給与区分">
           <option value="どちらも">どちらも</option>
           <option value="月給">月給</option>
           <option value="時給">時給</option>
         </select>
       </div>
       <button id="jm-search-btn" onclick="postingMap.search()"
-              class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded px-4 py-1.5 transition-colors">
+              class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded px-3 py-1 transition-colors">
         🔍 検索
       </button>
       <button id="jm-region-btn" onclick="postingMap.openRegionDashboard()" disabled
-              class="bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm rounded px-3 py-1.5 transition-colors">
+              class="bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-xs rounded px-2 py-1 transition-colors">
         📊 地域分析
       </button>
-      <span id="jm-count" class="text-gray-400 text-sm ml-2"></span>
+      <span id="jm-count" class="text-gray-400 text-xs ml-1"></span>
+      <!-- 全画面トグル -->
+      <button id="jm-fullscreen-btn" onclick="postingMap.toggleFullscreen()"
+              class="ml-auto bg-gray-700 hover:bg-gray-600 text-white text-xs rounded px-2 py-1 border border-gray-600 transition-colors" title="全画面切替">
+        ⛶ 全画面
+      </button>
     </div>
   </div>
 
   <!-- レイヤーコントロール（seekers/hybridモード時のみ表示） -->
-  <div id="jm-layer-controls" class="stat-card hidden">
+  <div id="jm-layer-controls" class="stat-card !py-1.5 !px-3 hidden">
     <div class="flex items-center gap-4 flex-wrap">
-      <span class="text-sm font-medium text-gray-300">レイヤー:</span>
+      <span class="text-xs font-medium text-gray-300">レイヤー:</span>
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-polygons" checked class="accent-blue-500" onchange="postingMap.toggleLayer('polygons', this.checked)"> エリア色分け</label>
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-seeker-markers" checked class="accent-blue-500" onchange="postingMap.toggleLayer('seekerMarkers', this.checked)"> 求職者マーカー</label>
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-flows" class="accent-blue-500" onchange="postingMap.toggleLayer('flows', this.checked)"> 移動の流れ</label>
     </div>
   </div>
 
-  <!-- ピン止めカード表示項目 -->
-  <div class="stat-card" id="jm-pin-fields-wrap">
-    <div class="flex justify-between items-center">
-      <span class="text-sm text-gray-300 font-medium">📌 ピン止め表示項目</span>
-      <button onclick="postingMap.togglePinFields()" class="text-xs text-gray-400 hover:text-white">
-        <span id="jm-pin-fields-arrow">▶</span>
-      </button>
-    </div>
-    <div id="jm-pin-fields-list" class="hidden mt-2">
-      <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="facility" checked> 法人・施設名</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="service"> 診療科目</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="access" checked> アクセス</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="emp"> 雇用形態</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="salaryType"> 給与区分</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="salary" checked> 給与範囲</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="salaryDetail"> 給与備考</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="benefits"> 待遇</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="training"> 教育体制</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="worktime"> 勤務時間</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="holiday"> 休日</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="longHoliday"> 長期休暇</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="requirements"> 応募要件</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="jobContent"> 仕事内容</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="jobPosition"> 募集職種</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="tags"> タグ</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="segment"> 求人タイプ</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="geocodeConf"> 位置情報の精度</label>
-        <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="annualIncome"> 想定年収</label>
-      </div>
-    </div>
-  </div>
-
   <!-- ピン統計パネル（GAS準拠: フィルタバー直下） -->
-  <div id="jm-pinned-stats" class="stat-card hidden">
-    <div class="flex items-center justify-between mb-2">
-      <span id="jm-stats-title" class="text-sm font-medium text-gray-300">📍 ピン止め統計</span>
+  <div id="jm-pinned-stats" class="stat-card !py-1.5 !px-3 hidden">
+    <div class="flex items-center justify-between mb-1">
+      <span id="jm-stats-title" class="text-xs font-medium text-gray-300">📍 ピン止め統計</span>
       <button onclick="postingMap.toggleStats()" id="jm-stats-toggle" class="text-xs text-gray-400 hover:text-white">折りたたむ</button>
     </div>
-    <div id="jm-stats-content" class="text-sm grid grid-cols-2 gap-2"></div>
+    <div id="jm-stats-content" class="text-xs grid grid-cols-2 gap-1"></div>
   </div>
 
   <!-- メインコンテンツ: 地図 + リサイズ + 詳細パネル -->
-  <div id="jm-main-container" class="flex gap-0" style="height: calc(100vh - 420px); min-height: 400px;">
+  <div id="jm-main-container" class="flex gap-0" style="height: calc(100vh - 200px); min-height: 500px;">
     <!-- 地図 -->
     <div id="jm-map-container" class="flex-1 relative rounded-l-lg overflow-hidden border border-gray-700" style="min-width: 300px;">
       <div id="jm-map" style="width:100%; height:100%; z-index:1;"></div>
+      <!-- 全画面解除ボタン（全画面時のみ表示） -->
+      <button id="jm-exit-fullscreen-btn" onclick="postingMap.toggleFullscreen()" style="display:none;"
+              class="absolute top-2 left-1/2 -translate-x-1/2 z-[600] bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded-full px-4 py-1.5 shadow-lg transition-colors">
+        ✕ 通常表示に戻る <span class="text-xs opacity-70">(Esc)</span>
+      </button>
       <!-- SVG接続線レイヤー -->
       <svg id="jm-connection-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999;"></svg>
       <!-- 凡例オーバーレイ -->
       <div id="jm-legend" class="hidden absolute bottom-2 left-2 bg-gray-800/90 rounded p-2 text-xs z-[500] max-w-[220px]">
         <div class="font-medium text-gray-200 mb-1">凡例</div>
         <div id="jm-legend-content"></div>
+      </div>
+      <!-- ピン止め表示項目（地図上オーバーレイ） -->
+      <div id="jm-pin-fields-wrap" class="absolute top-2 right-2 z-[500]">
+        <button onclick="postingMap.togglePinFields()" class="bg-gray-800/90 hover:bg-gray-700/90 text-xs text-gray-300 rounded px-2 py-1 border border-gray-600">
+          📌 表示項目 <span id="jm-pin-fields-arrow">▶</span>
+        </button>
+        <div id="jm-pin-fields-list" class="hidden mt-1 bg-gray-800/95 rounded p-2 border border-gray-600 max-w-[280px]">
+          <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="facility" checked> 施設名</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="service"> 診療科目</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="access" checked> アクセス</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="emp"> 雇用形態</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="salaryType"> 給与区分</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="salary" checked> 給与範囲</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="salaryDetail"> 給与備考</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="benefits"> 待遇</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="training"> 教育体制</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="worktime"> 勤務時間</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="holiday"> 休日</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="longHoliday"> 長期休暇</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="requirements"> 応募要件</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="jobContent"> 仕事内容</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="jobPosition"> 募集職種</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="tags"> タグ</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="segment"> 求人タイプ</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="geocodeConf"> 位置精度</label>
+            <label class="text-gray-300 cursor-pointer"><input type="checkbox" class="jm-pin-field accent-blue-500" data-field="annualIncome"> 想定年収</label>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -200,14 +199,52 @@
   </div>
 </div>
 
-<script src="/static/js/postingmap.js?v=3"></script>
+<script src="/static/js/postingmap.js?v=4"></script>
 <script>
   // 初期化（HTMX タブ切り替え・DOMContentLoaded 両対応）
   (function() {
+    // 全画面トグル関数
+    function registerFullscreen() {
+      if (typeof postingMap === 'undefined' || postingMap.toggleFullscreen) return;
+      postingMap.toggleFullscreen = function() {
+        var wrapper = document.querySelector('.space-y-1');
+        if (!wrapper) return;
+        var btn = document.getElementById('jm-fullscreen-btn');
+        var exitBtn = document.getElementById('jm-exit-fullscreen-btn');
+        var container = document.getElementById('jm-main-container');
+        var isFullscreen = wrapper.classList.contains('jm-fullscreen-mode');
+        if (isFullscreen) {
+          wrapper.classList.remove('jm-fullscreen-mode');
+          container.style.height = 'calc(100vh - 200px)';
+          if (btn) btn.textContent = '⛶ 全画面';
+          if (exitBtn) exitBtn.style.display = 'none';
+        } else {
+          wrapper.classList.add('jm-fullscreen-mode');
+          container.style.height = 'calc(100vh - 120px)';
+          if (btn) btn.textContent = '✕ 通常表示';
+          if (exitBtn) exitBtn.style.display = '';
+        }
+        setTimeout(function() {
+          if (typeof postingMap !== 'undefined' && postingMap.invalidateSize) postingMap.invalidateSize();
+        }, 100);
+      };
+    }
+
+    // Escキーで全画面解除
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        var wrapper = document.querySelector('.jm-fullscreen-mode');
+        if (wrapper && typeof postingMap !== 'undefined' && postingMap.toggleFullscreen) {
+          postingMap.toggleFullscreen();
+        }
+      }
+    });
+
     var maxRetries = 10;
     var retryCount = 0;
     function tryInit() {
       if (typeof postingMap !== 'undefined' && document.getElementById('jm-map')) {
+        registerFullscreen();
         postingMap.init();
         return;
       }

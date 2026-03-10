@@ -538,3 +538,29 @@
         display: none !important;
     }
 }
+
+/* ==========================================================
+   求人地図 全画面モード
+   ========================================================== */
+.jm-fullscreen-mode {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background: #0f172a;
+    padding: 4px !important;
+    margin: 0 !important;
+    overflow: hidden;
+}
+
+.jm-fullscreen-mode > .stat-card:first-child {
+    border-radius: 0;
+    margin-bottom: 2px;
+}
+
+.jm-fullscreen-mode #jm-layer-controls,
+.jm-fullscreen-mode #jm-pinned-stats {
+    margin-bottom: 2px;
+}
