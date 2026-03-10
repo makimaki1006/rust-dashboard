@@ -37,11 +37,17 @@
                 {{PREF_OPTIONS}}
             </select>
             <label for="muni-select" class="sr-only">市区町村選択</label>
-            <select id="muni-select" aria-label="市区町村選択"
-                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
-                <option value="">すべて</option>
-                {{MUNI_OPTIONS}}
-            </select>
+            <div class="muni-search-wrapper" style="position:relative;display:inline-block;">
+                <input id="muni-search" type="text" placeholder="市区町村を検索..."
+                    autocomplete="off" aria-label="市区町村を検索"
+                    class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white"
+                    style="width:160px;display:none;">
+                <select id="muni-select" aria-label="市区町村選択"
+                    class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+                    <option value="">すべて</option>
+                    {{MUNI_OPTIONS}}
+                </select>
+            </div>
         </div>
         <div class="flex items-center gap-4">
             <span class="text-slate-400 text-sm">ログイン: {{USER_EMAIL}}</span>
@@ -102,6 +108,8 @@
     <script src="/static/js/charts.js"></script>
     <script src="/static/js/maps.js"></script>
     <script src="/static/js/export.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             htmx.ajax('GET', '/tab/overview', {target: '#content', swap: 'innerHTML'});
@@ -293,6 +301,59 @@
                     }).catch(function() { hideFilterSpinner(); });
                 });
             }
+
+            // --- 市区町村検索フィルタ ---
+            (function() {
+                var muniSel = document.getElementById('muni-select');
+                var muniSearch = document.getElementById('muni-search');
+                if (!muniSel || !muniSearch) return;
+
+                // optionsのバックアップ
+                var allOptions = [];
+                function backupOptions() {
+                    allOptions = [];
+                    for (var i = 0; i < muniSel.options.length; i++) {
+                        allOptions.push({value: muniSel.options[i].value, text: muniSel.options[i].text});
+                    }
+                }
+                backupOptions();
+
+                // 10個以上のoption時にのみ検索表示
+                function toggleSearchVisibility() {
+                    backupOptions();
+                    muniSearch.style.display = allOptions.length >= 10 ? '' : 'none';
+                    muniSearch.value = '';
+                }
+
+                // 都道府県変更時にバックアップ更新
+                var observer = new MutationObserver(function() {
+                    setTimeout(toggleSearchVisibility, 100);
+                });
+                observer.observe(muniSel, {childList: true});
+                toggleSearchVisibility();
+
+                muniSearch.addEventListener('input', function() {
+                    var q = this.value.toLowerCase();
+                    // 安全なDOM操作: optionを再構築（textContentのみ使用）
+                    while (muniSel.firstChild) muniSel.removeChild(muniSel.firstChild);
+                    allOptions.forEach(function(opt) {
+                        if (!q || opt.text.toLowerCase().indexOf(q) !== -1 || opt.value === '') {
+                            var o = document.createElement('option');
+                            o.value = opt.value;
+                            o.textContent = opt.text;
+                            muniSel.appendChild(o);
+                        }
+                    });
+                });
+
+                // Escキーで検索クリア
+                muniSearch.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        this.value = '';
+                        this.dispatchEvent(new Event('input'));
+                    }
+                });
+            })();
         });
         function setActiveTab(el) {
             document.querySelectorAll('.tab-btn').forEach(function(btn) {

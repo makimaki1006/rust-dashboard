@@ -139,8 +139,12 @@ pub(crate) fn render_posting_table(
         radius_km,
     ));
 
+    // テーブルフィルタ
+    html.push_str(r#"<div class="mb-2"><input id="competitive-table-filter" type="text" placeholder="施設名・エリア・条件で絞り込み..."
+        class="bg-slate-800 border border-slate-600 rounded px-3 py-1 text-sm text-white w-72"
+        oninput="(function(q){var rows=document.querySelectorAll('#competitive-table tbody tr');rows.forEach(function(r){r.style.display=r.textContent.toLowerCase().indexOf(q.toLowerCase())!==-1?'':'none'});})(this.value)"></div>"#);
     // テーブル
-    html.push_str(r#"<div class="overflow-x-auto"><table class="data-table text-xs">"#);
+    html.push_str(r#"<div class="overflow-x-auto"><table id="competitive-table" class="data-table text-xs">"#);
     html.push_str("<thead><tr>");
     html.push_str(r#"<th class="text-center" style="width:30px">#</th>"#);
     html.push_str("<th>法人・施設名</th>");

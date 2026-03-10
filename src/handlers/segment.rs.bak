@@ -1,7 +1,6 @@
 use axum::extract::{Query, State};
 use axum::response::Html;
 use serde::Deserialize;
-use serde_json::Value;
 use std::sync::Arc;
 use tower_sessions::Session;
 
@@ -243,26 +242,18 @@ pub async fn segment_overview(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
+    let db = match &state.local_db {
+        Some(db) => db,
+        None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
+    };
+
     // クエリパラメータが空ならsessionから取得（グローバルフィルタ変更対応）
     let pref = params.prefecture.as_deref()
         .filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
     let muni = params.municipality.as_deref()
         .filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
     let emp = params.employment_type.as_deref().unwrap_or("");
-    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
-    let ftypes = parse_facility_types(ftype_raw);
-
-    let cache_key = format!("segment_overview_{}_{}_{}_{}_{}", job_type, pref, muni, emp, ftype_raw);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
-    let db = match &state.local_db {
-        Some(db) => db,
-        None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
-    };
+    let ftypes = parse_facility_types(params.facility_type.as_deref().unwrap_or(""));
 
     let (where_clause, base_params) = build_postings_where(&job_type, pref, muni, emp, &ftypes);
 
@@ -287,7 +278,12 @@ pub async fn segment_overview(
     }
     let sql = union_parts.join(" UNION ALL ");
 
-    let rows = match db.query_owned(sql, all_params).await {
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = match db.query(&sql, &params_ref) {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Segment overview query failed: {e}");
@@ -382,7 +378,7 @@ pub async fn segment_overview(
 
     let html = format!(
         r##"<div class="space-y-4">
-    <h3 class="text-lg font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M12 2.25v2.25m0 15v2.25M2.25 12h2.25m15 0h2.25M12 6a6 6 0 100 12 6 6 0 000-12z'/></svg>  求人セグメント分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
+    <h3 class="text-lg font-bold text-white">🎯 求人セグメント分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
 
     <!-- レーダーチャート -->
     <div class="stat-card">
@@ -421,7 +417,6 @@ pub async fn segment_overview(
         axis_charts = axis_charts,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -436,65 +431,52 @@ pub async fn segment_tier3(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref = params.prefecture.as_deref()
-        .filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni = params.municipality.as_deref()
-        .filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
-    let ftypes = parse_facility_types(ftype_raw);
-
-    let cache_key = format!("segment_tier3_{}_{}_{}_{}_{}", job_type, pref, muni, emp, ftype_raw);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let db = match &state.local_db {
         Some(db) => db,
         None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
     };
 
+    let pref = params.prefecture.as_deref()
+        .filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni = params.municipality.as_deref()
+        .filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let ftypes = parse_facility_types(params.facility_type.as_deref().unwrap_or(""));
+
     let (where_clause, param_values) = build_postings_where(&job_type, pref, muni, emp, &ftypes);
+
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
     // 総件数（tier3_idあり）を取得
     let total_sql = format!(
         "SELECT COUNT(*) FROM job_postings {} AND tier3_id != ''",
         where_clause
     );
-    let total: i64 = db.query_scalar_owned(total_sql, param_values.clone()).await
+    let total: i64 = db.query_scalar::<i64>(&total_sql, &params_ref)
         .unwrap_or(1)
         .max(1);
 
-    // --- Tier1: 5軸の分布（tier1_*カラムから直接集計）---
-    // tier3_idのSUBSTR解析はQUIET_POST等の名前付きIDで壊れるため、
-    // 専用カラム tier1_experience/career_stage/lifestyle/appeal/urgency を使用
-    let tier1_columns = [
-        ("A", "tier1_experience"),
-        ("B", "tier1_career_stage"),
-        ("C", "tier1_lifestyle"),
-        ("D", "tier1_appeal"),
-        ("E", "tier1_urgency"),
-    ];
+    // --- Tier1: 5軸の分布（tier3_idの先頭文字で集計）---
+    let tier1_sql = format!(
+        "SELECT SUBSTR(tier3_id, 1, 1) as axis, \
+         CAST(SUBSTR(tier3_id, 2, 1) AS INTEGER) as level, \
+         COUNT(*) as count \
+         FROM job_postings {} AND tier3_id != '' AND LENGTH(tier3_id) >= 5 \
+         GROUP BY axis, level ORDER BY axis, level",
+        where_clause
+    );
+    let tier1_rows = db.query(&tier1_sql, &params_ref).unwrap_or_default();
+
+    // 軸別にTier1分布を集計
     let mut tier1_data: std::collections::HashMap<String, Vec<(i64, i64)>> = std::collections::HashMap::new();
-    for (axis, col) in &tier1_columns {
-        let sql = format!(
-            "SELECT {col} as code, COUNT(*) as count \
-             FROM job_postings {where_clause} AND {col} != '' \
-             GROUP BY code ORDER BY code",
-            col = col, where_clause = where_clause
-        );
-        let rows = db.query_owned(sql, param_values.clone()).await.unwrap_or_default();
-        for row in &rows {
-            let code = row.get("code").and_then(|v| v.as_str()).unwrap_or("");
-            // コードは "A1", "B3" 等の形式。2文字目をレベルとして取得
-            let level = code.chars().nth(1)
-                .and_then(|c| c.to_digit(10))
-                .unwrap_or(0) as i64;
-            let count = row.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
-            tier1_data.entry(axis.to_string()).or_default().push((level, count));
-        }
+    for row in &tier1_rows {
+        let axis = row.get("axis").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let level = row.get("level").and_then(|v| v.as_i64()).unwrap_or(0);
+        let count = row.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+        tier1_data.entry(axis).or_default().push((level, count));
     }
 
     // 5軸ドーナツチャート生成
@@ -549,24 +531,13 @@ pub async fn segment_tier3(
     }
 
     // --- Tier2: 27カテゴリの全体バーチャート（軸別色分け）---
-    // tier1_*カラムからUNION ALLで全Tier2コードを取得
     let tier2_sql = format!(
-        "SELECT code, COUNT(*) as count FROM (\
-           SELECT tier1_experience as code FROM job_postings {wc} AND tier1_experience != '' \
-           UNION ALL \
-           SELECT tier1_career_stage FROM job_postings {wc} AND tier1_career_stage != '' \
-           UNION ALL \
-           SELECT tier1_lifestyle FROM job_postings {wc} AND tier1_lifestyle != '' \
-           UNION ALL \
-           SELECT tier1_appeal FROM job_postings {wc} AND tier1_appeal != '' \
-           UNION ALL \
-           SELECT tier1_urgency FROM job_postings {wc} AND tier1_urgency != '' \
-         ) GROUP BY code ORDER BY code",
-        wc = where_clause
+        "SELECT SUBSTR(tier3_id, 1, 2) as code, COUNT(*) as count \
+         FROM job_postings {} AND tier3_id != '' AND LENGTH(tier3_id) >= 5 \
+         GROUP BY code ORDER BY code",
+        where_clause
     );
-    // UNION ALLで5回where_clauseを使うため、パラメータも5倍に複製
-    let tier2_params: Vec<String> = (0..5).flat_map(|_| param_values.clone()).collect();
-    let tier2_rows = db.query_owned(tier2_sql, tier2_params).await.unwrap_or_default();
+    let tier2_rows = db.query(&tier2_sql, &params_ref).unwrap_or_default();
 
     let mut tier2_labels = Vec::new();
     let mut tier2_values = Vec::new();
@@ -596,7 +567,7 @@ pub async fn segment_tier3(
         where_clause
     );
 
-    let rows = match db.query_owned(sql, param_values).await {
+    let rows = match db.query(&sql, &params_ref) {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Segment tier3 query failed: {e}");
@@ -658,7 +629,7 @@ pub async fn segment_tier3(
 
     let html = format!(
         r##"<div class="space-y-4">
-    <h3 class="text-lg font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'/></svg>  Tier分布分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type} / {total}件）</span></h3>
+    <h3 class="text-lg font-bold text-white">📊 Tier分布分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type} / {total}件）</span></h3>
 
     <!-- Tier1: 5軸の分布ドーナツ -->
     <div class="stat-card">
@@ -755,7 +726,6 @@ pub async fn segment_tier3(
         table_rows = table_rows,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -769,20 +739,6 @@ pub async fn segment_tags(
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
-
-    let cache_key = format!("segment_tags_{}_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type, ftype_raw);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_job = match map_job_type_to_segment(&job_type) {
         Some(j) => j,
         None => return Html(no_segment_data_html(&job_type)),
@@ -792,12 +748,19 @@ pub async fn segment_tags(
         Some(db) => db,
         None => return Html(r#"<p class="text-red-400 text-sm">セグメントDBが利用できません</p>"#.to_string()),
     };
+
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
     let has_facility_filter = !ftype_raw.is_empty() && ftype_raw != "全て";
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         db, "segment_tags", seg_job, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -818,13 +781,18 @@ pub async fn segment_tags(
         )
     };
 
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
     let sql = format!(
         "SELECT tag, SUM(count) as count, SUM(total) as total \
          FROM segment_tags {} GROUP BY tag ORDER BY count DESC LIMIT 15",
         where_clause
     );
 
-    let rows = match db.query_owned(sql, param_values).await {
+    let rows = match db.query(&sql, &params_ref) {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Segment tags query failed: {e}");
@@ -893,7 +861,6 @@ pub async fn segment_tags(
         values = values.join(","),
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -907,20 +874,6 @@ pub async fn segment_text_features(
     Query(params): Query<SegmentParams>,
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
-
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
-
-    let cache_key = format!("segment_text_features_{}_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type, ftype_raw);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_job = match map_job_type_to_segment(&job_type) {
         Some(j) => j,
         None => return Html(no_segment_data_html(&job_type)),
@@ -931,12 +884,18 @@ pub async fn segment_text_features(
         None => return Html(r#"<p class="text-red-400 text-sm">セグメントDBが利用できません</p>"#.to_string()),
     };
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
     let has_facility_filter = !ftype_raw.is_empty() && ftype_raw != "全て";
 
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         db, "segment_text_features", seg_job, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -957,13 +916,18 @@ pub async fn segment_text_features(
         )
     };
 
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
     let sql = format!(
         "SELECT category, label, SUM(count) as count, SUM(total) as total \
          FROM segment_text_features {} GROUP BY category, label ORDER BY category, count DESC",
         where_clause
     );
 
-    let rows = match db.query_owned(sql, param_values).await {
+    let rows = match db.query(&sql, &params_ref) {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Segment text_features query failed: {e}");
@@ -1055,7 +1019,7 @@ pub async fn segment_text_features(
 
     let html = format!(
         r##"<div class="space-y-4">
-    <h3 class="text-lg font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z'/></svg>  テキスト特徴分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
+    <h3 class="text-lg font-bold text-white">📝 テキスト特徴分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
     {filter_notice}
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         {cat_charts}
@@ -1067,7 +1031,6 @@ pub async fn segment_text_features(
         cat_charts = cat_charts,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1076,9 +1039,12 @@ pub async fn segment_text_features(
 // =============================================================
 
 fn no_segment_data_html(job_type: &str) -> String {
-    super::render_empty_state(
-        "セグメントデータなし",
-        &format!("「{}」のセグメント分類済み求人データが必要です", escape_html(job_type)),
+    format!(
+        r#"<div class="stat-card text-center py-8">
+            <p class="text-slate-400 text-sm">「{}」のセグメントデータはありません</p>
+            <p class="text-slate-500 text-xs mt-1">セグメント分類済みの求人データが必要です</p>
+        </div>"#,
+        escape_html(job_type)
     )
 }
 
@@ -1094,7 +1060,7 @@ fn build_scope_label(pref: &str, muni: &str) -> String {
 
 /// municipalityレベルのデータ有無をチェック
 /// データがない場合はmuniを空にしてprefectureレベルにフォールバック
-async fn resolve_municipality_fallback(
+fn resolve_municipality_fallback(
     db: &crate::db::local_sqlite::LocalDb,
     table: &str,
     job_type: &str,
@@ -1112,7 +1078,8 @@ async fn resolve_municipality_fallback(
         table
     );
     let params: Vec<String> = vec![job_type.to_string(), emp_type.to_string(), pref.to_string(), muni.to_string()];
-    match db.query_owned(check_sql, params).await {
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    match db.query(&check_sql, &params_ref) {
         Ok(rows) => {
             let cnt = rows.first()
                 .and_then(|r| r.get("cnt"))
@@ -1138,22 +1105,14 @@ pub async fn tab_segment(
     session: Session,
 ) -> Html<String> {
     let (job_type, prefecture, municipality) = get_session_filters(&session).await;
-
-    let cache_key = format!("segment_tab_{}_{}_{}", job_type, prefecture, municipality);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let scope_label = build_scope_label(&prefecture, &municipality);
 
     // segment_dbから雇用形態一覧を取得
     let emp_options: Vec<String> = if let Some(db) = &state.segment_db {
-        match db.query_owned(
-            "SELECT DISTINCT employment_type FROM segment_prefecture ORDER BY employment_type".to_string(),
-            vec![],
-        ).await {
+        match db.query(
+            "SELECT DISTINCT employment_type FROM segment_prefecture ORDER BY employment_type",
+            &[] as &[&dyn rusqlite::types::ToSql],
+        ) {
             Ok(rows) => rows.iter()
                 .filter_map(|r| r.get("employment_type").and_then(|v| v.as_str()).map(|s| s.to_string()))
                 .filter(|s| s != "全て")
@@ -1172,7 +1131,7 @@ pub async fn tab_segment(
     let html = format!(
         r##"<div class="space-y-6">
     <div class="flex items-center justify-between flex-wrap gap-3">
-        <h2 class="text-xl font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5'/></svg>  セグメント分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h2>
+        <h2 class="text-xl font-bold text-white">🔬 セグメント分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h2>
         <!-- 雇用形態フィルタ -->
         <div class="flex items-center gap-3 flex-wrap">
             <label class="text-sm text-slate-400">雇用形態:</label>
@@ -1370,7 +1329,6 @@ document.getElementById('seg-facility-filter').addEventListener('change', functi
         emp_options = emp_options_html,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1385,18 +1343,6 @@ pub async fn segment_salary_compare(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-
-    let cache_key = format!("segment_salary_compare_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -1407,10 +1353,16 @@ pub async fn segment_salary_compare(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_salary", seg_jt, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -1446,8 +1398,12 @@ pub async fn segment_salary_compare(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query(query, &params_ref) {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -1503,7 +1459,7 @@ pub async fn segment_salary_compare(
 
     let html = format!(
         r##"<div class="space-y-4">
-    <h3 class="text-lg font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M4.5 4.5l7.5 9 7.5-9M4.5 12h15M4.5 15h15M12 12v9'/></svg>  セグメント別給与比較 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
+    <h3 class="text-lg font-bold text-white">💰 セグメント別給与比較 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">{tables}</div>
     <p class="text-xs text-slate-500 italic">※ 月給は求人票記載の月給額（税込）。年収目安 = 月給 × 12〜14（賞与含む）</p>
 </div>"##,
@@ -1512,7 +1468,6 @@ pub async fn segment_salary_compare(
         tables = tables_html,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1527,18 +1482,6 @@ pub async fn segment_job_desc_insights(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-
-    let cache_key = format!("segment_job_desc_insights_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -1549,10 +1492,17 @@ pub async fn segment_job_desc_insights(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    // 仕事内容カテゴリの分布を取得
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_job_desc", seg_jt, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -1585,8 +1535,12 @@ pub async fn segment_job_desc_insights(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query(query, &params_ref) {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -1662,7 +1616,7 @@ pub async fn segment_job_desc_insights(
 
     let html = format!(
         r##"<div class="space-y-4">
-    <h3 class="text-lg font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15a2.25 2.25 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V19.5a2.25 2.25 0 002.25 2.25h.75'/></svg>  仕事内容分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
+    <h3 class="text-lg font-bold text-white">📋 仕事内容分析 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="stat-card">
             <h4 class="text-sm font-bold text-slate-300 mb-3">業務カテゴリ分布</h4>
@@ -1695,7 +1649,6 @@ pub async fn segment_job_desc_insights(
         bar_html = bar_html,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1710,18 +1663,6 @@ pub async fn segment_age_decade(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-
-    let cache_key = format!("segment_age_decade_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -1732,10 +1673,16 @@ pub async fn segment_age_decade(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_age_decade", seg_jt, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -1768,8 +1715,12 @@ pub async fn segment_age_decade(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query(query, &params_ref) {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -1852,7 +1803,7 @@ pub async fn segment_age_decade(
 
     let html = format!(
         r##"<div class="space-y-4">
-    <h3 class="text-lg font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'/></svg>  年代分布 <span class="text-sm font-normal text-slate-400">({scope} / {job_type})</span></h3>
+    <h3 class="text-lg font-bold text-white">📊 年代分布 <span class="text-sm font-normal text-slate-400">({scope} / {job_type})</span></h3>
     <p class="text-xs text-slate-500">求人文中のキーワードから推定される対象年代の分布</p>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="stat-card">
@@ -1886,7 +1837,6 @@ pub async fn segment_age_decade(
         bar_html = bar_html,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -1901,18 +1851,6 @@ pub async fn segment_gender_lifecycle(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-
-    let cache_key = format!("segment_gender_lifecycle_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -1923,10 +1861,16 @@ pub async fn segment_gender_lifecycle(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_gender_lifecycle", seg_jt, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -1959,8 +1903,12 @@ pub async fn segment_gender_lifecycle(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query(query, &params_ref) {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -2135,7 +2083,6 @@ pub async fn segment_gender_lifecycle(
         lifecycle_html = lifecycle_html,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -2150,18 +2097,6 @@ pub async fn segment_exp_qual(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-
-    let cache_key = format!("segment_exp_qual_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -2172,10 +2107,16 @@ pub async fn segment_exp_qual(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_exp_qual", seg_jt, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -2208,8 +2149,12 @@ pub async fn segment_exp_qual(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query(query, &params_ref) {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -2297,7 +2242,7 @@ pub async fn segment_exp_qual(
 
     let html = format!(
         r##"<div class="space-y-4">
-    <h3 class="text-lg font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5'/></svg>  未経験×資格セグメント <span class="text-sm font-normal text-slate-400">({scope} / {job_type})</span></h3>
+    <h3 class="text-lg font-bold text-white">🎓 未経験×資格セグメント <span class="text-sm font-normal text-slate-400">({scope} / {job_type})</span></h3>
     <p class="text-xs text-slate-500">未経験/経験者 × 資格要否 の4象限で求人を分類</p>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="stat-card">
@@ -2329,7 +2274,6 @@ pub async fn segment_exp_qual(
         grid_html = grid_html,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -2344,18 +2288,6 @@ pub async fn segment_work_schedule(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-
-    let cache_key = format!("segment_work_schedule_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -2366,10 +2298,16 @@ pub async fn segment_work_schedule(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_work_schedule", seg_jt, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -2415,8 +2353,12 @@ pub async fn segment_work_schedule(
             all_params.push(muni.to_string());
         }
         all_params.push(dim.to_string());
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
 
-        let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+        let rows = match seg_db.query(query, &params_ref) {
             Ok(r) => r,
             Err(_) => {
                 dim_data.push(Vec::new());
@@ -2618,7 +2560,6 @@ pub async fn segment_work_schedule(
         ot_vals = ot_vals,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -2650,18 +2591,6 @@ pub async fn segment_holidays(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-
-    let cache_key = format!("segment_holidays_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -2672,10 +2601,16 @@ pub async fn segment_holidays(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_holidays", seg_jt, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -2733,8 +2668,12 @@ pub async fn segment_holidays(
             all_params.push(muni.to_string());
         }
         all_params.push(dim.to_string());
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
 
-        let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+        let rows = match seg_db.query(query, &params_ref) {
             Ok(r) => r,
             Err(_) => {
                 dim_data.push(Vec::new());
@@ -2902,7 +2841,6 @@ pub async fn segment_holidays(
         ann_vals = ann_vals,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -2917,18 +2855,6 @@ pub async fn segment_salary_shift(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let emp_type = if emp.is_empty() { "全て" } else { emp };
-
-    let cache_key = format!("segment_salary_shift_{}_{}_{}_{}", job_type, pref_raw, muni_raw, emp_type);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let seg_db = match &state.segment_db {
         Some(db) => db,
         None => return Html(no_segment_data_html(&job_type)),
@@ -2939,10 +2865,16 @@ pub async fn segment_salary_shift(
         None => return Html(no_segment_data_html(&job_type)),
     };
 
+    let pref_raw = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni_raw = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let emp_type = if emp.is_empty() { "全て" } else { emp };
+
     // municipalityフォールバックチェック
     let (pref_resolved, muni_resolved, is_fallback) = resolve_municipality_fallback(
         seg_db, "segment_salary_shift", seg_jt, emp_type, pref_raw, muni_raw,
-    ).await;
+    );
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
@@ -2995,8 +2927,12 @@ pub async fn segment_salary_shift(
     if !muni.is_empty() && !pref.is_empty() {
         all_params.push(muni.to_string());
     }
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query(query, &params_ref) {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -3055,7 +2991,6 @@ pub async fn segment_salary_shift(
         hourly_html = hourly_html,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
@@ -3230,25 +3165,18 @@ pub async fn segment_crosstab(
 ) -> Html<String> {
     let (job_type, sess_pref, sess_muni) = get_session_filters(&session).await;
 
-    let pref = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
-    let muni = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
-    let emp = params.employment_type.as_deref().unwrap_or("");
-    let ftype_raw = params.facility_type.as_deref().unwrap_or("");
-    let ftypes = parse_facility_types(ftype_raw);
-    let axis_x = params.axis_x.as_deref().unwrap_or("A");
-    let axis_y = params.axis_y.as_deref().unwrap_or("C");
-
-    let cache_key = format!("segment_crosstab_{}_{}_{}_{}_{}_{}_{}", job_type, pref, muni, emp, ftype_raw, axis_x, axis_y);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
     let db = match &state.local_db {
         Some(db) => db,
         None => return Html(r#"<p class="text-red-400 text-sm">ローカルDBが利用できません</p>"#.to_string()),
     };
+
+    let pref = params.prefecture.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_pref);
+    let muni = params.municipality.as_deref().filter(|s| !s.is_empty()).unwrap_or(&sess_muni);
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let ftypes = parse_facility_types(params.facility_type.as_deref().unwrap_or(""));
+
+    let axis_x = params.axis_x.as_deref().unwrap_or("A");
+    let axis_y = params.axis_y.as_deref().unwrap_or("C");
 
     // 軸コード → カラム名
     let axis_to_col = |a: &str| -> Option<&str> {
@@ -3277,8 +3205,12 @@ pub async fn segment_crosstab(
          FROM job_postings {where_clause} AND {col_x} != '' AND {col_y} != '' \
          GROUP BY {col_x}, {col_y} ORDER BY count DESC"
     );
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = base_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
-    let rows = match db.query_owned(sql, base_params).await {
+    let rows = match db.query(&sql, &params_ref) {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Crosstab query failed: {e}");
@@ -3419,6 +3351,5 @@ pub async fn segment_crosstab(
         max_val = max_val as i64,
     );
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
