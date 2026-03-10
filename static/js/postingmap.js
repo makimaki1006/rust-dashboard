@@ -36,22 +36,21 @@ var postingMap = (function() {
   var flowGroup = null;
   var seekerData = null;
 
-  // GAS準拠: 標準ピンアイコン
-  var defaultIcon = L.icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-  });
-  var detailIcon = L.icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-  });
-  var pinnedIcon = L.icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-  });
+  // SVGマーカーアイコン（外部CDN不要）
+  function svgPin(fill) {
+    return L.divIcon({
+      html: '<svg width="25" height="41" viewBox="0 0 25 41" xmlns="http://www.w3.org/2000/svg">' +
+        '<path d="M12.5 0C5.6 0 0 5.6 0 12.5C0 21.9 12.5 41 12.5 41S25 21.9 25 12.5C25 5.6 19.4 0 12.5 0z" fill="' + fill + '" stroke="#fff" stroke-width="1.5"/>' +
+        '<circle cx="12.5" cy="12.5" r="5" fill="#fff" opacity="0.9"/></svg>',
+      className: '',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34]
+    });
+  }
+  var defaultIcon = svgPin('#3b82f6');
+  var detailIcon = svgPin('#f97316');
+  var pinnedIcon = svgPin('#ef4444');
 
   function ensureInit() { if (!initialized || !map) init(); }
 
