@@ -382,16 +382,12 @@
                 }
             }
         });
-        // アイドル時に次のタブ(demographics)をプリフェッチ
-        if ('requestIdleCallback' in window) {
-            requestIdleCallback(function() {
-                fetch('/tab/demographics', { priority: 'low' });
-            });
-        }
 
         // 流入/流出地域クリックでプルダウンを切り替え
         function switchLocation(pref, muni) {
             if (!pref) return;
+            if (window.clearTabCache) window.clearTabCache();
+            showFilterSpinner();
 
             // Step 1: セッションに都道府県を設定
             fetch('/api/set_prefecture', {

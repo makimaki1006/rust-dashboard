@@ -513,11 +513,10 @@ async fn set_job_type(
         .flatten()
         .unwrap_or_default();
     let _ = session.insert(SESSION_JOB_TYPE_KEY, &form.job_type).await;
-    // 職種変更: 旧職種スコープのキャッシュのみ無効化
+    // 職種変更: 旧職種名を含むキャッシュを全て無効化
+    // analysis_tab_介護職_... / segment_overview_介護職_... 等のサブプレフィックスも確実に削除
     if !old_job_type.is_empty() {
-        for prefix in TAB_CACHE_PREFIXES {
-            state.cache.remove_prefix(&format!("{}{}", prefix, old_job_type));
-        }
+        state.cache.remove_containing(&old_job_type);
     }
     Html("OK".to_string())
 }
@@ -548,19 +547,9 @@ async fn set_prefecture(
         .insert(SESSION_PREFECTURE_KEY, &form.prefecture)
         .await;
     let _ = session.insert(SESSION_MUNICIPALITY_KEY, "").await;
-    // 都道府県変更: 旧都道府県スコープのキャッシュのみ無効化
-    if !old_pref.is_empty() && !job_type.is_empty() {
-        let scope = format!("{}_{}", job_type, old_pref);
-        for prefix in TAB_CACHE_PREFIXES {
-            state.cache.remove_prefix(&format!("{}_{}", prefix, scope));
-        }
-    }
-    // 新都道府県スコープも無効化（古いデータが残っている可能性）
-    if !form.prefecture.is_empty() && !job_type.is_empty() {
-        let scope = format!("{}_{}", job_type, form.prefecture);
-        for prefix in TAB_CACHE_PREFIXES {
-            state.cache.remove_prefix(&format!("{}_{}", prefix, scope));
-        }
+    // 都道府県変更: 該当職種のキャッシュを全て無効化
+    if !job_type.is_empty() {
+        state.cache.remove_containing(&job_type);
     }
     Html("OK".to_string())
 }
@@ -590,12 +579,9 @@ async fn set_municipality(
     let _ = session
         .insert(SESSION_MUNICIPALITY_KEY, &form.municipality)
         .await;
-    // 市区町村変更: 該当職種+都道府県スコープのキャッシュのみ無効化
-    if !job_type.is_empty() && !prefecture.is_empty() {
-        let scope = format!("{}_{}", job_type, prefecture);
-        for prefix in TAB_CACHE_PREFIXES {
-            state.cache.remove_prefix(&format!("{}_{}", prefix, scope));
-        }
+    // 市区町村変更: 該当職種のキャッシュを全て無効化
+    if !job_type.is_empty() {
+        state.cache.remove_containing(&job_type);
     }
     Html("OK".to_string())
 }

@@ -66,6 +66,11 @@ impl AppCache {
         self.map.retain(|key, _| !key.starts_with(prefix));
     }
 
+    /// 指定文字列を含むエントリを全て削除
+    pub fn remove_containing(&self, substring: &str) {
+        self.map.retain(|key, _| !key.contains(substring));
+    }
+
     /// キャッシュクリア
     pub fn clear(&self) {
         self.map.clear();
