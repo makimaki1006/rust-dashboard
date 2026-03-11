@@ -101,7 +101,13 @@ pub async fn comp_filter(
     let stype_owned = stype.to_string();
     let postings = match tokio::task::spawn_blocking(move || {
         if nearby && !muni_owned.is_empty() {
-            fetch_nearby_postings(&db_clone, &jt, &pref_owned, &muni_owned, radius_km, &emp_owned, &ftype_owned, &stype_owned)
+            // 近隣検索: 複数市区町村の場合は最初の1つを中心座標に使用
+            let first_muni: String = muni_owned.split(',')
+                .map(|s| s.trim())
+                .find(|s| !s.is_empty())
+                .unwrap_or("")
+                .to_string();
+            fetch_nearby_postings(&db_clone, &jt, &pref_owned, &first_muni, radius_km, &emp_owned, &ftype_owned, &stype_owned)
         } else {
             fetch_postings(&db_clone, &jt, &pref_owned, if muni_owned.is_empty() { None } else { Some(&muni_owned) }, &emp_owned, &ftype_owned, &stype_owned)
         }
@@ -402,7 +408,13 @@ pub async fn comp_report(
     let stype_owned = stype.to_string();
     let postings = match tokio::task::spawn_blocking(move || {
         if nearby && !muni_owned.is_empty() {
-            fetch_nearby_postings(&db_clone, &jt, &pref_owned, &muni_owned, radius_km, &emp_owned, &ftype_owned, &stype_owned)
+            // 近隣検索: 複数市区町村の場合は最初の1つを中心座標に使用
+            let first_muni: String = muni_owned.split(',')
+                .map(|s| s.trim())
+                .find(|s| !s.is_empty())
+                .unwrap_or("")
+                .to_string();
+            fetch_nearby_postings(&db_clone, &jt, &pref_owned, &first_muni, radius_km, &emp_owned, &ftype_owned, &stype_owned)
         } else {
             fetch_postings(&db_clone, &jt, &pref_owned, if muni_owned.is_empty() { None } else { Some(&muni_owned) }, &emp_owned, &ftype_owned, &stype_owned)
         }

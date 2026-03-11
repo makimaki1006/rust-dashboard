@@ -7,7 +7,7 @@ use tower_sessions::Session;
 use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
-use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, make_location_label};
+use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, make_location_label, parse_municipalities};
 use super::competitive::escape_html;
 
 /// タブ4: 需給バランス
@@ -83,25 +83,33 @@ async fn fetch_balance(state: &AppState, job_type: &str, prefecture: &str, munic
 
     if has_pref {
         // 都道府県選択時: 3クエリを1バッチで実行
-        let jo_sql = if has_muni {
-            "SELECT COUNT(*) as cnt FROM job_openings WHERE job_type = ? AND prefecture = ? AND municipality = ?"
-        } else {
-            "SELECT COUNT(*) as cnt FROM job_openings WHERE job_type = ? AND prefecture = ?"
-        };
         let mut jo_params = vec![
             Value::String(job_type.to_string()),
             Value::String(prefecture.to_string()),
         ];
-        if has_muni {
-            jo_params.push(Value::String(municipality.to_string()));
-        }
+        let jo_sql = if has_muni {
+            let munis = parse_municipalities(municipality);
+            if munis.len() == 1 {
+                jo_params.push(Value::String(munis[0].clone()));
+                "SELECT COUNT(*) as cnt FROM job_openings WHERE job_type = ? AND prefecture = ? AND municipality = ?".to_string()
+            } else {
+                let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+                let sql = format!("SELECT COUNT(*) as cnt FROM job_openings WHERE job_type = ? AND prefecture = ? AND municipality IN ({})", placeholders.join(", "));
+                for m in &munis {
+                    jo_params.push(Value::String(m.clone()));
+                }
+                sql
+            }
+        } else {
+            "SELECT COUNT(*) as cnt FROM job_openings WHERE job_type = ? AND prefecture = ?".to_string()
+        };
 
         let total_sql = "SELECT COUNT(*) as cnt FROM job_openings WHERE job_type = ?";
         let total_params = vec![Value::String(job_type.to_string())];
 
         match state.turso.query_batch(&[
             (&gap_sql, &gap_params),
-            (jo_sql, &jo_params),
+            (&jo_sql, &jo_params),
             (total_sql, &total_params),
         ]).await {
             Ok(batch_results) => {

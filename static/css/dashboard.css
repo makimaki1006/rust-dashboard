@@ -564,3 +564,118 @@
 .jm-fullscreen-mode #jm-pinned-stats {
     margin-bottom: 2px;
 }
+
+/* ==========================================================
+   市区町村マルチセレクトドロップダウン
+   ========================================================== */
+.muni-multi-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.muni-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 1000;
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    width: 260px;
+    max-height: 360px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+}
+
+.muni-dropdown.hidden {
+    display: none;
+}
+
+.muni-dropdown-search {
+    width: 100%;
+    padding: 8px 12px;
+    background: #0f172a;
+    border: none;
+    border-bottom: 1px solid #334155;
+    border-radius: 8px 8px 0 0;
+    color: #e2e8f0;
+    font-size: 13px;
+    outline: none;
+}
+
+.muni-dropdown-search:focus {
+    border-bottom-color: #3b82f6;
+}
+
+.muni-dropdown-actions {
+    display: flex;
+    gap: 4px;
+    padding: 4px 8px;
+    border-bottom: 1px solid #334155;
+}
+
+.muni-action-btn {
+    padding: 2px 8px;
+    font-size: 11px;
+    color: #94a3b8;
+    background: transparent;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.muni-action-btn:hover {
+    color: #e2e8f0;
+    border-color: #64748b;
+    background: #334155;
+}
+
+.muni-checkbox-list {
+    overflow-y: auto;
+    max-height: 260px;
+    padding: 4px 0;
+}
+
+.muni-checkbox-item {
+    display: flex;
+    align-items: center;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+    font-size: 13px;
+    color: #cbd5e1;
+}
+
+.muni-checkbox-item:hover {
+    background: #334155;
+}
+
+.muni-checkbox-item input[type="checkbox"] {
+    accent-color: #3b82f6;
+    margin-right: 8px;
+    flex-shrink: 0;
+    width: 15px;
+    height: 15px;
+}
+
+.muni-checkbox-item.checked {
+    color: #e2e8f0;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.muni-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #3b82f6;
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    padding: 0 5px;
+    margin-left: 4px;
+}

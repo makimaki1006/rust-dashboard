@@ -574,7 +574,7 @@ pub fn query_analysis_summary(
 // postings テーブルからの直接クエリ (市区町村対応)
 // ---------------------------------------------------------------------------
 
-/// WHERE句とパラメータを構築するヘルパー
+/// WHERE句とパラメータを構築するヘルパー（市区町村マルチセレクト対応）
 fn build_postings_where(job_type: &str, prefecture: &str, municipality: &str) -> (String, Vec<String>) {
     let mut clauses = vec!["job_type = ?1".to_string()];
     let mut params: Vec<String> = vec![job_type.to_string()];
@@ -584,8 +584,19 @@ fn build_postings_where(job_type: &str, prefecture: &str, municipality: &str) ->
         clauses.push(format!("prefecture = ?{}", params.len()));
     }
     if !municipality.is_empty() {
-        params.push(municipality.to_string());
-        clauses.push(format!("municipality = ?{}", params.len()));
+        let munis: Vec<&str> = municipality.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        if munis.len() == 1 {
+            params.push(munis[0].to_string());
+            clauses.push(format!("municipality = ?{}", params.len()));
+        } else {
+            let placeholders: Vec<String> = munis.iter().enumerate().map(|(i, _)| {
+                format!("?{}", params.len() + i + 1)
+            }).collect();
+            for m in &munis {
+                params.push(m.to_string());
+            }
+            clauses.push(format!("municipality IN ({})", placeholders.join(", ")));
+        }
     }
 
     (clauses.join(" AND "), params)

@@ -118,7 +118,53 @@ fn axis_color(axis: &str) -> &str {
     }
 }
 
-/// job_postingsテーブル用WHERE句ビルダー
+/// 市区町村マルチセレクト対応のWHERE句フラグメントビルダー
+fn build_muni_clause(muni: &str, params: &mut Vec<String>) -> Option<String> {
+    if muni.is_empty() {
+        return None;
+    }
+    let munis: Vec<&str> = muni.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    if munis.len() == 1 {
+        params.push(munis[0].to_string());
+        Some("municipality = ?".to_string())
+    } else {
+        let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+        for m in &munis {
+            params.push(m.to_string());
+        }
+        Some(format!("municipality IN ({})", placeholders.join(", ")))
+    }
+}
+
+/// セグメントテーブル用: 3分岐WHERE句ビルダー（全国/県/市区町村マルチ対応）
+/// 戻り値: (where_clause_fragment, params) — job_type/employment_type はcaller側で追加済み前提
+fn build_segment_muni_branch(pref: &str, muni: &str, params: &mut Vec<String>) -> String {
+    let munis: Vec<&str> = if muni.is_empty() {
+        vec![]
+    } else {
+        muni.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect()
+    };
+    if !munis.is_empty() && !pref.is_empty() {
+        params.push(pref.to_string());
+        if munis.len() == 1 {
+            params.push(munis[0].to_string());
+            "AND prefecture = ? AND municipality = ?".to_string()
+        } else {
+            let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+            for m in &munis {
+                params.push(m.to_string());
+            }
+            format!("AND prefecture = ? AND municipality IN ({})", placeholders.join(", "))
+        }
+    } else if !pref.is_empty() {
+        params.push(pref.to_string());
+        "AND prefecture = ? AND municipality IS NULL".to_string()
+    } else {
+        "AND municipality IS NULL".to_string()
+    }
+}
+
+/// job_postingsテーブル用WHERE句ビルダー（市区町村マルチセレクト対応）
 fn build_postings_where(
     job_type: &str,
     pref: &str,
@@ -132,9 +178,8 @@ fn build_postings_where(
         clauses.push("prefecture = ?".to_string());
         params.push(pref.to_string());
     }
-    if !muni.is_empty() {
-        clauses.push("municipality = ?".to_string());
-        params.push(muni.to_string());
+    if let Some(muni_clause) = build_muni_clause(muni, &mut params) {
+        clauses.push(muni_clause);
     }
     if !emp.is_empty() && emp != "全て" {
         clauses.push("employment_type = ?".to_string());
@@ -801,22 +846,9 @@ pub async fn segment_tags(
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
-    let (where_clause, param_values) = if !muni.is_empty() && !pref.is_empty() {
-        (
-            "WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ?",
-            vec![seg_job.to_string(), emp_type.to_string(), pref.to_string(), muni.to_string()],
-        )
-    } else if !pref.is_empty() {
-        (
-            "WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL",
-            vec![seg_job.to_string(), emp_type.to_string(), pref.to_string()],
-        )
-    } else {
-        (
-            "WHERE job_type = ? AND employment_type = ? AND municipality IS NULL",
-            vec![seg_job.to_string(), emp_type.to_string()],
-        )
-    };
+    let mut param_values = vec![seg_job.to_string(), emp_type.to_string()];
+    let muni_branch = build_segment_muni_branch(pref, muni, &mut param_values);
+    let where_clause = format!("WHERE job_type = ? AND employment_type = ? {}", muni_branch);
 
     let sql = format!(
         "SELECT tag, SUM(count) as count, SUM(total) as total \
@@ -940,22 +972,9 @@ pub async fn segment_text_features(
     let pref = pref_resolved.as_str();
     let muni = muni_resolved.as_str();
 
-    let (where_clause, param_values) = if !muni.is_empty() && !pref.is_empty() {
-        (
-            "WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ?",
-            vec![seg_job.to_string(), emp_type.to_string(), pref.to_string(), muni.to_string()],
-        )
-    } else if !pref.is_empty() {
-        (
-            "WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL",
-            vec![seg_job.to_string(), emp_type.to_string(), pref.to_string()],
-        )
-    } else {
-        (
-            "WHERE job_type = ? AND employment_type = ? AND municipality IS NULL",
-            vec![seg_job.to_string(), emp_type.to_string()],
-        )
-    };
+    let mut param_values = vec![seg_job.to_string(), emp_type.to_string()];
+    let muni_branch = build_segment_muni_branch(pref, muni, &mut param_values);
+    let where_clause = format!("WHERE job_type = ? AND employment_type = ? {}", muni_branch);
 
     let sql = format!(
         "SELECT category, label, SUM(count) as count, SUM(total) as total \
@@ -1106,7 +1125,11 @@ async fn resolve_municipality_fallback(
     if muni.is_empty() || pref.is_empty() {
         return (pref.to_string(), muni.to_string(), false);
     }
-    // municipalityレベルのデータ存在チェック
+    // マルチセレクト（カンマ区切り）の場合はフォールバックをスキップ
+    if muni.contains(',') {
+        return (pref.to_string(), muni.to_string(), false);
+    }
+    // シングルセレクト: municipalityレベルのデータ存在チェック
     let check_sql = format!(
         "SELECT COUNT(*) as cnt FROM {} WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ? LIMIT 1",
         table
@@ -1421,33 +1444,25 @@ pub async fn segment_salary_compare(
         scope_label
     };
 
-    // 3分岐クエリ: 全国 / 県 / 市区町村
-    let query = if !muni.is_empty() && !pref.is_empty() {
-        "SELECT axis, category, count, salary_min_avg, salary_min_med, salary_max_avg, salary_max_med, holidays_avg, benefits_avg \
-         FROM segment_salary WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ? AND axis IN ('A','B','C') ORDER BY axis, count DESC"
-    } else if !pref.is_empty() {
-        "SELECT axis, category, count, salary_min_avg, salary_min_med, salary_max_avg, salary_max_med, holidays_avg, benefits_avg \
-         FROM segment_salary WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL AND axis IN ('A','B','C') ORDER BY axis, count DESC"
-    } else {
-        "SELECT axis, category, SUM(count) as count, \
+    // build_segment_muni_branchで3分岐WHERE句を統一構築
+    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
+    let muni_branch = build_segment_muni_branch(pref, muni, &mut all_params);
+    let is_aggregate = muni.is_empty() && pref.is_empty(); // 全国: 集約が必要
+    let query = if is_aggregate {
+        format!("SELECT axis, category, SUM(count) as count, \
          CAST(AVG(salary_min_avg) AS INTEGER) as salary_min_avg, \
          CAST(AVG(salary_min_med) AS INTEGER) as salary_min_med, \
          CAST(AVG(salary_max_avg) AS INTEGER) as salary_max_avg, \
          CAST(AVG(salary_max_med) AS INTEGER) as salary_max_med, \
          AVG(holidays_avg) as holidays_avg, AVG(benefits_avg) as benefits_avg \
-         FROM segment_salary WHERE job_type = ? AND employment_type = ? AND municipality IS NULL AND axis IN ('A','B','C') \
-         GROUP BY axis, category ORDER BY axis, SUM(count) DESC"
+         FROM segment_salary WHERE job_type = ? AND employment_type = ? {} AND axis IN ('A','B','C') \
+         GROUP BY axis, category ORDER BY axis, SUM(count) DESC", muni_branch)
+    } else {
+        format!("SELECT axis, category, count, salary_min_avg, salary_min_med, salary_max_avg, salary_max_med, holidays_avg, benefits_avg \
+         FROM segment_salary WHERE job_type = ? AND employment_type = ? {} AND axis IN ('A','B','C') ORDER BY axis, count DESC", muni_branch)
     };
 
-    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
-    if !pref.is_empty() {
-        all_params.push(pref.to_string());
-    }
-    if !muni.is_empty() && !pref.is_empty() {
-        all_params.push(muni.to_string());
-    }
-
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query_owned(query, all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -1564,29 +1579,19 @@ pub async fn segment_job_desc_insights(
     };
 
     let is_national = pref.is_empty();
-    let query = if !muni.is_empty() && !pref.is_empty() {
-        "SELECT task_label, count as cnt, total as ttl \
-         FROM segment_job_desc WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ? \
-         ORDER BY count DESC"
-    } else if !pref.is_empty() {
-        "SELECT task_label, count as cnt, total as ttl \
-         FROM segment_job_desc WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL \
-         ORDER BY count DESC"
+    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
+    let muni_branch = build_segment_muni_branch(pref, muni, &mut all_params);
+    let query = if is_national {
+        format!("SELECT task_label, SUM(count) as cnt \
+         FROM segment_job_desc WHERE job_type = ? AND employment_type = ? {} \
+         GROUP BY task_label ORDER BY cnt DESC", muni_branch)
     } else {
-        "SELECT task_label, SUM(count) as cnt \
-         FROM segment_job_desc WHERE job_type = ? AND employment_type = ? AND municipality IS NULL \
-         GROUP BY task_label ORDER BY cnt DESC"
+        format!("SELECT task_label, count as cnt, total as ttl \
+         FROM segment_job_desc WHERE job_type = ? AND employment_type = ? {} \
+         ORDER BY count DESC", muni_branch)
     };
 
-    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
-    if !pref.is_empty() {
-        all_params.push(pref.to_string());
-    }
-    if !muni.is_empty() && !pref.is_empty() {
-        all_params.push(muni.to_string());
-    }
-
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query_owned(query, all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -1747,29 +1752,19 @@ pub async fn segment_age_decade(
     };
 
     let is_national = pref.is_empty();
-    let query = if !muni.is_empty() && !pref.is_empty() {
-        "SELECT decade, count, total \
-         FROM segment_age_decade WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ? \
-         ORDER BY decade"
-    } else if !pref.is_empty() {
-        "SELECT decade, count, total \
-         FROM segment_age_decade WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL \
-         ORDER BY decade"
+    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
+    let muni_branch = build_segment_muni_branch(pref, muni, &mut all_params);
+    let query = if is_national {
+        format!("SELECT decade, SUM(count) as count \
+         FROM segment_age_decade WHERE job_type = ? AND employment_type = ? {} \
+         GROUP BY decade ORDER BY decade", muni_branch)
     } else {
-        "SELECT decade, SUM(count) as count \
-         FROM segment_age_decade WHERE job_type = ? AND employment_type = ? AND municipality IS NULL \
-         GROUP BY decade ORDER BY decade"
+        format!("SELECT decade, count, total \
+         FROM segment_age_decade WHERE job_type = ? AND employment_type = ? {} \
+         ORDER BY decade", muni_branch)
     };
 
-    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
-    if !pref.is_empty() {
-        all_params.push(pref.to_string());
-    }
-    if !muni.is_empty() && !pref.is_empty() {
-        all_params.push(muni.to_string());
-    }
-
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query_owned(query, all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -1938,29 +1933,19 @@ pub async fn segment_gender_lifecycle(
     };
 
     let is_national = pref.is_empty();
-    let query = if !muni.is_empty() && !pref.is_empty() {
-        "SELECT dimension, category, count, total \
-         FROM segment_gender_lifecycle WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ? \
-         ORDER BY dimension, count DESC"
-    } else if !pref.is_empty() {
-        "SELECT dimension, category, count, total \
-         FROM segment_gender_lifecycle WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL \
-         ORDER BY dimension, count DESC"
+    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
+    let muni_branch = build_segment_muni_branch(pref, muni, &mut all_params);
+    let query = if is_national {
+        format!("SELECT dimension, category, SUM(count) as count \
+         FROM segment_gender_lifecycle WHERE job_type = ? AND employment_type = ? {} \
+         GROUP BY dimension, category ORDER BY dimension, count DESC", muni_branch)
     } else {
-        "SELECT dimension, category, SUM(count) as count \
-         FROM segment_gender_lifecycle WHERE job_type = ? AND employment_type = ? AND municipality IS NULL \
-         GROUP BY dimension, category ORDER BY dimension, count DESC"
+        format!("SELECT dimension, category, count, total \
+         FROM segment_gender_lifecycle WHERE job_type = ? AND employment_type = ? {} \
+         ORDER BY dimension, count DESC", muni_branch)
     };
 
-    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
-    if !pref.is_empty() {
-        all_params.push(pref.to_string());
-    }
-    if !muni.is_empty() && !pref.is_empty() {
-        all_params.push(muni.to_string());
-    }
-
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query_owned(query, all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -2187,29 +2172,19 @@ pub async fn segment_exp_qual(
     };
 
     let is_national = pref.is_empty();
-    let query = if !muni.is_empty() && !pref.is_empty() {
-        "SELECT segment, count, total \
-         FROM segment_exp_qual WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ? \
-         ORDER BY count DESC"
-    } else if !pref.is_empty() {
-        "SELECT segment, count, total \
-         FROM segment_exp_qual WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL \
-         ORDER BY count DESC"
+    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
+    let muni_branch = build_segment_muni_branch(pref, muni, &mut all_params);
+    let query = if is_national {
+        format!("SELECT segment, SUM(count) as count \
+         FROM segment_exp_qual WHERE job_type = ? AND employment_type = ? {} \
+         GROUP BY segment ORDER BY count DESC", muni_branch)
     } else {
-        "SELECT segment, SUM(count) as count \
-         FROM segment_exp_qual WHERE job_type = ? AND employment_type = ? AND municipality IS NULL \
-         GROUP BY segment ORDER BY count DESC"
+        format!("SELECT segment, count, total \
+         FROM segment_exp_qual WHERE job_type = ? AND employment_type = ? {} \
+         ORDER BY count DESC", muni_branch)
     };
 
-    let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
-    if !pref.is_empty() {
-        all_params.push(pref.to_string());
-    }
-    if !muni.is_empty() && !pref.is_empty() {
-        all_params.push(muni.to_string());
-    }
-
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query_owned(query, all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };
@@ -2393,30 +2368,20 @@ pub async fn segment_work_schedule(
     let mut total_count: i64 = 0;
 
     for dim in &dimensions {
-        let query = if !muni.is_empty() && !pref.is_empty() {
-            "SELECT value, count, total \
-             FROM segment_work_schedule WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ? AND dimension = ? \
-             ORDER BY count DESC"
-        } else if !pref.is_empty() {
-            "SELECT value, count, total \
-             FROM segment_work_schedule WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL AND dimension = ? \
-             ORDER BY count DESC"
+        let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
+        let muni_branch = build_segment_muni_branch(pref, muni, &mut all_params);
+        all_params.push(dim.to_string());
+        let query = if is_national {
+            format!("SELECT value, SUM(count) as count \
+             FROM segment_work_schedule WHERE job_type = ? AND employment_type = ? {} AND dimension = ? \
+             GROUP BY value ORDER BY SUM(count) DESC", muni_branch)
         } else {
-            "SELECT value, SUM(count) as count \
-             FROM segment_work_schedule WHERE job_type = ? AND employment_type = ? AND municipality IS NULL AND dimension = ? \
-             GROUP BY value ORDER BY SUM(count) DESC"
+            format!("SELECT value, count, total \
+             FROM segment_work_schedule WHERE job_type = ? AND employment_type = ? {} AND dimension = ? \
+             ORDER BY count DESC", muni_branch)
         };
 
-        let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
-        if !pref.is_empty() {
-            all_params.push(pref.to_string());
-        }
-        if !muni.is_empty() && !pref.is_empty() {
-            all_params.push(muni.to_string());
-        }
-        all_params.push(dim.to_string());
-
-        let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+        let rows = match seg_db.query_owned(query, all_params).await {
             Ok(r) => r,
             Err(_) => {
                 dim_data.push(Vec::new());
@@ -2711,30 +2676,20 @@ pub async fn segment_holidays(
     let mut total_count: i64 = 0;
 
     for dim in &dimensions {
-        let query = if !muni.is_empty() && !pref.is_empty() {
-            "SELECT value, count, total \
-             FROM segment_holidays WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ? AND dimension = ? \
-             ORDER BY count DESC"
-        } else if !pref.is_empty() {
-            "SELECT value, count, total \
-             FROM segment_holidays WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL AND dimension = ? \
-             ORDER BY count DESC"
+        let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
+        let muni_branch = build_segment_muni_branch(pref, muni, &mut all_params);
+        all_params.push(dim.to_string());
+        let query = if is_national {
+            format!("SELECT value, SUM(count) as count \
+             FROM segment_holidays WHERE job_type = ? AND employment_type = ? {} AND dimension = ? \
+             GROUP BY value ORDER BY SUM(count) DESC", muni_branch)
         } else {
-            "SELECT value, SUM(count) as count \
-             FROM segment_holidays WHERE job_type = ? AND employment_type = ? AND municipality IS NULL AND dimension = ? \
-             GROUP BY value ORDER BY SUM(count) DESC"
+            format!("SELECT value, count, total \
+             FROM segment_holidays WHERE job_type = ? AND employment_type = ? {} AND dimension = ? \
+             ORDER BY count DESC", muni_branch)
         };
 
-        let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
-        if !pref.is_empty() {
-            all_params.push(pref.to_string());
-        }
-        if !muni.is_empty() && !pref.is_empty() {
-            all_params.push(muni.to_string());
-        }
-        all_params.push(dim.to_string());
-
-        let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+        let rows = match seg_db.query_owned(query, all_params).await {
             Ok(r) => r,
             Err(_) => {
                 dim_data.push(Vec::new());
@@ -2971,32 +2926,15 @@ pub async fn segment_salary_shift(
         .as_millis();
 
     // salary_type別にデータ取得
-    let query = if !muni.is_empty() && !pref.is_empty() {
-        "SELECT salary_type, salary_band, shift_type, SUM(count) as count \
-         FROM segment_salary_shift WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality = ? \
-         GROUP BY salary_type, salary_band, shift_type \
-         ORDER BY salary_type, salary_band, shift_type"
-    } else if !pref.is_empty() {
-        "SELECT salary_type, salary_band, shift_type, SUM(count) as count \
-         FROM segment_salary_shift WHERE job_type = ? AND employment_type = ? AND prefecture = ? AND municipality IS NULL \
-         GROUP BY salary_type, salary_band, shift_type \
-         ORDER BY salary_type, salary_band, shift_type"
-    } else {
-        "SELECT salary_type, salary_band, shift_type, SUM(count) as count \
-         FROM segment_salary_shift WHERE job_type = ? AND employment_type = ? AND municipality IS NULL \
-         GROUP BY salary_type, salary_band, shift_type \
-         ORDER BY salary_type, salary_band, shift_type"
-    };
-
     let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
-    if !pref.is_empty() {
-        all_params.push(pref.to_string());
-    }
-    if !muni.is_empty() && !pref.is_empty() {
-        all_params.push(muni.to_string());
-    }
+    let muni_branch = build_segment_muni_branch(pref, muni, &mut all_params);
+    let query = format!(
+        "SELECT salary_type, salary_band, shift_type, SUM(count) as count \
+         FROM segment_salary_shift WHERE job_type = ? AND employment_type = ? {} \
+         GROUP BY salary_type, salary_band, shift_type \
+         ORDER BY salary_type, salary_band, shift_type", muni_branch);
 
-    let rows = match seg_db.query_owned(query.to_string(), all_params).await {
+    let rows = match seg_db.query_owned(query, all_params).await {
         Ok(r) => r,
         Err(_) => return Html(no_segment_data_html(&job_type)),
     };

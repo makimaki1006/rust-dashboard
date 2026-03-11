@@ -8,7 +8,7 @@ use tower_sessions::Session;
 use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
-use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, build_location_filter, make_location_label};
+use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, build_location_filter, make_location_label, parse_municipalities};
 use super::competitive::escape_html;
 
 /// 隣接県マップ（NiceGUI版 ADJACENT_PREFECTURES 完全移植）
@@ -202,7 +202,16 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
     let (sql, params) = if has_muni {
         // 出身地が選択市区町村のレコード（流出 + 地元）
         // + 希望地が選択市区町村のレコード（流入）
-        let sql = format!(
+        let munis = parse_municipalities(municipality);
+        let mut params = vec![
+            Value::String(job_type.to_string()),
+        ];
+
+        let sql = if munis.len() == 1 {
+            params.push(Value::String(prefecture.to_string()));
+            params.push(Value::String(munis[0].clone()));
+            params.push(Value::String(prefecture.to_string()));
+            params.push(Value::String(munis[0].clone()));
             "SELECT row_type, prefecture, municipality, \
                    desired_prefecture, desired_municipality, \
                    avg_reference_distance_km, mobility_type, count \
@@ -210,15 +219,31 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
             WHERE job_type = ? \
               AND row_type = 'RESIDENCE_FLOW' \
               AND ((prefecture = ? AND municipality = ?) \
-                OR (desired_prefecture = ? AND desired_municipality = ?))"
-        );
-        let params = vec![
-            Value::String(job_type.to_string()),
-            Value::String(prefecture.to_string()),
-            Value::String(municipality.to_string()),
-            Value::String(prefecture.to_string()),
-            Value::String(municipality.to_string()),
-        ];
+                OR (desired_prefecture = ? AND desired_municipality = ?))".to_string()
+        } else {
+            let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+            let in_clause = placeholders.join(", ");
+            // 居住地条件のパラメータ
+            params.push(Value::String(prefecture.to_string()));
+            for m in &munis {
+                params.push(Value::String(m.clone()));
+            }
+            // 希望地条件のパラメータ
+            params.push(Value::String(prefecture.to_string()));
+            for m in &munis {
+                params.push(Value::String(m.clone()));
+            }
+            format!(
+                "SELECT row_type, prefecture, municipality, \
+                       desired_prefecture, desired_municipality, \
+                       avg_reference_distance_km, mobility_type, count \
+                FROM job_seeker_data \
+                WHERE job_type = ? \
+                  AND row_type = 'RESIDENCE_FLOW' \
+                  AND ((prefecture = ? AND municipality IN ({in_clause})) \
+                    OR (desired_prefecture = ? AND desired_municipality IN ({in_clause})))"
+            )
+        };
         (sql, params)
     } else {
         // 都道府県のみ or 全国: 既存ロジック
@@ -253,6 +278,13 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
     let mut outflow_target_map: HashMap<(String, String, String), i64> = HashMap::new();
     let mut distance_values: Vec<(f64, i64)> = Vec::new();
 
+    // マルチ市区町村対応: 選択された市区町村リストを事前パース
+    let selected_munis: Vec<String> = if has_muni {
+        parse_municipalities(municipality)
+    } else {
+        vec![]
+    };
+
     stats.has_prefecture = has_pref;
 
     for row in &rows {
@@ -266,7 +298,7 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
 
         // 距離・移動パターンは居住地が選択市区町村の行のみ集計
         let is_origin_row = if has_muni {
-            from_pref == prefecture && from_muni == municipality
+            from_pref == prefecture && selected_munis.iter().any(|m| m == &from_muni)
         } else {
             true
         };
@@ -291,15 +323,17 @@ async fn fetch_mobility(state: &AppState, job_type: &str, prefecture: &str, muni
         // 流入・流出・地元志向の集計（都道府県選択時のみ）
         if has_pref && cnt > 0 && !from_pref.is_empty() && !to_pref.is_empty() {
             if has_muni {
+                let from_in_selected = selected_munis.iter().any(|m| m == &from_muni);
+                let to_in_selected = selected_munis.iter().any(|m| m == &to_muni);
                 // 市区町村レベル判定
-                if from_muni == municipality && to_muni == municipality {
+                if from_in_selected && to_in_selected {
                     stats.local_count += cnt;
-                } else if to_muni == municipality && from_muni != municipality && realistic {
+                } else if to_in_selected && !from_in_selected && realistic {
                     stats.inflow += cnt;
                     let name = if from_muni.is_empty() { from_pref.clone() } else { from_muni.clone() };
                     let key = (name, from_pref.clone(), from_muni.clone());
                     *inflow_source_map.entry(key).or_insert(0) += cnt;
-                } else if from_muni == municipality && to_muni != municipality && realistic {
+                } else if from_in_selected && !to_in_selected && realistic {
                     stats.outflow += cnt;
                     let name = if to_muni.is_empty() { to_pref.clone() } else { to_muni.clone() };
                     let key = (name, to_pref.clone(), to_muni.clone());
@@ -410,8 +444,18 @@ async fn fetch_region_summary_data(state: &AppState, job_type: &str, prefecture:
         params.push(Value::String(prefecture.to_string()));
     }
     if !municipality.is_empty() && municipality != "すべて" {
-        sql.push_str(" AND municipality LIKE ?");
-        params.push(Value::String(format!("{}%", municipality)));
+        let munis = parse_municipalities(municipality);
+        if munis.len() == 1 {
+            sql.push_str(" AND municipality LIKE ?");
+            params.push(Value::String(format!("{}%", munis[0])));
+        } else if munis.len() > 1 {
+            // 複数市区町村: LIKE条件をORで結合
+            let like_clauses: Vec<String> = munis.iter().map(|_| "municipality LIKE ?".to_string()).collect();
+            sql.push_str(&format!(" AND ({})", like_clauses.join(" OR ")));
+            for m in &munis {
+                params.push(Value::String(format!("{}%", m)));
+            }
+        }
     }
     sql.push_str(" LIMIT 1");
 
@@ -445,8 +489,17 @@ async fn fetch_retention_rates_data(state: &AppState, job_type: &str, prefecture
         params.push(Value::String(prefecture.to_string()));
     }
     if !municipality.is_empty() && municipality != "すべて" {
-        sql.push_str(" AND municipality LIKE ?");
-        params.push(Value::String(format!("{}%", municipality)));
+        let munis = parse_municipalities(municipality);
+        if munis.len() == 1 {
+            sql.push_str(" AND municipality LIKE ?");
+            params.push(Value::String(format!("{}%", munis[0])));
+        } else if munis.len() > 1 {
+            let like_clauses: Vec<String> = munis.iter().map(|_| "municipality LIKE ?".to_string()).collect();
+            sql.push_str(&format!(" AND ({})", like_clauses.join(" OR ")));
+            for m in &munis {
+                params.push(Value::String(format!("{}%", m)));
+            }
+        }
     }
 
     state.turso.query(&sql, &params).await.unwrap_or_default()

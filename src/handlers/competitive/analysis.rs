@@ -53,8 +53,17 @@ pub(crate) fn fetch_analysis_filtered(
         param_values.push(pref.to_string());
     }
     if !muni.is_empty() {
-        where_clause.push_str(" AND municipality = ?");
-        param_values.push(muni.to_string());
+        let munis: Vec<&str> = muni.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        if munis.len() == 1 {
+            where_clause.push_str(" AND municipality = ?");
+            param_values.push(munis[0].to_string());
+        } else {
+            let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+            where_clause.push_str(&format!(" AND municipality IN ({})", placeholders.join(", ")));
+            for m in &munis {
+                param_values.push(m.to_string());
+            }
+        }
     }
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values

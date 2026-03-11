@@ -33,16 +33,31 @@ pub async fn get_session_filters(session: &Session) -> (String, String, String) 
     (job_type, prefecture, municipality)
 }
 
-/// SQLのWHERE句とパラメータを構築するヘルパー
+/// カンマ区切り市区町村文字列をVecにパースするヘルパー
+pub fn parse_municipalities(municipality: &str) -> Vec<String> {
+    if municipality.is_empty() {
+        return vec![];
+    }
+    municipality.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+/// SQLのWHERE句とパラメータを構築するヘルパー（市区町村マルチセレクト対応）
 pub fn build_location_filter(prefecture: &str, municipality: &str, params: &mut Vec<Value>) -> String {
     let mut clause = String::new();
     if !prefecture.is_empty() {
         clause.push_str(" AND prefecture = ?");
         params.push(Value::String(prefecture.to_string()));
     }
-    if !municipality.is_empty() {
+    let munis = parse_municipalities(municipality);
+    if munis.len() == 1 {
         clause.push_str(" AND municipality = ?");
-        params.push(Value::String(municipality.to_string()));
+        params.push(Value::String(munis[0].clone()));
+    } else if munis.len() > 1 {
+        let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+        clause.push_str(&format!(" AND municipality IN ({})", placeholders.join(", ")));
+        for m in &munis {
+            params.push(Value::String(m.clone()));
+        }
     }
     clause
 }
@@ -688,6 +703,23 @@ mod tests {
         assert!(clause.contains("prefecture = ?"));
         assert!(clause.contains("municipality = ?"));
         assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn test_build_location_filter_multi_municipality() {
+        let mut params = Vec::new();
+        let clause = build_location_filter("東京都", "新宿区,渋谷区,港区", &mut params);
+        assert!(clause.contains("prefecture = ?"));
+        assert!(clause.contains("municipality IN (?, ?, ?)"));
+        assert_eq!(params.len(), 4); // prefecture + 3 municipalities
+    }
+
+    #[test]
+    fn test_parse_municipalities() {
+        assert!(parse_municipalities("").is_empty());
+        assert_eq!(parse_municipalities("新宿区"), vec!["新宿区"]);
+        assert_eq!(parse_municipalities("新宿区,渋谷区"), vec!["新宿区", "渋谷区"]);
+        assert_eq!(parse_municipalities("新宿区, 渋谷区 , 港区"), vec!["新宿区", "渋谷区", "港区"]);
     }
 
     // get_str テスト

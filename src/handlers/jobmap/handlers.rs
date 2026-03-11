@@ -162,14 +162,20 @@ pub async fn jobmap_markers(
     let radius_km = params.radius.unwrap_or(10.0);
 
     // 市区町村中心座標を取得（local_db の municipality_geocode テーブル）
+    // 複数市区町村の場合は最初の1つの中心座標を使用
+    let first_muni: String = params.municipality.split(',')
+        .map(|s| s.trim())
+        .find(|s| !s.is_empty())
+        .unwrap_or("")
+        .to_string();
     let center = if let Some(db) = &state.local_db {
         let db_clone = db.clone();
         let pref_owned = pref.to_string();
-        let muni_owned = params.municipality.clone();
+        let muni_for_center = first_muni.clone();
         match tokio::task::spawn_blocking(move || {
-            fetch::get_muni_center(&db_clone, &pref_owned, &muni_owned)
+            fetch::get_muni_center(&db_clone, &pref_owned, &muni_for_center)
                 .or_else(|| {
-                    extract_parent_city(&muni_owned)
+                    extract_parent_city(&muni_for_center)
                         .and_then(|parent| fetch::get_muni_center(&db_clone, &pref_owned, &parent))
                 })
         }).await {

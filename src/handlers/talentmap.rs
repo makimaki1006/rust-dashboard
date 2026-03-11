@@ -10,7 +10,7 @@ use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 use crate::geo::pref_name_to_code;
 
-use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, make_location_label};
+use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, make_location_label, parse_municipalities};
 use super::competitive::escape_html;
 
 /// タブ7用クエリパラメータ（地図クリック等から受け取る）
@@ -225,30 +225,54 @@ pub(crate) fn parse_flows(rows: &[HashMap<String, Value>], stats: &mut TalentMap
 }
 
 /// 市区町村詳細データを3クエリ pipeline batch で1 HTTPリクエストで取得
+/// muni はカンマ区切りの複数市区町村に対応
 pub(crate) async fn fetch_muni_detail(state: &AppState, job_type: &str, pref: &str, muni: &str) -> Option<MuniDetail> {
-    let common_params = vec![
-        Value::String(job_type.to_string()),
-        Value::String(pref.to_string()),
-        Value::String(muni.to_string()),
-    ];
+    let munis = parse_municipalities(muni);
+    if munis.is_empty() {
+        return None;
+    }
+
+    // 市区町村フィルタ部分を構築
+    let (muni_clause, muni_params_extra) = if munis.len() == 1 {
+        (" AND municipality = ?".to_string(), munis.clone())
+    } else {
+        let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+        (format!(" AND municipality IN ({})", placeholders.join(", ")), munis.clone())
+    };
+
+    // 共通パラメータを構築（各クエリ用に3セット必要）
+    let build_params = || {
+        let mut params = vec![
+            Value::String(job_type.to_string()),
+            Value::String(pref.to_string()),
+        ];
+        for m in &muni_params_extra {
+            params.push(Value::String(m.clone()));
+        }
+        params
+    };
+
+    let summary_params = build_params();
+    let ag_params = build_params();
+    let ws_params = build_params();
 
     // 3クエリを1バッチで実行
-    let summary_sql = "SELECT male_count, female_count, applicant_count \
+    let summary_sql = format!("SELECT SUM(male_count) as male_count, SUM(female_count) as female_count, SUM(applicant_count) as applicant_count \
                        FROM job_seeker_data \
-                       WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture = ? AND municipality = ?";
-    let ag_sql = "SELECT category1, male_count, female_count \
+                       WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture = ?{}", muni_clause);
+    let ag_sql = format!("SELECT category1, SUM(male_count) as male_count, SUM(female_count) as female_count \
                   FROM job_seeker_data \
-                  WHERE job_type = ? AND row_type = 'AGE_GENDER' AND prefecture = ? AND municipality = ? \
-                  ORDER BY category1";
-    let ws_sql = "SELECT category1, count \
+                  WHERE job_type = ? AND row_type = 'AGE_GENDER' AND prefecture = ?{} \
+                  GROUP BY category1 ORDER BY category1", muni_clause);
+    let ws_sql = format!("SELECT category1, SUM(count) as count \
                   FROM job_seeker_data \
-                  WHERE job_type = ? AND row_type = 'WORKSTYLE_DISTRIBUTION' AND prefecture = ? AND municipality = ? \
-                  ORDER BY count DESC";
+                  WHERE job_type = ? AND row_type = 'WORKSTYLE_DISTRIBUTION' AND prefecture = ?{} \
+                  GROUP BY category1 ORDER BY count DESC", muni_clause);
 
     let batch_results = match state.turso.query_batch(&[
-        (summary_sql, &common_params),
-        (ag_sql, &common_params),
-        (ws_sql, &common_params),
+        (&summary_sql, &summary_params),
+        (&ag_sql, &ag_params),
+        (&ws_sql, &ws_params),
     ]).await {
         Ok(r) => r,
         Err(e) => {
@@ -399,16 +423,27 @@ pub async fn api_talentmap_detail(
     let detail = fetch_muni_detail(&state, &job_type, pref, muni).await;
 
     // マーカーデータも取得（基本情報表示用）
-    let marker_sql = "SELECT latitude, longitude, applicant_count, male_count, female_count \
-                      FROM job_seeker_data \
-                      WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture = ? AND municipality = ?";
-    let marker_params = vec![
+    let munis = parse_municipalities(muni);
+    let mut marker_params = vec![
         Value::String(job_type),
         Value::String(pref.to_string()),
-        Value::String(muni.to_string()),
     ];
+    let marker_sql = if munis.len() <= 1 {
+        marker_params.push(Value::String(muni.to_string()));
+        "SELECT latitude, longitude, applicant_count, male_count, female_count \
+         FROM job_seeker_data \
+         WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture = ? AND municipality = ?".to_string()
+    } else {
+        let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+        for m in &munis {
+            marker_params.push(Value::String(m.clone()));
+        }
+        format!("SELECT latitude, longitude, applicant_count, male_count, female_count \
+         FROM job_seeker_data \
+         WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture = ? AND municipality IN ({})", placeholders.join(", "))
+    };
 
-    let markers = if let Ok(rows) = state.turso.query(marker_sql, &marker_params).await {
+    let markers = if let Ok(rows) = state.turso.query(&marker_sql, &marker_params).await {
         rows.iter().map(|row| MarkerData {
             municipality: muni.to_string(),
             prefecture: pref.to_string(),

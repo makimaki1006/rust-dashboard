@@ -188,8 +188,17 @@ pub(crate) fn fetch_markers_by_pref(
     let mut param_values: Vec<String> = vec![job_type.to_string(), prefecture.to_string()];
 
     if !municipality.is_empty() {
-        sql.push_str(" AND municipality = ?");
-        param_values.push(municipality.to_string());
+        let munis: Vec<&str> = municipality.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        if munis.len() == 1 {
+            sql.push_str(" AND municipality = ?");
+            param_values.push(munis[0].to_string());
+        } else {
+            let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+            sql.push_str(&format!(" AND municipality IN ({})", placeholders.join(", ")));
+            for m in &munis {
+                param_values.push(m.to_string());
+            }
+        }
     }
     if !employment_type.is_empty() && employment_type != "全て選択" {
         sql.push_str(" AND employment_type = ?");

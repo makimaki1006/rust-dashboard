@@ -199,8 +199,17 @@ pub(crate) fn fetch_postings(
 
     if let Some(m) = muni {
         if !m.is_empty() {
-            sql.push_str(" AND municipality = ?");
-            param_values.push(m.to_string());
+            let munis: Vec<&str> = m.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            if munis.len() == 1 {
+                sql.push_str(" AND municipality = ?");
+                param_values.push(munis[0].to_string());
+            } else {
+                let placeholders: Vec<&str> = munis.iter().map(|_| "?").collect();
+                sql.push_str(&format!(" AND municipality IN ({})", placeholders.join(", ")));
+                for mu in &munis {
+                    param_values.push(mu.to_string());
+                }
+            }
         }
     }
     if !emp.is_empty() && emp != "全て" {
