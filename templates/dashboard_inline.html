@@ -37,30 +37,12 @@
                 {{PREF_OPTIONS}}
             </select>
             <label for="muni-select" class="sr-only">市区町村選択</label>
-            <div id="muni-multi-wrapper" class="muni-multi-wrapper" style="position:relative;display:inline-block;">
-                <button id="muni-toggle-btn" type="button" aria-haspopup="listbox" aria-expanded="false"
-                    class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white flex items-center gap-1 min-w-[140px] max-w-[240px]"
-                    style="cursor:pointer;">
-                    <span id="muni-toggle-label" class="truncate">すべて</span>
-                    <svg class="w-3 h-3 ml-auto flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                </button>
-                <div id="muni-dropdown" class="muni-dropdown muni-hidden" role="listbox" aria-label="市区町村選択">
-                    <input id="muni-search" type="text" placeholder="検索..."
-                        autocomplete="off" aria-label="市区町村を検索"
-                        class="muni-dropdown-search">
-                    <div class="muni-dropdown-actions">
-                        <button type="button" id="muni-select-all" class="muni-action-btn">全選択</button>
-                        <button type="button" id="muni-clear-all" class="muni-action-btn">全解除</button>
-                    </div>
-                    <div id="muni-checkbox-list" class="muni-checkbox-list">
-                        <!-- 動的に生成 -->
-                    </div>
-                </div>
-                <!-- 旧selectをhiddenで残し、データ受け渡し用に利用 -->
-                <select id="muni-select" aria-hidden="true" style="display:none;">
-                    <option value="">すべて</option>
+            <div style="position:relative;display:inline-block;">
+                <select id="muni-select" multiple aria-label="市区町村選択"
+                    class="muni-multiselect bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
                     {{MUNI_OPTIONS}}
                 </select>
+                <span id="muni-count-badge" class="muni-count-badge" style="display:none;"></span>
             </div>
         </div>
         <div class="flex items-center gap-4">
@@ -129,7 +111,7 @@
             htmx.ajax('GET', '/tab/overview', {target: '#content', swap: 'innerHTML'});
 
             // ----- フィルタ操作中スピナー（UX-C2） -----
-            var filterSelects = ['job-type-select', 'pref-select', 'muni-toggle-btn'];
+            var filterSelects = ['job-type-select', 'pref-select', 'muni-select'];
             function showFilterSpinner() {
                 var content = document.getElementById('content');
                 if (!content || document.getElementById('filter-overlay')) return;
@@ -240,16 +222,19 @@
             // セレクトボックスのオプション安全更新（サーバーから返されるoption要素のみ許可）
             function safeSetOptions(selectEl, optionHtml, defaultOption) {
                 while (selectEl.options.length > 0) { selectEl.remove(0); }
-                var def = document.createElement('option');
-                def.value = '';
-                def.textContent = defaultOption;
-                selectEl.appendChild(def);
+                var isMultiple = selectEl.multiple;
+                if (!isMultiple) {
+                    var def = document.createElement('option');
+                    def.value = '';
+                    def.textContent = defaultOption;
+                    selectEl.appendChild(def);
+                }
                 if (optionHtml) {
                     var tmp = document.createElement('select');
                     tmp.insertAdjacentHTML('afterbegin', optionHtml);
                     while (tmp.firstChild) { selectEl.appendChild(tmp.firstChild); }
                 }
-                selectEl.selectedIndex = 0;
+                if (!isMultiple) selectEl.selectedIndex = 0;
             }
 
             // 職種切り替え
@@ -301,103 +286,49 @@
                 });
             }
 
-            // --- 市区町村マルチセレクト ---
+            // --- 市区町村マルチセレクト（native select multiple） ---
             (function() {
-                var hiddenSel = document.getElementById('muni-select');
-                var toggleBtn = document.getElementById('muni-toggle-btn');
-                var toggleLabel = document.getElementById('muni-toggle-label');
-                var dropdown = document.getElementById('muni-dropdown');
-                var searchInput = document.getElementById('muni-search');
-                var checkboxList = document.getElementById('muni-checkbox-list');
-                var selectAllBtn = document.getElementById('muni-select-all');
-                var clearAllBtn = document.getElementById('muni-clear-all');
-                if (!hiddenSel || !toggleBtn || !dropdown) return;
+                var muniSel = document.getElementById('muni-select');
+                var badge = document.getElementById('muni-count-badge');
+                if (!muniSel) return;
 
-                var allMunis = []; // [{value, text}]
-                var selectedValues = new Set();
                 var applyTimer = null;
 
-                // hiddenSelectからオプション一覧を取得
-                function syncFromHiddenSelect() {
-                    allMunis = [];
-                    selectedValues.clear();
-                    for (var i = 0; i < hiddenSel.options.length; i++) {
-                        var opt = hiddenSel.options[i];
-                        if (opt.value) allMunis.push({value: opt.value, text: opt.text});
+                function getSelectedValues() {
+                    var vals = [];
+                    for (var i = 0; i < muniSel.options.length; i++) {
+                        if (muniSel.options[i].selected) vals.push(muniSel.options[i].value);
                     }
-                    renderCheckboxes();
-                    updateToggleLabel();
+                    return vals;
                 }
 
-                // チェックボックスリスト描画
-                function renderCheckboxes(filterQuery) {
-                    checkboxList.innerHTML = '';
-                    var q = (filterQuery || '').toLowerCase();
-                    var shown = 0;
-                    allMunis.forEach(function(m) {
-                        if (q && m.text.toLowerCase().indexOf(q) === -1) return;
-                        var label = document.createElement('label');
-                        label.className = 'muni-checkbox-item' + (selectedValues.has(m.value) ? ' checked' : '');
-                        var cb = document.createElement('input');
-                        cb.type = 'checkbox';
-                        cb.value = m.value;
-                        cb.checked = selectedValues.has(m.value);
-                        cb.addEventListener('change', function() {
-                            if (this.checked) {
-                                selectedValues.add(m.value);
-                                label.classList.add('checked');
-                            } else {
-                                selectedValues.delete(m.value);
-                                label.classList.remove('checked');
-                            }
-                            updateToggleLabel();
-                            scheduleApply();
-                        });
-                        var span = document.createElement('span');
-                        span.textContent = m.text;
-                        label.appendChild(cb);
-                        label.appendChild(span);
-                        checkboxList.appendChild(label);
-                        shown++;
-                    });
-                    if (shown === 0) {
-                        var empty = document.createElement('div');
-                        empty.className = 'text-slate-500 text-xs px-4 py-3 text-center';
-                        empty.textContent = '該当なし';
-                        checkboxList.appendChild(empty);
+                function getSelectedTexts() {
+                    var texts = [];
+                    for (var i = 0; i < muniSel.options.length; i++) {
+                        if (muniSel.options[i].selected) texts.push(muniSel.options[i].text);
+                    }
+                    return texts;
+                }
+
+                function updateBadge() {
+                    var count = getSelectedValues().length;
+                    if (badge) {
+                        if (count > 0) {
+                            badge.textContent = count;
+                            badge.style.display = '';
+                        } else {
+                            badge.style.display = 'none';
+                        }
                     }
                 }
 
-                // トグルボタンのラベル更新
-                function updateToggleLabel() {
-                    var count = selectedValues.size;
-                    if (count === 0) {
-                        toggleLabel.textContent = 'すべて';
-                    } else if (count === 1) {
-                        var val = Array.from(selectedValues)[0];
-                        var m = allMunis.find(function(x) { return x.value === val; });
-                        toggleLabel.textContent = m ? m.text : val;
-                    } else if (count <= 2) {
-                        var names = Array.from(selectedValues).map(function(v) {
-                            var m = allMunis.find(function(x) { return x.value === v; });
-                            return m ? m.text : v;
-                        });
-                        toggleLabel.textContent = names.join(', ');
-                    } else {
-                        var first = Array.from(selectedValues)[0];
-                        var m = allMunis.find(function(x) { return x.value === first; });
-                        toggleLabel.textContent = (m ? m.text : first) + ' 他' + (count - 1) + '件';
-                    }
-                }
-
-                // サーバーに選択状態を送信（デバウンス: 500ms）
                 function scheduleApply() {
                     if (applyTimer) clearTimeout(applyTimer);
-                    applyTimer = setTimeout(applySelection, 500);
+                    applyTimer = setTimeout(applySelection, 400);
                 }
 
                 function applySelection() {
-                    var muniValue = Array.from(selectedValues).join(',');
+                    var muniValue = getSelectedValues().join(',');
                     showFilterSpinner();
                     if (window.clearTabCache) window.clearTabCache();
                     fetch('/api/set_municipality', {
@@ -410,88 +341,25 @@
                     }).catch(function() { hideFilterSpinner(); });
                 }
 
-                // グローバル関数: 選択済み市区町村のテキスト配列を返す
-                window.getSelectedMunicipalities = function() {
-                    return Array.from(selectedValues).map(function(v) {
-                        var m = allMunis.find(function(x) { return x.value === v; });
-                        return m ? m.text : v;
-                    });
-                };
+                muniSel.addEventListener('change', function() {
+                    updateBadge();
+                    scheduleApply();
+                });
 
-                // グローバル関数: 外部からの市区町村リセット
+                // グローバル関数
+                window.getSelectedMunicipalities = function() { return getSelectedTexts(); };
                 window.resetMuniSelection = function() {
-                    selectedValues.clear();
-                    renderCheckboxes();
-                    updateToggleLabel();
+                    for (var i = 0; i < muniSel.options.length; i++) muniSel.options[i].selected = false;
+                    updateBadge();
                 };
-
-                // グローバル関数: 外部から特定の市区町村を選択
                 window.setMuniSelection = function(values) {
-                    selectedValues.clear();
-                    (values || []).forEach(function(v) { selectedValues.add(v); });
-                    renderCheckboxes();
-                    updateToggleLabel();
+                    for (var i = 0; i < muniSel.options.length; i++) {
+                        muniSel.options[i].selected = values.indexOf(muniSel.options[i].value) !== -1;
+                    }
+                    updateBadge();
                 };
 
-                // ドロップダウン開閉
-                toggleBtn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    var isOpen = !dropdown.classList.contains('muni-hidden');
-                    if (isOpen) {
-                        dropdown.classList.add('muni-hidden');
-                        toggleBtn.setAttribute('aria-expanded', 'false');
-                    } else {
-                        dropdown.classList.remove('muni-hidden');
-                        toggleBtn.setAttribute('aria-expanded', 'true');
-                        searchInput.value = '';
-                        renderCheckboxes();
-                        searchInput.focus();
-                    }
-                });
-
-                // 外部クリックで閉じる
-                document.addEventListener('click', function(e) {
-                    var wrapper = document.getElementById('muni-multi-wrapper');
-                    if (wrapper && !wrapper.contains(e.target)) {
-                        dropdown.classList.add('muni-hidden');
-                        toggleBtn.setAttribute('aria-expanded', 'false');
-                    }
-                });
-
-                // 検索フィルタ
-                searchInput.addEventListener('input', function() {
-                    renderCheckboxes(this.value);
-                });
-                searchInput.addEventListener('keydown', function(e) {
-                    if (e.key === 'Escape') {
-                        dropdown.classList.add('muni-hidden');
-                        toggleBtn.setAttribute('aria-expanded', 'false');
-                        toggleBtn.focus();
-                    }
-                });
-
-                // 全選択 / 全解除
-                selectAllBtn.addEventListener('click', function() {
-                    allMunis.forEach(function(m) { selectedValues.add(m.value); });
-                    renderCheckboxes(searchInput.value);
-                    updateToggleLabel();
-                    scheduleApply();
-                });
-                clearAllBtn.addEventListener('click', function() {
-                    selectedValues.clear();
-                    renderCheckboxes(searchInput.value);
-                    updateToggleLabel();
-                    scheduleApply();
-                });
-
-                // hiddenSelectの変更を監視（都道府県切替時にsafeSetOptionsで更新される）
-                var observer = new MutationObserver(function() {
-                    syncFromHiddenSelect();
-                });
-                observer.observe(hiddenSel, {childList: true});
-
-                // 初期化
-                syncFromHiddenSelect();
+                updateBadge();
             })();
         });
         function setActiveTab(el) {
