@@ -34,10 +34,13 @@
             </div>
             <div>
                 <label class="block text-xs text-slate-400 mb-1">市区町村</label>
-                <select id="comp-muni" name="municipality"
-                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
-                    <option value="">全て</option>
-                </select>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <select id="comp-muni" name="municipality"
+                        class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                        <option value="">全て</option>
+                    </select>
+                    <div id="comp-muni-chips" class="muni-chips"></div>
+                </div>
             </div>
             <div>
                 <label class="block text-xs text-slate-400 mb-1">雇用形態</label>
@@ -279,7 +282,7 @@ function updateFacilityTypes(pref) {
 
 function searchCompetitive() {
     var pref = document.getElementById('comp-pref').value;
-    var muni = document.getElementById('comp-muni').value;
+    var muni = compMuniGetValue();
     var emp = document.getElementById('comp-emp').value;
     var ftype = getSelectedFtypes();
     var stype = document.getElementById('comp-stype').value;
@@ -316,7 +319,7 @@ function loadAnalysis() {
 
 function loadAnalysisFiltered() {
     var pref = document.getElementById('comp-pref').value;
-    var muni = document.getElementById('comp-muni').value;
+    var muni = compMuniGetValue();
     var url = '/api/competitive/analysis/filter?prefecture=' + encodeURIComponent(pref)
         + '&municipality=' + encodeURIComponent(muni);
     htmx.ajax('GET', url, {
@@ -324,4 +327,71 @@ function loadAnalysisFiltered() {
         swap: 'innerHTML'
     });
 }
+
+// --- 競合タブ 市区町村マルチセレクト（チップ方式） ---
+var compMuniSelected = [];
+
+function compMuniGetValue() {
+    return compMuniSelected.map(function(s) { return s.value; }).join(',');
+}
+
+function compMuniRenderChips() {
+    var container = document.getElementById('comp-muni-chips');
+    if (!container) return;
+    while (container.firstChild) container.removeChild(container.firstChild);
+    compMuniSelected.forEach(function(item) {
+        var chip = document.createElement('span');
+        chip.className = 'muni-chip';
+        chip.textContent = item.text;
+        var x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'muni-chip-x';
+        x.textContent = '\u00d7';
+        x.addEventListener('click', function() {
+            compMuniSelected = compMuniSelected.filter(function(s) { return s.value !== item.value; });
+            compMuniRenderChips();
+        });
+        chip.appendChild(x);
+        container.appendChild(chip);
+    });
+    if (compMuniSelected.length > 1) {
+        var clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'muni-chip-clear';
+        clearBtn.textContent = '\u5168\u89e3\u9664';
+        clearBtn.addEventListener('click', function() {
+            compMuniSelected = [];
+            compMuniRenderChips();
+        });
+        container.appendChild(clearBtn);
+    }
+}
+
+(function() {
+    var sel = document.getElementById('comp-muni');
+    if (!sel) return;
+    sel.addEventListener('change', function() {
+        var val = this.value;
+        if (!val) {
+            compMuniSelected = [];
+            compMuniRenderChips();
+            return;
+        }
+        if (compMuniSelected.some(function(s) { return s.value === val; })) {
+            this.selectedIndex = 0;
+            return;
+        }
+        compMuniSelected.push({value: val, text: this.options[this.selectedIndex].text});
+        this.selectedIndex = 0;
+        compMuniRenderChips();
+    });
+
+    // 都道府県変更時にチップをリセット（HTMXがcomp-muniのoptionsを置き換えた後）
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target && evt.detail.target.id === 'comp-muni') {
+            compMuniSelected = [];
+            compMuniRenderChips();
+        }
+    });
+})();
 </script>
