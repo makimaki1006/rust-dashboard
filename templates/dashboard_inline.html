@@ -37,12 +37,13 @@
                 {{PREF_OPTIONS}}
             </select>
             <label for="muni-select" class="sr-only">市区町村選択</label>
-            <div style="position:relative;display:inline-block;">
-                <select id="muni-select" multiple aria-label="市区町村選択"
-                    class="muni-multiselect bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+            <div id="muni-wrapper" style="display:inline-flex;align-items:center;gap:6px;">
+                <select id="muni-select" aria-label="市区町村選択"
+                    class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+                    <option value="">すべて</option>
                     {{MUNI_OPTIONS}}
                 </select>
-                <span id="muni-count-badge" class="muni-count-badge" style="display:none;"></span>
+                <div id="muni-chips" class="muni-chips"></div>
             </div>
         </div>
         <div class="flex items-center gap-4">
@@ -222,19 +223,16 @@
             // セレクトボックスのオプション安全更新（サーバーから返されるoption要素のみ許可）
             function safeSetOptions(selectEl, optionHtml, defaultOption) {
                 while (selectEl.options.length > 0) { selectEl.remove(0); }
-                var isMultiple = selectEl.multiple;
-                if (!isMultiple) {
-                    var def = document.createElement('option');
-                    def.value = '';
-                    def.textContent = defaultOption;
-                    selectEl.appendChild(def);
-                }
+                var def = document.createElement('option');
+                def.value = '';
+                def.textContent = defaultOption;
+                selectEl.appendChild(def);
                 if (optionHtml) {
                     var tmp = document.createElement('select');
                     tmp.insertAdjacentHTML('afterbegin', optionHtml);
                     while (tmp.firstChild) { selectEl.appendChild(tmp.firstChild); }
                 }
-                if (!isMultiple) selectEl.selectedIndex = 0;
+                selectEl.selectedIndex = 0;
             }
 
             // 職種切り替え
@@ -286,49 +284,54 @@
                 });
             }
 
-            // --- 市区町村マルチセレクト（native select multiple） ---
+            // --- 市区町村マルチセレクト（チップ方式） ---
             (function() {
                 var muniSel = document.getElementById('muni-select');
-                var badge = document.getElementById('muni-count-badge');
-                if (!muniSel) return;
+                var chipsEl = document.getElementById('muni-chips');
+                if (!muniSel || !chipsEl) return;
 
-                var applyTimer = null;
+                var selected = []; // [{value, text}]
 
-                function getSelectedValues() {
-                    var vals = [];
-                    for (var i = 0; i < muniSel.options.length; i++) {
-                        if (muniSel.options[i].selected) vals.push(muniSel.options[i].value);
+                // チップ描画
+                function renderChips() {
+                    chipsEl.innerHTML = '';
+                    selected.forEach(function(item) {
+                        var chip = document.createElement('span');
+                        chip.className = 'muni-chip';
+                        chip.textContent = item.text;
+                        var x = document.createElement('button');
+                        x.type = 'button';
+                        x.className = 'muni-chip-x';
+                        x.textContent = '×';
+                        x.title = item.text + ' を解除';
+                        x.addEventListener('click', function() {
+                            removeItem(item.value);
+                        });
+                        chip.appendChild(x);
+                        chipsEl.appendChild(chip);
+                    });
+                    if (selected.length > 1) {
+                        var clearBtn = document.createElement('button');
+                        clearBtn.type = 'button';
+                        clearBtn.className = 'muni-chip-clear';
+                        clearBtn.textContent = '全解除';
+                        clearBtn.addEventListener('click', function() {
+                            selected = [];
+                            renderChips();
+                            applySelection();
+                        });
+                        chipsEl.appendChild(clearBtn);
                     }
-                    return vals;
                 }
 
-                function getSelectedTexts() {
-                    var texts = [];
-                    for (var i = 0; i < muniSel.options.length; i++) {
-                        if (muniSel.options[i].selected) texts.push(muniSel.options[i].text);
-                    }
-                    return texts;
-                }
-
-                function updateBadge() {
-                    var count = getSelectedValues().length;
-                    if (badge) {
-                        if (count > 0) {
-                            badge.textContent = count;
-                            badge.style.display = '';
-                        } else {
-                            badge.style.display = 'none';
-                        }
-                    }
-                }
-
-                function scheduleApply() {
-                    if (applyTimer) clearTimeout(applyTimer);
-                    applyTimer = setTimeout(applySelection, 400);
+                function removeItem(value) {
+                    selected = selected.filter(function(s) { return s.value !== value; });
+                    renderChips();
+                    applySelection();
                 }
 
                 function applySelection() {
-                    var muniValue = getSelectedValues().join(',');
+                    var muniValue = selected.map(function(s) { return s.value; }).join(',');
                     showFilterSpinner();
                     if (window.clearTabCache) window.clearTabCache();
                     fetch('/api/set_municipality', {
@@ -341,25 +344,50 @@
                     }).catch(function() { hideFilterSpinner(); });
                 }
 
+                // プルダウンで選択 → チップに追加
                 muniSel.addEventListener('change', function() {
-                    updateBadge();
-                    scheduleApply();
+                    var val = this.value;
+                    if (!val) {
+                        // 「すべて」選択 → 全チップ解除
+                        if (selected.length > 0) {
+                            selected = [];
+                            renderChips();
+                            applySelection();
+                        }
+                        return;
+                    }
+                    // 既に選択済みなら何もしない
+                    if (selected.some(function(s) { return s.value === val; })) {
+                        this.selectedIndex = 0;
+                        return;
+                    }
+                    var text = this.options[this.selectedIndex].text;
+                    selected.push({value: val, text: text});
+                    this.selectedIndex = 0; // プルダウンを「すべて」に戻す
+                    renderChips();
+                    applySelection();
                 });
 
                 // グローバル関数
-                window.getSelectedMunicipalities = function() { return getSelectedTexts(); };
+                window.getSelectedMunicipalities = function() {
+                    return selected.map(function(s) { return s.text; });
+                };
                 window.resetMuniSelection = function() {
-                    for (var i = 0; i < muniSel.options.length; i++) muniSel.options[i].selected = false;
-                    updateBadge();
+                    selected = [];
+                    renderChips();
                 };
                 window.setMuniSelection = function(values) {
-                    for (var i = 0; i < muniSel.options.length; i++) {
-                        muniSel.options[i].selected = values.indexOf(muniSel.options[i].value) !== -1;
-                    }
-                    updateBadge();
+                    selected = [];
+                    (values || []).forEach(function(v) {
+                        for (var i = 0; i < muniSel.options.length; i++) {
+                            if (muniSel.options[i].value === v) {
+                                selected.push({value: v, text: muniSel.options[i].text});
+                                break;
+                            }
+                        }
+                    });
+                    renderChips();
                 };
-
-                updateBadge();
             })();
         });
         function setActiveTab(el) {
