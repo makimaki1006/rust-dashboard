@@ -151,6 +151,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/analysis/clusters", get(handlers::analysis::api_clusters))
         .route("/api/analysis/heatmap", get(handlers::analysis::api_heatmap))
         .route("/api/analysis/compare", get(handlers::analysis::api_compare))
+        // 6Q テキスト分析API (Layer B-6Q)
+        .route("/api/analysis/text_analysis", get(handlers::analysis::api_text_analysis))
+        .route("/api/analysis/tone", get(handlers::analysis::api_tone))
+        .route("/api/analysis/info_score", get(handlers::analysis::api_info_score))
+        .route("/api/analysis/targeting", get(handlers::analysis::api_targeting))
         // セグメント分析タブ (Tab 10)
         .route(
             "/tab/segment",

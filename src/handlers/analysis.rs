@@ -197,6 +197,19 @@ pub async fn tab_analysis(
             <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
                     hx-get="/api/analysis/compare" hx-target="#analysis-content" hx-swap="innerHTML"
                     onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3'/></svg>  地域比較</button>
+            <span class="mx-1 border-l border-slate-600 h-6 self-center"></span>
+            <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
+                    hx-get="/api/analysis/text_analysis" hx-target="#analysis-content" hx-swap="innerHTML"
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z'/></svg>  テキスト分析</button>
+            <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
+                    hx-get="/api/analysis/tone" hx-target="#analysis-content" hx-swap="innerHTML"
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z'/></svg>  トーン</button>
+            <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
+                    hx-get="/api/analysis/info_score" hx-target="#analysis-content" hx-swap="innerHTML"
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z'/></svg>  情報充足度</button>
+            <button class="analysis-sub-btn px-4 py-2 text-sm rounded-t-lg text-gray-400 hover:text-white"
+                    hx-get="/api/analysis/targeting" hx-target="#analysis-content" hx-swap="innerHTML"
+                    onclick="setAnalysisSubTab(this)"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z'/></svg>  ターゲティング</button>
         </nav>
     </div>
 
@@ -2252,6 +2265,37 @@ fn format_yen(val: f64) -> String {
     }
 }
 
+/// 市区町村選択時の注記バナー（6Q分析は都道府県集計のため）
+/// サンプル数が少ない場合の注意表示（N < 30）
+fn low_sample_notice_html(rows: &[std::collections::HashMap<String, serde_json::Value>]) -> String {
+    // 最小サンプル数を取得（全体行以外で）
+    let min_count: i64 = rows.iter()
+        .filter(|r: &&std::collections::HashMap<String, serde_json::Value>| {
+            r.get("employment_type").and_then(|v: &serde_json::Value| v.as_str()) != Some("全体")
+        })
+        .filter_map(|r: &std::collections::HashMap<String, serde_json::Value>| {
+            r.get("count").and_then(|v: &serde_json::Value| v.as_i64())
+        })
+        .min()
+        .unwrap_or(0);
+
+    if min_count >= 30 {
+        return String::new();
+    }
+
+    format!(
+        r#"<div class="bg-amber-900/40 border border-amber-700/50 text-amber-200 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+            </svg>
+            <div>
+                データ件数が少ないため（N={min_count}）、統計値の信頼性が低い可能性があります。
+            </div>
+        </div>"#,
+        min_count = min_count,
+    )
+}
+
 fn error_html(msg: &str) -> String {
     super::render_error_state("エラー", &escape_html(msg))
 }
@@ -2808,6 +2852,708 @@ pub async fn api_compare(
         emp_chart_config = emp_chart_config,
         chart_id_js = format!(r#""{}""#, chart_id),
         emp_chart_id_js = format!(r#""{}""#, emp_chart_id),
+    );
+
+    state.cache.set(cache_key, Value::String(html.clone()));
+    Html(html)
+}
+
+// ===========================================================================
+// 6Q テキスト分析 API ハンドラー (Layer B v2)
+// ===========================================================================
+
+/// Q2+Q1: テキスト分析（定型文率 + 差別化シグナル）
+pub async fn api_text_analysis(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Html<String> {
+    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_text_analysis_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
+    let location_label = make_location_label(&prefecture, &municipality);
+
+    let rows = match analytics::query_text_analysis(&state.turso, &job_type, &prefecture, &municipality).await {
+        Ok(r) => r,
+        Err(e) => return Html(error_html(&e)),
+    };
+
+    if rows.is_empty() {
+        return Html(empty_html("テキスト分析データがありません。Tursoに6Qテーブルをインポートしてください。"));
+    }
+
+    let mut table_rows = String::new();
+    let mut chart_labels = Vec::new();
+    let mut template_data = Vec::new();
+    let mut diff_data = Vec::new();
+    let mut diff_zero_data = Vec::new();
+
+    for row in &rows {
+        let emp = row.get("employment_type").and_then(|v| v.as_str()).unwrap_or("-");
+        let count = row.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+        let tmpl_mean = row.get("template_ratio_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let tmpl_median = row.get("template_ratio_median").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let orig_mean = row.get("original_length_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let diff_mean = row.get("diff_total_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let diff_zero = row.get("diff_zero_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let full_mean = row.get("full_length_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        table_rows.push_str(&format!(
+            r#"<tr class="border-b border-slate-700 hover:bg-slate-800/50">
+                <td class="px-4 py-3 font-medium text-white">{emp}</td>
+                <td class="px-4 py-3 text-right">{count}</td>
+                <td class="px-4 py-3 text-right">{tmpl_mean:.1}%</td>
+                <td class="px-4 py-3 text-right">{tmpl_median:.1}%</td>
+                <td class="px-4 py-3 text-right">{orig_mean:.0}字</td>
+                <td class="px-4 py-3 text-right">{full_mean:.0}字</td>
+                <td class="px-4 py-3 text-right">{diff_mean:.2}</td>
+                <td class="px-4 py-3 text-right">{diff_zero:.1}%</td>
+            </tr>"#,
+            emp = escape_html(emp), count = format_number(count),
+            tmpl_mean = tmpl_mean * 100.0, tmpl_median = tmpl_median * 100.0,
+            orig_mean = orig_mean, full_mean = full_mean,
+            diff_mean = diff_mean, diff_zero = diff_zero * 100.0,
+        ));
+
+        chart_labels.push(format!("\"{}\"", escape_html(emp)));
+        template_data.push(format!("{:.1}", tmpl_mean * 100.0));
+        diff_data.push(format!("{:.2}", diff_mean));
+        diff_zero_data.push(format!("{:.1}", diff_zero * 100.0));
+    }
+
+    let chart_id = format!("text-analysis-chart-{}", job_type.len());
+    let diff_chart_id = format!("diff-chart-{}", job_type.len());
+
+    let muni_notice = low_sample_notice_html(&rows);
+
+    let html = format!(r##"
+<div class="space-y-6">
+    {muni_notice}
+    <h3 class="text-lg font-semibold text-white">テキスト分析 — {job_type} ({location})</h3>
+    <p class="text-sm text-gray-400">求人原稿の定型文率と差別化シグナル数を雇用形態別に分析</p>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+            <h4 class="text-sm font-medium text-gray-300 mb-3">定型文率（雇用形態別）</h4>
+            <div id="{chart_id}" style="height:300px;"></div>
+        </div>
+        <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+            <h4 class="text-sm font-medium text-gray-300 mb-3">差別化シグナル数（雇用形態別）</h4>
+            <div id="{diff_chart_id}" style="height:300px;"></div>
+        </div>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm text-gray-300">
+            <thead class="text-xs text-gray-400 border-b border-slate-600">
+                <tr>
+                    <th class="px-4 py-3 text-left">雇用形態</th>
+                    <th class="px-4 py-3 text-right">件数</th>
+                    <th class="px-4 py-3 text-right">定型文率(平均)</th>
+                    <th class="px-4 py-3 text-right">定型文率(中央値)</th>
+                    <th class="px-4 py-3 text-right">オリジナル文字数</th>
+                    <th class="px-4 py-3 text-right">全体文字数</th>
+                    <th class="px-4 py-3 text-right">差別化シグナル</th>
+                    <th class="px-4 py-3 text-right">シグナルゼロ率</th>
+                </tr>
+            </thead>
+            <tbody>{table_rows}</tbody>
+        </table>
+    </div>
+
+    <div class="bg-slate-800/50 rounded-lg p-4 text-sm text-gray-400">
+        <p><strong class="text-gray-300">読み方:</strong> 定型文率が高い＝法的記載・テンプレが多い。差別化シグナルはオリジナル文中の施設特徴・強み・働き方の独自表現数。シグナルゼロ率は差別化表現がない求人の割合。</p>
+    </div>
+</div>
+
+<script>
+(function() {{
+    var labels = [{labels}];
+    var c1 = echarts.init(document.getElementById('{chart_id}'));
+    c1.setOption({{
+        tooltip: {{ trigger: 'axis' }},
+        xAxis: {{ type: 'category', data: labels, axisLabel: {{ color: '#9ca3af' }} }},
+        yAxis: {{ type: 'value', name: '%', axisLabel: {{ color: '#9ca3af' }} }},
+        series: [{{ name: '定型文率', type: 'bar', data: [{template_data}], itemStyle: {{ color: '#60a5fa' }} }}],
+        grid: {{ left: '10%', right: '5%', bottom: '15%' }}
+    }});
+    var c2 = echarts.init(document.getElementById('{diff_chart_id}'));
+    c2.setOption({{
+        tooltip: {{ trigger: 'axis' }},
+        legend: {{ data: ['シグナル数', 'ゼロ率%'], textStyle: {{ color: '#9ca3af' }} }},
+        xAxis: {{ type: 'category', data: labels, axisLabel: {{ color: '#9ca3af' }} }},
+        yAxis: [
+            {{ type: 'value', name: 'シグナル数', axisLabel: {{ color: '#9ca3af' }} }},
+            {{ type: 'value', name: '%', axisLabel: {{ color: '#9ca3af' }} }}
+        ],
+        series: [
+            {{ name: 'シグナル数', type: 'bar', data: [{diff_data}], itemStyle: {{ color: '#34d399' }} }},
+            {{ name: 'ゼロ率%', type: 'line', yAxisIndex: 1, data: [{diff_zero_data}], itemStyle: {{ color: '#f87171' }} }}
+        ],
+        grid: {{ left: '10%', right: '10%', bottom: '15%' }}
+    }});
+    window.addEventListener('resize', function() {{ c1.resize(); c2.resize(); }});
+}})();
+</script>"##,
+        muni_notice = muni_notice,
+        job_type = escape_html(&job_type),
+        location = escape_html(&location_label),
+        table_rows = table_rows,
+        chart_id = chart_id,
+        diff_chart_id = diff_chart_id,
+        labels = chart_labels.join(","),
+        template_data = template_data.join(","),
+        diff_data = diff_data.join(","),
+        diff_zero_data = diff_zero_data.join(","),
+    );
+
+    state.cache.set(cache_key, Value::String(html.clone()));
+    Html(html)
+}
+
+/// Q4: トーン分析
+pub async fn api_tone(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Html<String> {
+    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_tone_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
+    let location_label = make_location_label(&prefecture, &municipality);
+
+    let rows = match analytics::query_tone(&state.turso, &job_type, &prefecture, &municipality).await {
+        Ok(r) => r,
+        Err(e) => return Html(error_html(&e)),
+    };
+
+    if rows.is_empty() {
+        return Html(empty_html("トーン分析データがありません。Tursoに6Qテーブルをインポートしてください。"));
+    }
+
+    let mut table_rows = String::new();
+    let mut chart_labels = Vec::new();
+    let mut urgency_data = Vec::new();
+    let mut enthusiasm_data = Vec::new();
+    let mut casual_data = Vec::new();
+    let mut selectivity_data = Vec::new();
+
+    for row in &rows {
+        let emp = row.get("employment_type").and_then(|v| v.as_str()).unwrap_or("-");
+        let count = row.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+        let urg = row.get("urgency_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let enth = row.get("enthusiasm_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let cas = row.get("casual_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let sel = row.get("selectivity_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let emoji = row.get("emoji_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let kaomoji = row.get("kaomoji_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let deco = row.get("decorative_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        table_rows.push_str(&format!(
+            r#"<tr class="border-b border-slate-700 hover:bg-slate-800/50">
+                <td class="px-4 py-3 font-medium text-white">{emp}</td>
+                <td class="px-4 py-3 text-right">{count}</td>
+                <td class="px-4 py-3 text-right">{urg:.2}</td>
+                <td class="px-4 py-3 text-right">{enth:.2}</td>
+                <td class="px-4 py-3 text-right">{cas:.2}</td>
+                <td class="px-4 py-3 text-right">{sel:.2}</td>
+                <td class="px-4 py-3 text-right">{emoji:.1}%</td>
+                <td class="px-4 py-3 text-right">{kaomoji:.1}%</td>
+                <td class="px-4 py-3 text-right">{deco:.1}%</td>
+            </tr>"#,
+            emp = escape_html(emp), count = format_number(count),
+            urg = urg, enth = enth, cas = cas, sel = sel,
+            emoji = emoji * 100.0, kaomoji = kaomoji * 100.0, deco = deco * 100.0,
+        ));
+
+        chart_labels.push(format!("\"{}\"", escape_html(emp)));
+        urgency_data.push(format!("{:.2}", urg));
+        enthusiasm_data.push(format!("{:.2}", enth));
+        casual_data.push(format!("{:.2}", cas));
+        selectivity_data.push(format!("{:.2}", sel));
+    }
+
+    let chart_id = format!("tone-radar-{}", job_type.len());
+    let muni_notice = low_sample_notice_html(&rows);
+
+    let html = format!(r##"
+<div class="space-y-6">
+    {muni_notice}
+    <h3 class="text-lg font-semibold text-white">トーン分析 — {job_type} ({location})</h3>
+    <p class="text-sm text-gray-400">求人原稿の採用姿勢を4軸で定量化: 緊急度・熱意・カジュアル度・選別度</p>
+
+    <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+        <div id="{chart_id}" style="height:400px;"></div>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm text-gray-300">
+            <thead class="text-xs text-gray-400 border-b border-slate-600">
+                <tr>
+                    <th class="px-4 py-3 text-left">雇用形態</th>
+                    <th class="px-4 py-3 text-right">件数</th>
+                    <th class="px-4 py-3 text-right">緊急度</th>
+                    <th class="px-4 py-3 text-right">熱意</th>
+                    <th class="px-4 py-3 text-right">カジュアル</th>
+                    <th class="px-4 py-3 text-right">選別度</th>
+                    <th class="px-4 py-3 text-right">絵文字率</th>
+                    <th class="px-4 py-3 text-right">顔文字率</th>
+                    <th class="px-4 py-3 text-right">装飾文字率</th>
+                </tr>
+            </thead>
+            <tbody>{table_rows}</tbody>
+        </table>
+    </div>
+
+    <div class="bg-slate-800/50 rounded-lg p-4 text-sm text-gray-400">
+        <p><strong class="text-gray-300">読み方:</strong> 緊急度=「急募」「今すぐ」等の切迫表現の密度。熱意=「一緒に」「お待ちしています」等の歓迎表現。カジュアル=絵文字・顔文字・装飾文字の使用度合い。選別度=「経験者優遇」「有資格者」等の選別表現。</p>
+    </div>
+</div>
+
+<script>
+(function() {{
+    var labels = [{labels}];
+    var chart = echarts.init(document.getElementById('{chart_id}'));
+    var series = [];
+    var colors = ['#60a5fa', '#34d399', '#fbbf24'];
+    var urgency = [{urgency}];
+    var enthusiasm = [{enthusiasm}];
+    var casual = [{casual}];
+    var selectivity = [{selectivity}];
+    for (var i = 0; i < labels.length; i++) {{
+        series.push({{
+            name: labels[i], type: 'radar',
+            data: [{{ value: [urgency[i], enthusiasm[i], casual[i], selectivity[i]], name: labels[i] }}],
+            lineStyle: {{ color: colors[i % colors.length] }},
+            itemStyle: {{ color: colors[i % colors.length] }},
+            areaStyle: {{ opacity: 0.1, color: colors[i % colors.length] }}
+        }});
+    }}
+    chart.setOption({{
+        tooltip: {{}},
+        legend: {{ data: labels, bottom: 0, textStyle: {{ color: '#9ca3af' }} }},
+        radar: {{
+            indicator: [
+                {{ name: '緊急度', max: Math.max(3, Math.max.apply(null, urgency) * 1.2) }},
+                {{ name: '熱意', max: Math.max(3, Math.max.apply(null, enthusiasm) * 1.2) }},
+                {{ name: 'カジュアル', max: Math.max(3, Math.max.apply(null, casual) * 1.2) }},
+                {{ name: '選別度', max: Math.max(3, Math.max.apply(null, selectivity) * 1.2) }}
+            ],
+            shape: 'circle',
+            splitArea: {{ areaStyle: {{ color: ['rgba(30,41,59,0.3)', 'rgba(30,41,59,0.5)'] }} }},
+            axisName: {{ color: '#9ca3af' }}
+        }},
+        series: series
+    }});
+    window.addEventListener('resize', function() {{ chart.resize(); }});
+}})();
+</script>"##,
+        muni_notice = muni_notice,
+        job_type = escape_html(&job_type),
+        location = escape_html(&location_label),
+        table_rows = table_rows,
+        chart_id = chart_id,
+        labels = chart_labels.join(","),
+        urgency = urgency_data.join(","),
+        enthusiasm = enthusiasm_data.join(","),
+        casual = casual_data.join(","),
+        selectivity = selectivity_data.join(","),
+    );
+
+    state.cache.set(cache_key, Value::String(html.clone()));
+    Html(html)
+}
+
+/// Q5+Q3: 情報充足度 + 情報ギャップ
+pub async fn api_info_score(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Html<String> {
+    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_info_score_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
+    let location_label = make_location_label(&prefecture, &municipality);
+
+    let rows = match analytics::query_info_score(&state.turso, &job_type, &prefecture, &municipality).await {
+        Ok(r) => r,
+        Err(e) => return Html(error_html(&e)),
+    };
+
+    if rows.is_empty() {
+        return Html(empty_html("情報充足度データがありません。Tursoに6Qテーブルをインポートしてください。"));
+    }
+
+    let mut table_rows = String::new();
+    let mut chart_labels = Vec::new();
+    let categories = [
+        ("salary_detail_mean", "給与詳細"),
+        ("work_hours_mean", "勤務時間"),
+        ("holidays_mean", "休日"),
+        ("job_detail_mean", "業務内容"),
+        ("benefits_mean", "福利厚生"),
+        ("transparency_mean", "情報開示"),
+    ];
+    let mut category_data: Vec<Vec<String>> = vec![Vec::new(); 6];
+
+    for row in &rows {
+        let emp = row.get("employment_type").and_then(|v| v.as_str()).unwrap_or("-");
+        let count = row.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+        let score_mean = row.get("info_score_mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let grade = row.get("grade").and_then(|v| v.as_str()).unwrap_or("-");
+        let gap = row.get("gap_vs_national").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        let grade_color = match grade {
+            "A" => "text-emerald-400",
+            "B" => "text-blue-400",
+            "C" => "text-yellow-400",
+            _ => "text-red-400",
+        };
+
+        let gap_display = if prefecture.is_empty() {
+            "-".to_string()
+        } else {
+            let sign = if gap >= 0.0 { "+" } else { "" };
+            format!("{}{:.3}", sign, gap)
+        };
+
+        let mut cat_cells = String::new();
+        for (i, (key, _)) in categories.iter().enumerate() {
+            let val = row.get(*key).and_then(|v| v.as_f64()).unwrap_or(0.0);
+            category_data[i].push(format!("{:.3}", val));
+            let bar_width = (val * 100.0 * 5.0).min(100.0);
+            cat_cells.push_str(&format!(
+                r#"<td class="px-3 py-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-16 bg-slate-700 rounded-full h-2">
+                            <div class="bg-blue-500 h-2 rounded-full" style="width:{bar_w:.0}%"></div>
+                        </div>
+                        <span class="text-xs">{val:.3}</span>
+                    </div>
+                </td>"#,
+                bar_w = bar_width, val = val,
+            ));
+        }
+
+        table_rows.push_str(&format!(
+            r#"<tr class="border-b border-slate-700 hover:bg-slate-800/50">
+                <td class="px-4 py-3 font-medium text-white">{emp}</td>
+                <td class="px-4 py-3 text-right">{count}</td>
+                <td class="px-4 py-3 text-right">{score:.3}</td>
+                <td class="px-4 py-3 text-center {gc}"><span class="font-bold">{grade}</span></td>
+                <td class="px-4 py-3 text-right">{gap}</td>
+                {cells}
+            </tr>"#,
+            emp = escape_html(emp), count = format_number(count),
+            score = score_mean, gc = grade_color, grade = grade,
+            gap = gap_display, cells = cat_cells,
+        ));
+
+        chart_labels.push(format!("\"{}\"", escape_html(emp)));
+    }
+
+    let chart_id = format!("info-score-radar-{}", job_type.len());
+    let muni_notice = low_sample_notice_html(&rows);
+
+    let html = format!(r##"
+<div class="space-y-6">
+    {muni_notice}
+    <h3 class="text-lg font-semibold text-white">情報充足度 — {job_type} ({location})</h3>
+    <p class="text-sm text-gray-400">求人情報の6カテゴリ別充足度と全国比ギャップ（Q5+Q3）</p>
+
+    <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+        <div id="{chart_id}" style="height:400px;"></div>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm text-gray-300">
+            <thead class="text-xs text-gray-400 border-b border-slate-600">
+                <tr>
+                    <th class="px-4 py-3 text-left">雇用形態</th>
+                    <th class="px-4 py-3 text-right">件数</th>
+                    <th class="px-4 py-3 text-right">総合スコア</th>
+                    <th class="px-4 py-3 text-center">グレード</th>
+                    <th class="px-4 py-3 text-right">全国比</th>
+                    <th class="px-3 py-3 text-left">給与詳細</th>
+                    <th class="px-3 py-3 text-left">勤務時間</th>
+                    <th class="px-3 py-3 text-left">休日</th>
+                    <th class="px-3 py-3 text-left">業務内容</th>
+                    <th class="px-3 py-3 text-left">福利厚生</th>
+                    <th class="px-3 py-3 text-left">情報開示</th>
+                </tr>
+            </thead>
+            <tbody>{table_rows}</tbody>
+        </table>
+    </div>
+
+    <div class="bg-slate-800/50 rounded-lg p-4 text-sm text-gray-400">
+        <p><strong class="text-gray-300">グレード基準:</strong> A (&ge;0.20) — 詳細な情報開示 / B (&ge;0.14) — 平均以上 / C (&ge;0.10) — 最低限 / D (&lt;0.10) — 情報不足。全国比は選択地域と全国平均の差分。</p>
+    </div>
+</div>
+
+<script>
+(function() {{
+    var labels = [{labels}];
+    var catNames = ['給与詳細', '勤務時間', '休日', '業務内容', '福利厚生', '情報開示'];
+    var catData = [{cat_arrays}];
+    var chart = echarts.init(document.getElementById('{chart_id}'));
+    var colors = ['#60a5fa', '#34d399', '#fbbf24'];
+    var maxVal = 0;
+    for (var c = 0; c < catData.length; c++) for (var i = 0; i < catData[c].length; i++) maxVal = Math.max(maxVal, catData[c][i]);
+    var indicator = catNames.map(function(n) {{ return {{ name: n, max: Math.max(0.3, maxVal * 1.3) }}; }});
+    var series = [];
+    for (var i = 0; i < labels.length; i++) {{
+        var vals = [];
+        for (var c = 0; c < catData.length; c++) vals.push(catData[c][i]);
+        series.push({{
+            name: labels[i], type: 'radar',
+            data: [{{ value: vals, name: labels[i] }}],
+            lineStyle: {{ color: colors[i % colors.length] }},
+            itemStyle: {{ color: colors[i % colors.length] }},
+            areaStyle: {{ opacity: 0.1, color: colors[i % colors.length] }}
+        }});
+    }}
+    chart.setOption({{
+        tooltip: {{}},
+        legend: {{ data: labels, bottom: 0, textStyle: {{ color: '#9ca3af' }} }},
+        radar: {{ indicator: indicator, shape: 'circle',
+            splitArea: {{ areaStyle: {{ color: ['rgba(30,41,59,0.3)', 'rgba(30,41,59,0.5)'] }} }},
+            axisName: {{ color: '#9ca3af' }} }},
+        series: series
+    }});
+    window.addEventListener('resize', function() {{ chart.resize(); }});
+}})();
+</script>"##,
+        muni_notice = muni_notice,
+        job_type = escape_html(&job_type),
+        location = escape_html(&location_label),
+        table_rows = table_rows,
+        chart_id = chart_id,
+        labels = chart_labels.join(","),
+        cat_arrays = category_data.iter()
+            .map(|d| format!("[{}]", d.join(",")))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+
+    state.cache.set(cache_key, Value::String(html.clone()));
+    Html(html)
+}
+
+/// Q6: ターゲティング分析
+pub async fn api_targeting(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Html<String> {
+    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("analysis_targeting_{}_{}_{}", job_type, prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
+    let location_label = make_location_label(&prefecture, &municipality);
+
+    let rows = match analytics::query_targeting(&state.turso, &job_type, &prefecture, &municipality).await {
+        Ok(r) => r,
+        Err(e) => return Html(error_html(&e)),
+    };
+
+    if rows.is_empty() {
+        return Html(empty_html("ターゲティングデータがありません。Tursoに6Qテーブルをインポートしてください。"));
+    }
+
+    let psycho_dims = [
+        ("psycho_growth_mean", "成長志向"),
+        ("psycho_stability_mean", "安定志向"),
+        ("psycho_wlb_mean", "WLB"),
+        ("psycho_contribution_mean", "社会貢献"),
+        ("psycho_autonomy_mean", "自律志向"),
+        ("psycho_belonging_mean", "帰属意識"),
+        ("psycho_income_mean", "収入志向"),
+        ("psycho_convenience_mean", "利便性"),
+        ("psycho_environment_mean", "環境重視"),
+        ("psycho_load_aversion_mean", "負荷回避"),
+        ("psycho_rationality_mean", "合理性"),
+        ("psycho_vision_mean", "理念"),
+    ];
+
+    let mut demo_cards = String::new();
+    let mut psycho_table = String::new();
+    let mut chart_labels = Vec::new();
+    let mut chart_series_data: Vec<Vec<String>> = Vec::new();
+
+    for row in &rows {
+        let emp = row.get("employment_type").and_then(|v| v.as_str()).unwrap_or("-");
+        let count = row.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+
+        let age_mode = row.get("demo_age_primary_mode").and_then(|v| v.as_str()).unwrap_or("-");
+        let age_pct = row.get("demo_age_primary_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let exp_mode = row.get("demo_exp_primary_mode").and_then(|v| v.as_str()).unwrap_or("-");
+        let exp_pct = row.get("demo_exp_primary_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let life_mode = row.get("demo_life_primary_mode").and_then(|v| v.as_str()).unwrap_or("-");
+        let life_pct = row.get("demo_life_primary_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let qual_mode = row.get("demo_qual_primary_mode").and_then(|v| v.as_str()).unwrap_or("-");
+        let qual_pct = row.get("demo_qual_primary_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let div_mode = row.get("demo_div_primary_mode").and_then(|v| v.as_str()).unwrap_or("-");
+        let div_pct = row.get("demo_div_primary_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let psycho_top = row.get("psycho_top1_mode").and_then(|v| v.as_str()).unwrap_or("-");
+        let psycho_top_pct = row.get("psycho_top1_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        demo_cards.push_str(&format!(
+            r#"<div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+                <h4 class="text-sm font-medium text-gray-300 mb-3">{emp} ({count}件)</h4>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between"><span class="text-gray-400">年齢層</span><span class="text-white font-medium">{age} ({age_p:.0}%)</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">経験レベル</span><span class="text-white font-medium">{exp} ({exp_p:.0}%)</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">ライフステージ</span><span class="text-white font-medium">{life} ({life_p:.0}%)</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">資格要件</span><span class="text-white font-medium">{qual} ({qual_p:.0}%)</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">ダイバーシティ</span><span class="text-white font-medium">{div} ({div_p:.0}%)</span></div>
+                    <div class="mt-3 pt-3 border-t border-slate-600 flex justify-between">
+                        <span class="text-gray-400">心理的訴求TOP</span>
+                        <span class="text-emerald-400 font-bold">{ptop} ({ptop_p:.0}%)</span>
+                    </div>
+                </div>
+            </div>"#,
+            emp = escape_html(emp), count = format_number(count),
+            age = escape_html(age_mode), age_p = age_pct * 100.0,
+            exp = escape_html(exp_mode), exp_p = exp_pct * 100.0,
+            life = escape_html(life_mode), life_p = life_pct * 100.0,
+            qual = escape_html(qual_mode), qual_p = qual_pct * 100.0,
+            div = escape_html(div_mode), div_p = div_pct * 100.0,
+            ptop = escape_html(psycho_top), ptop_p = psycho_top_pct * 100.0,
+        ));
+
+        let mut vals = Vec::new();
+        let mut psycho_cells = String::new();
+        for (key, _label) in &psycho_dims {
+            let val = row.get(*key).and_then(|v| v.as_f64()).unwrap_or(0.0);
+            vals.push(format!("{:.3}", val));
+            let bar_width = (val * 100.0).min(100.0);
+            let bar_color = if val >= 0.1 { "bg-emerald-500" } else if val >= 0.03 { "bg-blue-500" } else { "bg-slate-600" };
+            psycho_cells.push_str(&format!(
+                r#"<td class="px-2 py-2">
+                    <div class="w-14 bg-slate-700 rounded-full h-1.5 inline-block mr-1">
+                        <div class="{bc} h-1.5 rounded-full" style="width:{bw:.0}%"></div>
+                    </div>
+                    <span class="text-xs">{v:.3}</span>
+                </td>"#,
+                bc = bar_color, bw = bar_width, v = val,
+            ));
+        }
+        psycho_table.push_str(&format!(
+            r#"<tr class="border-b border-slate-700"><td class="px-4 py-2 font-medium text-white">{emp}</td>{cells}</tr>"#,
+            emp = escape_html(emp), cells = psycho_cells,
+        ));
+
+        chart_labels.push(format!("\"{}\"", escape_html(emp)));
+        chart_series_data.push(vals);
+    }
+
+    let chart_id = format!("targeting-radar-{}", job_type.len());
+
+    let psycho_headers: String = psycho_dims.iter()
+        .map(|(_, label)| format!(r#"<th class="px-2 py-3 text-center text-xs">{}</th>"#, label))
+        .collect();
+
+    let muni_notice = low_sample_notice_html(&rows);
+
+    let html = format!(r##"
+<div class="space-y-6">
+    {muni_notice}
+    <h3 class="text-lg font-semibold text-white">ターゲティング分析 — {job_type} ({location})</h3>
+    <p class="text-sm text-gray-400">求人原稿から読み取れるターゲット層（デモグラフィック5軸 + サイコグラフィック12軸）</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {demo_cards}
+    </div>
+
+    <div class="bg-navy-800 rounded-lg p-4 border border-slate-700">
+        <h4 class="text-sm font-medium text-gray-300 mb-3">サイコグラフィック12軸</h4>
+        <div id="{chart_id}" style="height:450px;"></div>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm text-gray-300">
+            <thead class="text-xs text-gray-400 border-b border-slate-600">
+                <tr>
+                    <th class="px-4 py-3 text-left">雇用形態</th>
+                    {psycho_headers}
+                </tr>
+            </thead>
+            <tbody>{psycho_table}</tbody>
+        </table>
+    </div>
+
+    <div class="bg-slate-800/50 rounded-lg p-4 text-sm text-gray-400">
+        <p><strong class="text-gray-300">読み方:</strong> デモグラフィックは求人原稿中のシグナルから推定されるターゲット層。サイコグラフィックは12の心理的動機の平均密度（値が大きいほど訴求が強い）。</p>
+    </div>
+</div>
+
+<script>
+(function() {{
+    var labels = [{labels}];
+    var dimNames = [{dim_names}];
+    var seriesData = [{series_arrays}];
+    var chart = echarts.init(document.getElementById('{chart_id}'));
+    var colors = ['#60a5fa', '#34d399', '#fbbf24'];
+    var maxVal = 0;
+    for (var s = 0; s < seriesData.length; s++) for (var i = 0; i < seriesData[s].length; i++) maxVal = Math.max(maxVal, seriesData[s][i]);
+    var indicator = dimNames.map(function(n) {{ return {{ name: n, max: Math.max(0.15, maxVal * 1.3) }}; }});
+    var series = [];
+    for (var i = 0; i < labels.length; i++) {{
+        series.push({{
+            name: labels[i], type: 'radar',
+            data: [{{ value: seriesData[i], name: labels[i] }}],
+            lineStyle: {{ color: colors[i % colors.length] }},
+            itemStyle: {{ color: colors[i % colors.length] }},
+            areaStyle: {{ opacity: 0.15, color: colors[i % colors.length] }}
+        }});
+    }}
+    chart.setOption({{
+        tooltip: {{}},
+        legend: {{ data: labels, bottom: 0, textStyle: {{ color: '#9ca3af' }} }},
+        radar: {{ indicator: indicator, shape: 'circle',
+            splitArea: {{ areaStyle: {{ color: ['rgba(30,41,59,0.3)', 'rgba(30,41,59,0.5)'] }} }},
+            axisName: {{ color: '#9ca3af', fontSize: 11 }} }},
+        series: series
+    }});
+    window.addEventListener('resize', function() {{ chart.resize(); }});
+}})();
+</script>"##,
+        job_type = escape_html(&job_type),
+        muni_notice = muni_notice,
+        location = escape_html(&location_label),
+        demo_cards = demo_cards,
+        chart_id = chart_id,
+        psycho_headers = psycho_headers,
+        psycho_table = psycho_table,
+        labels = chart_labels.join(","),
+        dim_names = psycho_dims.iter()
+            .map(|(_, label)| format!("\"{}\"", label))
+            .collect::<Vec<_>>()
+            .join(","),
+        series_arrays = chart_series_data.iter()
+            .map(|d| format!("[{}]", d.join(",")))
+            .collect::<Vec<_>>()
+            .join(","),
     );
 
     state.cache.set(cache_key, Value::String(html.clone()));

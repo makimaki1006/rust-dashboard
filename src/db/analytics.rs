@@ -983,3 +983,161 @@ pub fn query_cooccurrence_with_fallback(
     let fallback = query_cooccurrence(db, job_type, "", min_lift).unwrap_or_default();
     (fallback, true)
 }
+
+// ===========================================================================
+// Layer B v2: 6つの問い (6Q) テーブルクエリ — Turso経由 (async)
+// ===========================================================================
+
+use super::turso::TursoClient;
+
+/// 6Qクエリ共通: prefecture/municipality のデフォルト値処理
+fn resolve_6q_scope(prefecture: &str, municipality: &str) -> (String, String) {
+    let pref = if prefecture.is_empty() { "全国".to_string() } else { prefecture.to_string() };
+    let muni = if pref == "全国" { String::new() } else { municipality.to_string() };
+    (pref, muni)
+}
+
+/// Q2: 定型文率 + Q1: 差別化シグナルを取得
+pub async fn query_text_analysis(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+    municipality: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    let (pref, muni) = resolve_6q_scope(prefecture, municipality);
+    turso.query(
+        "SELECT t.job_type, t.employment_type, t.prefecture, t.municipality, t.count,
+                t.template_ratio_mean, t.template_ratio_median, t.template_ratio_std,
+                t.original_length_mean, t.original_length_median,
+                t.template_length_mean, t.full_length_mean, t.full_length_median,
+                d.diff_total_mean, d.diff_total_median,
+                d.diff_facility_mean, d.diff_strength_mean, d.diff_workstyle_mean,
+                d.diff_zero_pct
+         FROM layer_b_template t
+         JOIN layer_b_differentiation d
+           ON t.job_type = d.job_type
+          AND t.employment_type = d.employment_type
+          AND t.prefecture = d.prefecture
+          AND t.municipality = d.municipality
+         WHERE t.job_type = ?1 AND t.prefecture = ?2 AND t.municipality = ?3
+         ORDER BY t.employment_type",
+        &[
+            Value::String(job_type.to_string()),
+            Value::String(pref),
+            Value::String(muni),
+        ],
+    ).await
+}
+
+/// Q4: トーン分析を取得
+pub async fn query_tone(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+    municipality: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    let (pref, muni) = resolve_6q_scope(prefecture, municipality);
+    turso.query(
+        "SELECT job_type, employment_type, prefecture, municipality, count,
+                urgency_score_mean, urgency_score_median,
+                enthusiasm_score_mean, enthusiasm_score_median,
+                casual_score_mean, casual_score_median,
+                selectivity_score_mean, selectivity_score_median,
+                emoji_pct, kaomoji_pct, decorative_pct
+         FROM layer_b_tone
+         WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3
+         ORDER BY employment_type",
+        &[
+            Value::String(job_type.to_string()),
+            Value::String(pref),
+            Value::String(muni),
+        ],
+    ).await
+}
+
+/// Q5 + Q3: 情報充足度 + 情報開示ギャップを取得
+pub async fn query_info_score(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+    municipality: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    let (pref, muni) = resolve_6q_scope(prefecture, municipality);
+    turso.query(
+        "SELECT s.job_type, s.employment_type, s.prefecture, s.municipality, s.count,
+                s.info_score_mean, s.info_score_median, s.info_score_std,
+                s.salary_detail_mean, s.work_hours_mean, s.holidays_mean,
+                s.job_detail_mean, s.benefits_mean, s.transparency_mean,
+                s.grade,
+                g.gap_vs_national
+         FROM layer_b_info_score s
+         JOIN layer_b_info_gap g
+           ON s.job_type = g.job_type
+          AND s.employment_type = g.employment_type
+          AND s.prefecture = g.prefecture
+          AND s.municipality = g.municipality
+         WHERE s.job_type = ?1 AND s.prefecture = ?2 AND s.municipality = ?3
+         ORDER BY s.employment_type",
+        &[
+            Value::String(job_type.to_string()),
+            Value::String(pref),
+            Value::String(muni),
+        ],
+    ).await
+}
+
+/// Q6: ターゲティング分析を取得
+pub async fn query_targeting(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+    municipality: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    let (pref, muni) = resolve_6q_scope(prefecture, municipality);
+    turso.query(
+        "SELECT job_type, employment_type, prefecture, municipality, count,
+                demo_age_primary_mode, demo_age_primary_pct,
+                demo_exp_primary_mode, demo_exp_primary_pct,
+                demo_life_primary_mode, demo_life_primary_pct,
+                demo_qual_primary_mode, demo_qual_primary_pct,
+                demo_div_primary_mode, demo_div_primary_pct,
+                psycho_top1_mode, psycho_top1_pct,
+                psycho_growth_mean, psycho_stability_mean,
+                psycho_wlb_mean, psycho_contribution_mean,
+                psycho_autonomy_mean, psycho_belonging_mean,
+                psycho_income_mean, psycho_convenience_mean,
+                psycho_environment_mean,
+                psycho_load_aversion_mean, psycho_rationality_mean,
+                psycho_vision_mean
+         FROM layer_b_targeting
+         WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3
+         ORDER BY employment_type",
+        &[
+            Value::String(job_type.to_string()),
+            Value::String(pref),
+            Value::String(muni),
+        ],
+    ).await
+}
+
+/// 全職種のターゲティング比較（全国・全体のみ）
+pub async fn query_targeting_comparison(
+    turso: &TursoClient,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    turso.query(
+        "SELECT job_type,
+                demo_age_primary_mode, demo_exp_primary_mode,
+                psycho_top1_mode,
+                psycho_growth_mean, psycho_stability_mean,
+                psycho_wlb_mean, psycho_contribution_mean,
+                psycho_autonomy_mean, psycho_belonging_mean,
+                psycho_income_mean, psycho_convenience_mean,
+                psycho_environment_mean,
+                psycho_load_aversion_mean, psycho_rationality_mean,
+                psycho_vision_mean
+         FROM layer_b_targeting
+         WHERE prefecture = '全国' AND municipality = '' AND employment_type = '全体'
+         ORDER BY job_type",
+        &[],
+    ).await
+}
