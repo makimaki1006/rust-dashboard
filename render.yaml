@@ -9,6 +9,8 @@ services:
     envVars:
       - key: PORT
         value: 9216
+      # RELEASE_TAG は Dockerfile 内の ARG で管理
+      # リリースタグ変更時は Dockerfile の ARG RELEASE_TAG を更新
       - key: TURSO_DATABASE_URL
         sync: false
       - key: TURSO_AUTH_TOKEN

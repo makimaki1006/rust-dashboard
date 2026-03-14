@@ -985,10 +985,527 @@ pub fn query_cooccurrence_with_fallback(
 }
 
 // ===========================================================================
-// Layer B v2: 6つの問い (6Q) テーブルクエリ — Turso経由 (async)
+// Layer A/B/C テーブルクエリ — Turso経由 (async)
 // ===========================================================================
 
 use super::turso::TursoClient;
+
+// ---------------------------------------------------------------------------
+// A-1: 給与統計 (Turso版)
+// ---------------------------------------------------------------------------
+
+/// 給与統計データを取得する（Turso非同期版）。
+pub async fn query_salary_stats_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    if prefecture.is_empty() {
+        turso.query(
+            "SELECT job_type, prefecture, salary_type, employment_type,
+                    count, mean, median, p25, p75, p90, std, gini,
+                    has_salary_range_pct, salary_range_median
+             FROM layer_a_salary_stats
+             WHERE job_type = ?1 AND prefecture = '全国'
+             ORDER BY salary_type, employment_type",
+            &[Value::String(job_type.to_string())],
+        ).await
+    } else {
+        turso.query(
+            "SELECT job_type, prefecture, salary_type, employment_type,
+                    count, mean, median, p25, p75, p90, std, gini,
+                    has_salary_range_pct, salary_range_median
+             FROM layer_a_salary_stats
+             WHERE job_type = ?1 AND prefecture = ?2
+             ORDER BY salary_type, employment_type",
+            &[
+                Value::String(job_type.to_string()),
+                Value::String(prefecture.to_string()),
+            ],
+        ).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A-2: 法人集中度 (Turso版)
+// ---------------------------------------------------------------------------
+
+/// 法人集中度データを取得する（Turso非同期版）。
+pub async fn query_facility_concentration_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    if prefecture.is_empty() {
+        turso.query(
+            "SELECT job_type, prefecture, total_postings, unique_facilities,
+                    top1_name, top1_count, top1_pct, top5_pct, top10_pct, top20_pct,
+                    hhi, zipf_exponent
+             FROM layer_a_facility_concentration
+             WHERE job_type = ?1 AND prefecture = '全国'",
+            &[Value::String(job_type.to_string())],
+        ).await
+    } else {
+        turso.query(
+            "SELECT job_type, prefecture, total_postings, unique_facilities,
+                    top1_name, top1_count, top1_pct, top5_pct, top10_pct, top20_pct,
+                    hhi, zipf_exponent
+             FROM layer_a_facility_concentration
+             WHERE job_type = ?1 AND prefecture = ?2",
+            &[
+                Value::String(job_type.to_string()),
+                Value::String(prefecture.to_string()),
+            ],
+        ).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A-3: 雇用形態多様性 (Turso版)
+// ---------------------------------------------------------------------------
+
+/// 雇用形態多様性データを取得する（Turso非同期版）。
+pub async fn query_employment_diversity_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    if prefecture.is_empty() {
+        turso.query(
+            "SELECT job_type, prefecture, total_postings, n_types,
+                    shannon_entropy, max_entropy, evenness,
+                    dominant_type, dominant_pct, type_distribution
+             FROM layer_a_employment_diversity
+             WHERE job_type = ?1 AND prefecture = '全国'",
+            &[Value::String(job_type.to_string())],
+        ).await
+    } else {
+        turso.query(
+            "SELECT job_type, prefecture, total_postings, n_types,
+                    shannon_entropy, max_entropy, evenness,
+                    dominant_type, dominant_pct, type_distribution
+             FROM layer_a_employment_diversity
+             WHERE job_type = ?1 AND prefecture = ?2",
+            &[
+                Value::String(job_type.to_string()),
+                Value::String(prefecture.to_string()),
+            ],
+        ).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// B-1: キーワード (Turso版)
+// ---------------------------------------------------------------------------
+
+/// キーワード分析データを取得する（Turso非同期版）。
+pub async fn query_keywords_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+    layer: Option<&str>,
+    limit: Option<i32>,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    let effective_limit = limit.unwrap_or(50);
+    let pref_value = if prefecture.is_empty() {
+        "全国"
+    } else {
+        prefecture
+    };
+
+    match layer {
+        Some(l) => turso.query(
+            "SELECT job_type, prefecture, layer, keyword,
+                    tfidf_score, doc_freq, doc_freq_pct, rank
+             FROM layer_b_keywords
+             WHERE job_type = ?1 AND prefecture = ?2 AND layer = ?3
+             ORDER BY rank ASC
+             LIMIT ?4",
+            &[
+                Value::String(job_type.to_string()),
+                Value::String(pref_value.to_string()),
+                Value::String(l.to_string()),
+                Value::Number(serde_json::Number::from(effective_limit)),
+            ],
+        ).await,
+        None => turso.query(
+            "SELECT job_type, prefecture, layer, keyword,
+                    tfidf_score, doc_freq, doc_freq_pct, rank
+             FROM layer_b_keywords
+             WHERE job_type = ?1 AND prefecture = ?2
+             ORDER BY rank ASC
+             LIMIT ?3",
+            &[
+                Value::String(job_type.to_string()),
+                Value::String(pref_value.to_string()),
+                Value::Number(serde_json::Number::from(effective_limit)),
+            ],
+        ).await,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// B-2: 条件共起パターン (Turso版)
+// ---------------------------------------------------------------------------
+
+/// 条件共起パターンを取得する（Turso非同期版）。
+pub async fn query_cooccurrence_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+    min_lift: Option<f64>,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    let effective_min_lift = min_lift.unwrap_or(1.0);
+    let pref_value = if prefecture.is_empty() {
+        "全国"
+    } else {
+        prefecture
+    };
+
+    turso.query(
+        "SELECT job_type, prefecture, flag_a, flag_b,
+                cooccurrence_count, expected_count, lift,
+                phi_coefficient, support_pct
+         FROM layer_b_cooccurrence
+         WHERE job_type = ?1 AND prefecture = ?2 AND lift >= ?3
+         ORDER BY lift DESC
+         LIMIT 50",
+        &[
+            Value::String(job_type.to_string()),
+            Value::String(pref_value.to_string()),
+            Value::Number(serde_json::Number::from_f64(effective_min_lift).unwrap_or(serde_json::Number::from(1))),
+        ],
+    ).await
+}
+
+// ---------------------------------------------------------------------------
+// B-3: 原稿品質 (Turso版)
+// ---------------------------------------------------------------------------
+
+/// 原稿品質スコアを取得する（Turso非同期版）。
+pub async fn query_text_quality_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    if prefecture.is_empty() {
+        turso.query(
+            "SELECT job_type, prefecture, count,
+                    entropy_mean, entropy_median, entropy_std,
+                    entropy_p25, entropy_p75,
+                    kanji_ratio_mean, kanji_ratio_median, kanji_ratio_std,
+                    quality_score_mean, quality_score_median,
+                    benefits_score_mean, benefits_score_median,
+                    desc_length_mean, desc_length_median, grade
+             FROM layer_b_text_quality
+             WHERE job_type = ?1
+             ORDER BY prefecture",
+            &[Value::String(job_type.to_string())],
+        ).await
+    } else {
+        turso.query(
+            "SELECT job_type, prefecture, count,
+                    entropy_mean, entropy_median, entropy_std,
+                    entropy_p25, entropy_p75,
+                    kanji_ratio_mean, kanji_ratio_median, kanji_ratio_std,
+                    quality_score_mean, quality_score_median,
+                    benefits_score_mean, benefits_score_median,
+                    desc_length_mean, desc_length_median, grade
+             FROM layer_b_text_quality
+             WHERE job_type = ?1 AND prefecture = ?2",
+            &[
+                Value::String(job_type.to_string()),
+                Value::String(prefecture.to_string()),
+            ],
+        ).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// C-1: クラスタプロファイル (Turso版)
+// ---------------------------------------------------------------------------
+
+/// クラスタプロファイルを取得する（Turso非同期版）。
+pub async fn query_cluster_profiles_turso(
+    turso: &TursoClient,
+    job_type: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    turso.query(
+        "SELECT job_type, cluster_id, cluster_label, size, size_pct,
+                salary_min_mean, salary_min_median,
+                text_entropy_mean, benefits_score_mean, content_richness_mean,
+                fulltime_pct, has_salary_range_pct,
+                top_benefits, dominant_employment, feature_means, description
+         FROM layer_c_cluster_profiles
+         WHERE job_type = ?1
+         ORDER BY cluster_id ASC",
+        &[Value::String(job_type.to_string())],
+    ).await
+}
+
+// ---------------------------------------------------------------------------
+// C-2: 地域ヒートマップ (Turso版)
+// ---------------------------------------------------------------------------
+
+/// 地域xクラスタのヒートマップデータを取得する（Turso非同期版）。
+pub async fn query_region_heatmap_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+    cluster_id: Option<i32>,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    match (prefecture.is_empty(), cluster_id) {
+        // 全都道府県 x 全クラスタ
+        (true, None) => turso.query(
+            "SELECT job_type, prefecture, cluster_id, cluster_label,
+                    count, pct, national_pct, deviation
+             FROM layer_c_region_heatmap
+             WHERE job_type = ?1
+             ORDER BY prefecture, cluster_id",
+            &[Value::String(job_type.to_string())],
+        ).await,
+        // 全都道府県 x 特定クラスタ
+        (true, Some(cid)) => turso.query(
+            "SELECT job_type, prefecture, cluster_id, cluster_label,
+                    count, pct, national_pct, deviation
+             FROM layer_c_region_heatmap
+             WHERE job_type = ?1 AND cluster_id = ?2
+             ORDER BY prefecture, cluster_id",
+            &[
+                Value::String(job_type.to_string()),
+                Value::Number(serde_json::Number::from(cid)),
+            ],
+        ).await,
+        // 特定都道府県 x 全クラスタ
+        (false, None) => turso.query(
+            "SELECT job_type, prefecture, cluster_id, cluster_label,
+                    count, pct, national_pct, deviation
+             FROM layer_c_region_heatmap
+             WHERE job_type = ?1 AND prefecture = ?2
+             ORDER BY prefecture, cluster_id",
+            &[
+                Value::String(job_type.to_string()),
+                Value::String(prefecture.to_string()),
+            ],
+        ).await,
+        // 特定都道府県 x 特定クラスタ
+        (false, Some(cid)) => turso.query(
+            "SELECT job_type, prefecture, cluster_id, cluster_label,
+                    count, pct, national_pct, deviation
+             FROM layer_c_region_heatmap
+             WHERE job_type = ?1 AND prefecture = ?2 AND cluster_id = ?3
+             ORDER BY prefecture, cluster_id",
+            &[
+                Value::String(job_type.to_string()),
+                Value::String(prefecture.to_string()),
+                Value::Number(serde_json::Number::from(cid)),
+            ],
+        ).await,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A-2: 法人集中度 - 全都道府県取得 (Turso版)
+// ---------------------------------------------------------------------------
+
+/// 全都道府県の法人集中度データを取得する（Turso非同期版）。
+pub async fn query_facility_all_prefectures_turso(
+    turso: &TursoClient,
+    job_type: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    turso.query(
+        "SELECT job_type, prefecture, total_postings, unique_facilities,
+                top1_name, top1_count, top1_pct, top5_pct, top10_pct, top20_pct,
+                hhi, zipf_exponent
+         FROM layer_a_facility_concentration
+         WHERE job_type = ?1
+         ORDER BY prefecture",
+        &[Value::String(job_type.to_string())],
+    ).await
+}
+
+// ---------------------------------------------------------------------------
+// A-3: 雇用形態多様性 - 全都道府県取得 (Turso版)
+// ---------------------------------------------------------------------------
+
+/// 全都道府県の雇用形態多様性データを取得する（Turso非同期版）。
+pub async fn query_employment_all_prefectures_turso(
+    turso: &TursoClient,
+    job_type: &str,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    turso.query(
+        "SELECT job_type, prefecture, total_postings, n_types,
+                shannon_entropy, max_entropy, evenness,
+                dominant_type, dominant_pct, type_distribution
+         FROM layer_a_employment_diversity
+         WHERE job_type = ?1
+         ORDER BY prefecture",
+        &[Value::String(job_type.to_string())],
+    ).await
+}
+
+// ---------------------------------------------------------------------------
+// フォールバック付きキーワード取得 (Turso版)
+// ---------------------------------------------------------------------------
+
+/// キーワードデータをフォールバック付きで取得する（Turso非同期版）。
+/// 指定都道府県にデータがなければ全国データにフォールバック。
+pub async fn query_keywords_with_fallback_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+    layer: Option<&str>,
+    limit: Option<i32>,
+) -> (Vec<HashMap<String, Value>>, bool) {
+    let rows = query_keywords_turso(turso, job_type, prefecture, layer, limit)
+        .await.unwrap_or_default();
+    if !rows.is_empty() {
+        return (rows, false);
+    }
+    // フォールバック: 全国データ
+    let fallback = query_keywords_turso(turso, job_type, "", layer, limit)
+        .await.unwrap_or_default();
+    (fallback, true)
+}
+
+// ---------------------------------------------------------------------------
+// フォールバック付き共起取得 (Turso版)
+// ---------------------------------------------------------------------------
+
+/// 共起データをフォールバック付きで取得する（Turso非同期版）。
+/// 指定都道府県にデータがなければ全国データにフォールバック。
+pub async fn query_cooccurrence_with_fallback_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+    min_lift: Option<f64>,
+) -> (Vec<HashMap<String, Value>>, bool) {
+    let rows = query_cooccurrence_turso(turso, job_type, prefecture, min_lift)
+        .await.unwrap_or_default();
+    if !rows.is_empty() {
+        return (rows, false);
+    }
+    let fallback = query_cooccurrence_turso(turso, job_type, "", min_lift)
+        .await.unwrap_or_default();
+    (fallback, true)
+}
+
+// ---------------------------------------------------------------------------
+// 分析サマリー (Turso版) — layerテーブル部分のみ
+// ---------------------------------------------------------------------------
+
+/// 指定job_typeの分析全体サマリーを返す（Turso非同期版）。
+/// postings テーブルはローカルDB用なのでここでは layer テーブルのみ集計。
+pub async fn query_analysis_summary_turso(
+    turso: &TursoClient,
+    job_type: &str,
+    prefecture: &str,
+) -> Result<HashMap<String, Value>, String> {
+    let mut summary = HashMap::new();
+    let pref_filter = if prefecture.is_empty() { "全国" } else { prefecture };
+
+    // 給与統計レコード数
+    let salary_count_val = turso.query_scalar(
+        "SELECT COUNT(*) FROM layer_a_salary_stats
+         WHERE job_type = ?1 AND prefecture = ?2",
+        &[Value::String(job_type.to_string()), Value::String(pref_filter.to_string())],
+    ).await.unwrap_or(Value::from(0));
+    let salary_count = salary_count_val.as_i64().unwrap_or(0);
+    summary.insert("salary_stat_count".to_string(), Value::from(salary_count));
+
+    // クラスタ数
+    let cluster_count_val = turso.query_scalar(
+        "SELECT COUNT(*) FROM layer_c_cluster_profiles
+         WHERE job_type = ?1",
+        &[Value::String(job_type.to_string())],
+    ).await.unwrap_or(Value::from(0));
+    let cluster_count = cluster_count_val.as_i64().unwrap_or(0);
+    summary.insert("cluster_count".to_string(), Value::from(cluster_count));
+
+    // キーワード総数
+    let keyword_count_val = turso.query_scalar(
+        "SELECT COUNT(*) FROM layer_b_keywords
+         WHERE job_type = ?1",
+        &[Value::String(job_type.to_string())],
+    ).await.unwrap_or(Value::from(0));
+    let keyword_count = keyword_count_val.as_i64().unwrap_or(0);
+    summary.insert("keyword_count".to_string(), Value::from(keyword_count));
+
+    // 原稿品質グレード
+    let grade_rows = turso.query(
+        "SELECT grade FROM layer_b_text_quality
+         WHERE job_type = ?1 AND prefecture = ?2
+         LIMIT 1",
+        &[Value::String(job_type.to_string()), Value::String(pref_filter.to_string())],
+    ).await;
+    let grade = match grade_rows {
+        Ok(rows) if !rows.is_empty() => rows[0]
+            .get("grade")
+            .cloned()
+            .unwrap_or(Value::Null),
+        _ => {
+            // フォールバック: 全国
+            let fallback = turso.query(
+                "SELECT grade FROM layer_b_text_quality WHERE job_type = ?1 AND prefecture = '全国' LIMIT 1",
+                &[Value::String(job_type.to_string())],
+            ).await;
+            match fallback {
+                Ok(rows) if !rows.is_empty() => rows[0].get("grade").cloned().unwrap_or(Value::Null),
+                _ => Value::Null,
+            }
+        }
+    };
+    summary.insert("text_quality_grade".to_string(), grade);
+
+    // 法人集中度: 総求人数
+    let facility_rows = turso.query(
+        "SELECT total_postings FROM layer_a_facility_concentration
+         WHERE job_type = ?1 AND prefecture = ?2
+         LIMIT 1",
+        &[Value::String(job_type.to_string()), Value::String(pref_filter.to_string())],
+    ).await;
+    let total_postings = match facility_rows {
+        Ok(rows) if !rows.is_empty() => rows[0]
+            .get("total_postings")
+            .cloned()
+            .unwrap_or(Value::Null),
+        _ => Value::Null,
+    };
+    summary.insert("facility_total_postings".to_string(), total_postings);
+
+    // 雇用形態多様性: 雇用形態数
+    let diversity_rows = turso.query(
+        "SELECT n_types FROM layer_a_employment_diversity
+         WHERE job_type = ?1 AND prefecture = ?2
+         LIMIT 1",
+        &[Value::String(job_type.to_string()), Value::String(pref_filter.to_string())],
+    ).await;
+    let n_types = match diversity_rows {
+        Ok(rows) if !rows.is_empty() => rows[0]
+            .get("n_types")
+            .cloned()
+            .unwrap_or(Value::Null),
+        _ => Value::Null,
+    };
+    summary.insert("employment_n_types".to_string(), n_types);
+
+    // 共起パターン数
+    let cooccurrence_count_val = turso.query_scalar(
+        "SELECT COUNT(*) FROM layer_b_cooccurrence
+         WHERE job_type = ?1 AND prefecture = ?2",
+        &[Value::String(job_type.to_string()), Value::String(pref_filter.to_string())],
+    ).await.unwrap_or(Value::from(0));
+    let cooccurrence_count = cooccurrence_count_val.as_i64().unwrap_or(0);
+    summary.insert("cooccurrence_count".to_string(), Value::from(cooccurrence_count));
+
+    summary.insert("job_type".to_string(), Value::String(job_type.to_string()));
+
+    Ok(summary)
+}
+
+// ===========================================================================
+// Layer B v2: 6つの問い (6Q) テーブルクエリ — Turso経由 (async)
+// ===========================================================================
 
 /// 6Qクエリ共通: prefecture/municipality のデフォルト値処理
 fn resolve_6q_scope(prefecture: &str, municipality: &str) -> (String, String) {

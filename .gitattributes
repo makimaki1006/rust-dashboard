@@ -1,1 +1,2 @@
-data/geocoded_postings.db.gz filter=lfs diff=lfs merge=lfs -text
+# geocoded_postings.db.gz は GitHub Releases に移行したため LFS 不要
+# 他の .db.gz ファイルはサイズが小さいため通常の Git で管理

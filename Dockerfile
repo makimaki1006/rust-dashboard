@@ -22,6 +22,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -40,7 +41,12 @@ COPY static/js/ static/js/
 COPY data/geojson_gz/ data/geojson_gz/
 COPY data/job_postings_minimal.db.gz data/job_postings_minimal.db.gz
 COPY data/segment_summary.db.gz data/segment_summary.db.gz
-COPY data/geocoded_postings.db.gz data/geocoded_postings.db.gz
+
+# postings DB は GitHub Releases からダウンロード（LFS不要）
+ARG RELEASE_TAG=v1.0.0
+RUN mkdir -p data && \
+    curl -fsSL "https://github.com/makimaki1006/rust-dashboard/releases/download/${RELEASE_TAG}/postings_only.db.gz" \
+    -o data/postings_only.db.gz
 
 EXPOSE 9216
 

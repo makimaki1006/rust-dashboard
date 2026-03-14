@@ -53,7 +53,7 @@ impl AppConfig {
             segment_db_path: env::var("SEGMENT_DB_PATH")
                 .unwrap_or_else(|_| "data/segment_summary.db".to_string()),
             geocoded_db_path: env::var("GEOCODED_DB_PATH")
-                .unwrap_or_else(|_| "data/geocoded_postings.db".to_string()),
+                .unwrap_or_else(|_| "data/postings_only.db".to_string()),
             cache_ttl_secs: env::var("CACHE_TTL_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())

@@ -2,6 +2,7 @@ use axum::extract::{Query, State};
 use axum::response::Html;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
@@ -100,24 +101,41 @@ pub async fn tab_analysis(
 
     let location_label = make_location_label(&prefecture, &municipality);
 
-    let db = match &state.geocoded_db {
-        Some(db) => db,
-        None => {
-            return Html(r#"<div class="p-8 text-center text-red-400">
-                <h2 class="text-2xl mb-4">市場分析</h2>
-                <p>geocoded_postings.db が読み込まれていません</p>
-            </div>"#.to_string());
+    // サマリー取得: 市区町村指定時はpostingsテーブル(ローカル)、それ以外はTurso
+    let use_postings = !municipality.is_empty();
+    let summary = if use_postings {
+        // 市区町村指定時: ローカルDBから直接集計
+        if let Some(db) = &state.geocoded_db {
+            let db_clone = db.clone();
+            let jt = job_type.clone();
+            let pref = prefecture.clone();
+            let muni = municipality.clone();
+            tokio::task::spawn_blocking(move || {
+                analytics::query_analysis_summary(&db_clone, &jt, &pref, &muni).unwrap_or_default()
+            }).await.unwrap_or_default()
+        } else {
+            HashMap::new()
+        }
+    } else {
+        // 都道府県/全国: Tursoからlayerテーブル集計
+        match analytics::query_analysis_summary_turso(&state.turso, &job_type, &prefecture).await {
+            Ok(s) => s,
+            Err(_e) => {
+                // フォールバック: ローカルDB
+                if let Some(db) = &state.geocoded_db {
+                    let db_clone = db.clone();
+                    let jt = job_type.clone();
+                    let pref = prefecture.clone();
+                    let muni = municipality.clone();
+                    tokio::task::spawn_blocking(move || {
+                        analytics::query_analysis_summary(&db_clone, &jt, &pref, &muni).unwrap_or_default()
+                    }).await.unwrap_or_default()
+                } else {
+                    HashMap::new()
+                }
+            }
         }
     };
-
-    // サマリー取得（都道府県・市区町村フィルター対応）
-    let db_clone = db.clone();
-    let jt = job_type.clone();
-    let pref = prefecture.clone();
-    let muni = municipality.clone();
-    let summary = tokio::task::spawn_blocking(move || {
-        analytics::query_analysis_summary(&db_clone, &jt, &pref, &muni).unwrap_or_default()
-    }).await.unwrap_or_default();
     let salary_count = summary.get("salary_stat_count").and_then(|v| v.as_i64()).unwrap_or(0);
     let cluster_count = summary.get("cluster_count").and_then(|v| v.as_i64()).unwrap_or(0);
     let keyword_count = summary.get("keyword_count").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -316,16 +334,25 @@ pub async fn api_salary(
         return Html(html);
     }
 
-    // 都道府県レベル: 事前計算テーブルからもpostingsからも下限/上限を取得
-    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
-    let (prows, rows) = match tokio::task::spawn_blocking(move || {
-        let prows = analytics::query_salary_from_postings(&db_c, &jt, &pref, "").unwrap_or_default();
-        let rows = analytics::query_salary_stats(&db_c, &jt, &pref);
-        (prows, rows)
+    // 都道府県レベル: postingsからの下限/上限(ローカル) + layerテーブル(Turso)
+    let db_c = db.clone(); let jt_p = job_type.clone(); let pref_p = prefecture.clone();
+    let prows = match tokio::task::spawn_blocking(move || {
+        analytics::query_salary_from_postings(&db_c, &jt_p, &pref_p, "")
     }).await {
-        Ok((prows, Ok(rows))) => (prows, rows),
-        Ok((_, Err(e))) => return Html(error_html(&e)),
-        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
+        Ok(Ok(r)) => r,
+        _ => Vec::new(),
+    };
+
+    // layerテーブルはTurso経由で取得（フォールバック: ローカルDB）
+    let rows = match analytics::query_salary_stats_turso(&state.turso, &job_type, &prefecture).await {
+        Ok(r) => r,
+        Err(_e) => {
+            // フォールバック: ローカルDB
+            let db_c2 = db.clone(); let jt2 = job_type.clone(); let pref2 = prefecture.clone();
+            tokio::task::spawn_blocking(move || {
+                analytics::query_salary_stats(&db_c2, &jt2, &pref2).unwrap_or_default()
+            }).await.unwrap_or_default()
+        }
     };
 
     // いずれかにデータがあればOK
@@ -461,18 +488,28 @@ pub async fn api_facility(
         None => return Html(error_html("DB未接続")),
     };
 
-    // 市区町村指定時は postings テーブルから直接計算
-    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
-    let rows = match tokio::task::spawn_blocking(move || {
-        if !muni.is_empty() {
+    // 市区町村指定時は postings テーブル(ローカル)から直接計算
+    // 都道府県指定時は Turso から layer テーブル取得
+    let rows = if !municipality.is_empty() {
+        let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
+        match tokio::task::spawn_blocking(move || {
             analytics::query_facility_from_postings(&db_c, &jt, &pref, &muni)
-        } else {
-            analytics::query_facility_concentration(&db_c, &jt, &pref)
+        }).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => return Html(error_html(&e)),
+            Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
         }
-    }).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => return Html(error_html(&e)),
-        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
+    } else {
+        match analytics::query_facility_concentration_turso(&state.turso, &job_type, &prefecture).await {
+            Ok(r) => r,
+            Err(_e) => {
+                // フォールバック: ローカルDB
+                let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
+                tokio::task::spawn_blocking(move || {
+                    analytics::query_facility_concentration(&db_c, &jt, &pref).unwrap_or_default()
+                }).await.unwrap_or_default()
+            }
+        }
     };
 
     if rows.is_empty() {
@@ -543,11 +580,16 @@ pub async fn api_facility(
         top1_pct = top1_pct,
     );
 
-    // 全都道府県比較チャート（Zipf指数）
-    let db_c = db.clone(); let jt = job_type.clone();
-    let all_prefs = tokio::task::spawn_blocking(move || {
-        analytics::query_facility_all_prefectures(&db_c, &jt).unwrap_or_default()
-    }).await.unwrap_or_default();
+    // 全都道府県比較チャート（Zipf指数）— Turso経由
+    let all_prefs = match analytics::query_facility_all_prefectures_turso(&state.turso, &job_type).await {
+        Ok(r) => r,
+        Err(_e) => {
+            let db_c = db.clone(); let jt = job_type.clone();
+            tokio::task::spawn_blocking(move || {
+                analytics::query_facility_all_prefectures(&db_c, &jt).unwrap_or_default()
+            }).await.unwrap_or_default()
+        }
+    };
     let pref_rows: Vec<_> = all_prefs.iter().filter(|r| {
         r.get("prefecture").and_then(|v| v.as_str()).unwrap_or("") != "全国"
     }).collect();
@@ -665,18 +707,28 @@ pub async fn api_employment(
         None => return Html(error_html("DB未接続")),
     };
 
-    // 市区町村指定時は postings テーブルから直接計算
-    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
-    let rows = match tokio::task::spawn_blocking(move || {
-        if !muni.is_empty() {
+    // 市区町村指定時は postings テーブル(ローカル)から直接計算
+    // 都道府県指定時は Turso から layer テーブル取得
+    let rows = if !municipality.is_empty() {
+        let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
+        match tokio::task::spawn_blocking(move || {
             analytics::query_employment_from_postings(&db_c, &jt, &pref, &muni)
-        } else {
-            analytics::query_employment_diversity(&db_c, &jt, &pref)
+        }).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => return Html(error_html(&e)),
+            Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
         }
-    }).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => return Html(error_html(&e)),
-        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
+    } else {
+        match analytics::query_employment_diversity_turso(&state.turso, &job_type, &prefecture).await {
+            Ok(r) => r,
+            Err(_e) => {
+                // フォールバック: ローカルDB
+                let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
+                tokio::task::spawn_blocking(move || {
+                    analytics::query_employment_diversity(&db_c, &jt, &pref).unwrap_or_default()
+                }).await.unwrap_or_default()
+            }
+        }
     };
 
     if rows.is_empty() {
@@ -748,11 +800,16 @@ pub async fn api_employment(
         dominant_pct = dominant_pct,
     );
 
-    // 全都道府県比較（Shannon entropy）
-    let db_c = db.clone(); let jt = job_type.clone();
-    let all_prefs = tokio::task::spawn_blocking(move || {
-        analytics::query_employment_all_prefectures(&db_c, &jt).unwrap_or_default()
-    }).await.unwrap_or_default();
+    // 全都道府県比較（Shannon entropy）— Turso経由
+    let all_prefs = match analytics::query_employment_all_prefectures_turso(&state.turso, &job_type).await {
+        Ok(r) => r,
+        Err(_e) => {
+            let db_c = db.clone(); let jt = job_type.clone();
+            tokio::task::spawn_blocking(move || {
+                analytics::query_employment_all_prefectures(&db_c, &jt).unwrap_or_default()
+            }).await.unwrap_or_default()
+        }
+    };
     let pref_rows: Vec<_> = all_prefs.iter().filter(|r| {
         r.get("prefecture").and_then(|v| v.as_str()).unwrap_or("") != "全国"
     }).collect();
@@ -928,16 +985,25 @@ pub async fn api_keywords(
         }
     }
 
-    let db = match &state.geocoded_db {
-        Some(db) => db,
-        None => return Html(error_html("DB未接続")),
+    // フォールバック付きで取得（Turso経由、都道府県データなし→全国にフォールバック）
+    let (rows, is_fallback) = analytics::query_keywords_with_fallback_turso(
+        &state.turso, &job_type, &prefecture, layer, Some(50),
+    ).await;
+
+    // Turso結果が空の場合、ローカルDBにフォールバック
+    let (rows, is_fallback) = if rows.is_empty() {
+        if let Some(db) = &state.geocoded_db {
+            let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
+            let layer_owned = layer.map(|s| s.to_string());
+            tokio::task::spawn_blocking(move || {
+                analytics::query_keywords_with_fallback(&db_c, &jt, &pref, layer_owned.as_deref(), Some(50))
+            }).await.unwrap_or_else(|_| (Vec::new(), false))
+        } else {
+            (rows, is_fallback)
+        }
+    } else {
+        (rows, is_fallback)
     };
-    // フォールバック付きで取得（都道府県データなし→全国にフォールバック）
-    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
-    let layer_owned = layer.map(|s| s.to_string());
-    let (rows, is_fallback) = tokio::task::spawn_blocking(move || {
-        analytics::query_keywords_with_fallback(&db_c, &jt, &pref, layer_owned.as_deref(), Some(50))
-    }).await.unwrap_or_else(|_| (Vec::new(), false));
 
     let location_label = make_location_label(&prefecture, &municipality);
     let active_layer = layer.unwrap_or("all");
@@ -1121,15 +1187,24 @@ pub async fn api_cooccurrence(
         }
     }
 
-    let db = match &state.geocoded_db {
-        Some(db) => db,
-        None => return Html(error_html("DB未接続")),
+    // フォールバック付きで取得（Turso経由、都道府県データなし→全国にフォールバック）
+    let (rows, is_fallback) = analytics::query_cooccurrence_with_fallback_turso(
+        &state.turso, &job_type, &prefecture, min_lift,
+    ).await;
+
+    // Turso結果が空の場合、ローカルDBにフォールバック
+    let (rows, is_fallback) = if rows.is_empty() {
+        if let Some(db) = &state.geocoded_db {
+            let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
+            tokio::task::spawn_blocking(move || {
+                analytics::query_cooccurrence_with_fallback(&db_c, &jt, &pref, min_lift)
+            }).await.unwrap_or_else(|_| (Vec::new(), false))
+        } else {
+            (rows, is_fallback)
+        }
+    } else {
+        (rows, is_fallback)
     };
-    // フォールバック付きで取得（都道府県データなし→全国にフォールバック）
-    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
-    let (rows, is_fallback) = tokio::task::spawn_blocking(move || {
-        analytics::query_cooccurrence_with_fallback(&db_c, &jt, &pref, min_lift)
-    }).await.unwrap_or_else(|_| (Vec::new(), false));
 
     let location_label = make_location_label(&prefecture, &municipality);
 
@@ -1312,22 +1387,35 @@ pub async fn api_quality(
         }
     }
 
-    let db = match &state.geocoded_db {
-        Some(db) => db,
-        None => return Html(error_html("DB未接続")),
-    };
-
-    // 市区町村指定時はpostingsテーブルから直接計算してKPIに使う
-    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
-    let (muni_quality, national) = tokio::task::spawn_blocking(move || {
-        let mq = if !muni.is_empty() {
-            analytics::query_quality_from_postings(&db_c, &jt, &pref, &muni).unwrap_or_default()
+    // 市区町村指定時はpostingsテーブル(ローカル)から直接計算してKPIに使う
+    let muni_quality = if !municipality.is_empty() {
+        if let Some(db) = &state.geocoded_db {
+            let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone(); let muni = municipality.clone();
+            tokio::task::spawn_blocking(move || {
+                analytics::query_quality_from_postings(&db_c, &jt, &pref, &muni).unwrap_or_default()
+            }).await.unwrap_or_default()
         } else {
             Vec::new()
-        };
-        let nat = analytics::query_text_quality(&db_c, &jt, "").unwrap_or_default();
-        (mq, nat)
-    }).await.unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        }
+    } else {
+        Vec::new()
+    };
+
+    // 全国品質データはTurso経由で取得
+    let national = match analytics::query_text_quality_turso(&state.turso, &job_type, "").await {
+        Ok(r) => r,
+        Err(_e) => {
+            // フォールバック: ローカルDB
+            if let Some(db) = &state.geocoded_db {
+                let db_c = db.clone(); let jt = job_type.clone();
+                tokio::task::spawn_blocking(move || {
+                    analytics::query_text_quality(&db_c, &jt, "").unwrap_or_default()
+                }).await.unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        }
+    };
 
     let location_label = make_location_label(&prefecture, &municipality);
 
@@ -1413,12 +1501,17 @@ pub async fn api_quality(
             target_prefs.push(neighbor);
         }
 
-        let db_c = db.clone(); let jt = job_type.clone();
-        let target_prefs_owned: Vec<String> = target_prefs.iter().map(|s| s.to_string()).collect();
-        let muni_rows = tokio::task::spawn_blocking(move || {
-            let refs: Vec<&str> = target_prefs_owned.iter().map(|s| s.as_str()).collect();
-            analytics::query_quality_by_municipality(&db_c, &jt, &refs).unwrap_or_default()
-        }).await.unwrap_or_default();
+        // 市区町村別品質はpostingsテーブル（ローカルDB）から集計
+        let muni_rows = if let Some(db) = &state.geocoded_db {
+            let db_c = db.clone(); let jt = job_type.clone();
+            let target_prefs_owned: Vec<String> = target_prefs.iter().map(|s| s.to_string()).collect();
+            tokio::task::spawn_blocking(move || {
+                let refs: Vec<&str> = target_prefs_owned.iter().map(|s| s.as_str()).collect();
+                analytics::query_quality_by_municipality(&db_c, &jt, &refs).unwrap_or_default()
+            }).await.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         if !muni_rows.is_empty() {
             // 選択市区町村のデータを特定
@@ -1782,18 +1875,20 @@ pub async fn api_clusters(
         }
     }
 
-    let db = match &state.geocoded_db {
-        Some(db) => db,
-        None => return Html(error_html("DB未接続")),
-    };
-
-    let db_c = db.clone(); let jt = job_type.clone();
-    let rows = match tokio::task::spawn_blocking(move || {
-        analytics::query_cluster_profiles(&db_c, &jt)
-    }).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => return Html(error_html(&e)),
-        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
+    // クラスタプロファイルはTurso経由で取得
+    let rows = match analytics::query_cluster_profiles_turso(&state.turso, &job_type).await {
+        Ok(r) => r,
+        Err(_e) => {
+            // フォールバック: ローカルDB
+            if let Some(db) = &state.geocoded_db {
+                let db_c = db.clone(); let jt = job_type.clone();
+                tokio::task::spawn_blocking(move || {
+                    analytics::query_cluster_profiles(&db_c, &jt).unwrap_or_default()
+                }).await.unwrap_or_default()
+            } else {
+                return Html(error_html("Tursoエラー / ローカルDB未接続"));
+            }
+        }
     };
 
     if rows.is_empty() {
@@ -2022,19 +2117,20 @@ pub async fn api_heatmap(
         }
     }
 
-    let db = match &state.geocoded_db {
-        Some(db) => db,
-        None => return Html(error_html("DB未接続")),
-    };
-
-    // 全都道府県 x 全クラスタ取得（ヒートマップ用）
-    let db_c = db.clone(); let jt = job_type.clone();
-    let all_rows = match tokio::task::spawn_blocking(move || {
-        analytics::query_region_heatmap(&db_c, &jt, "", None)
-    }).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => return Html(error_html(&e)),
-        Err(e) => return Html(error_html(&format!("spawn_blocking: {e}"))),
+    // 全都道府県 x 全クラスタ取得（ヒートマップ用）— Turso経由
+    let all_rows = match analytics::query_region_heatmap_turso(&state.turso, &job_type, "", None).await {
+        Ok(r) => r,
+        Err(_e) => {
+            // フォールバック: ローカルDB
+            if let Some(db) = &state.geocoded_db {
+                let db_c = db.clone(); let jt = job_type.clone();
+                tokio::task::spawn_blocking(move || {
+                    analytics::query_region_heatmap(&db_c, &jt, "", None).unwrap_or_default()
+                }).await.unwrap_or_default()
+            } else {
+                return Html(error_html("Tursoエラー / ローカルDB未接続"));
+            }
+        }
     };
 
     if all_rows.is_empty() {
@@ -2172,15 +2268,22 @@ pub async fn api_heatmap(
         heatmap_data = heatmap_data.join(","),
     );
 
-    // テーブルも残す（フィルター対象のデータ）
+    // テーブルも残す（フィルター対象のデータ）— Turso経由
     let display_rows = if !prefecture.is_empty() {
-        let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
-        let cid = params.cluster_id;
-        match tokio::task::spawn_blocking(move || {
-            analytics::query_region_heatmap(&db_c, &jt, &pref, cid)
-        }).await {
-            Ok(Ok(r)) => r,
-            _ => Vec::new(),
+        match analytics::query_region_heatmap_turso(&state.turso, &job_type, &prefecture, params.cluster_id).await {
+            Ok(r) => r,
+            Err(_e) => {
+                // フォールバック: ローカルDB
+                if let Some(db) = &state.geocoded_db {
+                    let db_c = db.clone(); let jt = job_type.clone(); let pref = prefecture.clone();
+                    let cid = params.cluster_id;
+                    tokio::task::spawn_blocking(move || {
+                        analytics::query_region_heatmap(&db_c, &jt, &pref, cid).unwrap_or_default()
+                    }).await.unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
+            }
         }
     } else {
         // 全国表示の場合はheatmapで表現したので、テーブルは省略しても良いが
@@ -2578,11 +2681,6 @@ pub async fn api_compare(
         }
     }
 
-    let db = match &state.geocoded_db {
-        Some(db) => db,
-        None => return Html(error_html("DB未接続")),
-    };
-
     // 都道府県ドロップダウン生成
     let pref_options: String = PREFECTURE_ORDER
         .iter()
@@ -2622,18 +2720,34 @@ pub async fn api_compare(
         return Html(html);
     }
 
-    // --- データ取得 ---
-    let db_c = db.clone(); let jt = job_type.clone();
-    let p1 = pref1.clone(); let p2 = pref2.clone();
-    let (salary1, salary2, emp1, emp2, fac1, fac2) = tokio::task::spawn_blocking(move || {
-        let s1 = analytics::query_salary_stats(&db_c, &jt, &p1).unwrap_or_default();
-        let s2 = analytics::query_salary_stats(&db_c, &jt, &p2).unwrap_or_default();
-        let e1 = analytics::query_employment_diversity(&db_c, &jt, &p1).unwrap_or_default();
-        let e2 = analytics::query_employment_diversity(&db_c, &jt, &p2).unwrap_or_default();
-        let f1 = analytics::query_facility_concentration(&db_c, &jt, &p1).unwrap_or_default();
-        let f2 = analytics::query_facility_concentration(&db_c, &jt, &p2).unwrap_or_default();
-        (s1, s2, e1, e2, f1, f2)
-    }).await.unwrap_or_else(|_| (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()));
+    // --- データ取得（Turso経由、フォールバック: ローカルDB）---
+    let salary1 = analytics::query_salary_stats_turso(&state.turso, &job_type, &pref1).await.unwrap_or_default();
+    let salary2 = analytics::query_salary_stats_turso(&state.turso, &job_type, &pref2).await.unwrap_or_default();
+    let emp1 = analytics::query_employment_diversity_turso(&state.turso, &job_type, &pref1).await.unwrap_or_default();
+    let emp2 = analytics::query_employment_diversity_turso(&state.turso, &job_type, &pref2).await.unwrap_or_default();
+    let fac1 = analytics::query_facility_concentration_turso(&state.turso, &job_type, &pref1).await.unwrap_or_default();
+    let fac2 = analytics::query_facility_concentration_turso(&state.turso, &job_type, &pref2).await.unwrap_or_default();
+
+    // Turso結果が全て空の場合、ローカルDBにフォールバック
+    let (salary1, salary2, emp1, emp2, fac1, fac2) = if salary1.is_empty() && fac1.is_empty() {
+        if let Some(db) = &state.geocoded_db {
+            let db_c = db.clone(); let jt = job_type.clone();
+            let p1 = pref1.clone(); let p2 = pref2.clone();
+            tokio::task::spawn_blocking(move || {
+                let s1 = analytics::query_salary_stats(&db_c, &jt, &p1).unwrap_or_default();
+                let s2 = analytics::query_salary_stats(&db_c, &jt, &p2).unwrap_or_default();
+                let e1 = analytics::query_employment_diversity(&db_c, &jt, &p1).unwrap_or_default();
+                let e2 = analytics::query_employment_diversity(&db_c, &jt, &p2).unwrap_or_default();
+                let f1 = analytics::query_facility_concentration(&db_c, &jt, &p1).unwrap_or_default();
+                let f2 = analytics::query_facility_concentration(&db_c, &jt, &p2).unwrap_or_default();
+                (s1, s2, e1, e2, f1, f2)
+            }).await.unwrap_or_else(|_| (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()))
+        } else {
+            (salary1, salary2, emp1, emp2, fac1, fac2)
+        }
+    } else {
+        (salary1, salary2, emp1, emp2, fac1, fac2)
+    };
 
     // 給与中央値の抽出（正職員優先、なければ全体にフォールバック）
     let extract_median = |rows: &[std::collections::HashMap<String, serde_json::Value>], stype: &str| -> f64 {
