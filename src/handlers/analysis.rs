@@ -3031,13 +3031,13 @@ pub async fn api_text_analysis(
             emp = escape_html(emp), count = format_number(count),
             tmpl_mean = tmpl_mean * 100.0, tmpl_median = tmpl_median * 100.0,
             orig_mean = orig_mean, full_mean = full_mean,
-            diff_mean = diff_mean, diff_zero = diff_zero * 100.0,
+            diff_mean = diff_mean, diff_zero = diff_zero,
         ));
 
         chart_labels.push(format!("\"{}\"", escape_html(emp)));
         template_data.push(format!("{:.1}", tmpl_mean * 100.0));
         diff_data.push(format!("{:.2}", diff_mean));
-        diff_zero_data.push(format!("{:.1}", diff_zero * 100.0));
+        diff_zero_data.push(format!("{:.1}", diff_zero));
     }
 
     let chart_id = format!("text-analysis-chart-{}", job_type.len());
@@ -3187,7 +3187,7 @@ pub async fn api_tone(
             </tr>"#,
             emp = escape_html(emp), count = format_number(count),
             urg = urg, enth = enth, cas = cas, sel = sel,
-            emoji = emoji * 100.0, kaomoji = kaomoji * 100.0, deco = deco * 100.0,
+            emoji = emoji, kaomoji = kaomoji, deco = deco,
         ));
 
         chart_labels.push(format!("\"{}\"", escape_html(emp)));
@@ -3547,12 +3547,12 @@ pub async fn api_targeting(
                 </div>
             </div>"#,
             emp = escape_html(emp), count = format_number(count),
-            age = escape_html(age_mode), age_p = age_pct * 100.0,
-            exp = escape_html(exp_mode), exp_p = exp_pct * 100.0,
-            life = escape_html(life_mode), life_p = life_pct * 100.0,
-            qual = escape_html(qual_mode), qual_p = qual_pct * 100.0,
-            div = escape_html(div_mode), div_p = div_pct * 100.0,
-            ptop = escape_html(psycho_top), ptop_p = psycho_top_pct * 100.0,
+            age = escape_html(age_mode), age_p = age_pct,
+            exp = escape_html(exp_mode), exp_p = exp_pct,
+            life = escape_html(life_mode), life_p = life_pct,
+            qual = escape_html(qual_mode), qual_p = qual_pct,
+            div = escape_html(div_mode), div_p = div_pct,
+            ptop = escape_html(psycho_top), ptop_p = psycho_top_pct,
         ));
 
         let mut vals = Vec::new();
