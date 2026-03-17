@@ -31,7 +31,7 @@ import urllib.request
 import urllib.error
 
 # バッチサイズ（Turso HTTP API の制限を考慮して500行ずつ）
-BATCH_SIZE = 500
+BATCH_SIZE = 200
 
 # Turso HTTP API のリクエスト間隔（秒）- レート制限対策
 REQUEST_INTERVAL = 0.1
@@ -231,7 +231,7 @@ def upload_table(api_url, token, db_path, table_name, dry_run=False):
 
     # Step 3: バッチ INSERT
     # カラム数が少ないテーブルはバッチサイズを大きくする
-    effective_batch = min(BATCH_SIZE, max(100, 5000 // max(len(columns), 1)))
+    effective_batch = min(BATCH_SIZE, max(50, 3000 // max(len(columns), 1)))
     print(f"  Step 3: INSERT ({effective_batch}行/バッチ, {len(columns)}カラム)...")
     placeholders = ", ".join(["?"] * len(columns))
     insert_sql = f"INSERT INTO [{table_name}] ({', '.join(columns)}) VALUES ({placeholders})"
@@ -249,21 +249,31 @@ def upload_table(api_url, token, db_path, table_name, dry_run=False):
             args = [sqlite_value_to_turso_arg(v) for v in row]
             statements.append({"sql": insert_sql, "args": args})
 
-        ok = turso_execute(api_url, token, statements, dry_run=dry_run)
+        # リトライ付き実行（最大3回、指数バックオフ）
+        ok = False
+        for attempt in range(3):
+            ok = turso_execute(api_url, token, statements, dry_run=dry_run)
+            if ok:
+                break
+            wait = 5 * (2 ** attempt)  # 5s, 10s, 20s
+            print(f"  RETRY {attempt+1}/3: {wait}秒後に再試行 (offset={total_inserted})")
+            time.sleep(wait)
         if not ok:
-            print(f"  ERROR: バッチ INSERT 失敗 (offset={total_inserted})")
+            print(f"  ERROR: バッチ INSERT 失敗 (offset={total_inserted}) - 3回リトライ後も失敗")
             conn.close()
             return False
 
         total_inserted += len(rows)
         pct = total_inserted * 100 // local_count if local_count else 100
         print(f"    {total_inserted:,} / {local_count:,} ({pct}%)", end="\r")
-        time.sleep(REQUEST_INTERVAL)
+        # 大量行テーブルはレート制限回避のため間隔を長く
+        interval = 0.3 if local_count > 100000 else REQUEST_INTERVAL
+        time.sleep(interval)
 
     print(f"    {total_inserted:,} / {local_count:,} 完了")
     conn.close()
 
-    # Step 4: 行数検証
+    # Step 4: 行数検証（リトライによる重複があれば自動DEDUP）
     if not dry_run:
         print(f"  Step 4: 行数検証...")
         time.sleep(REQUEST_INTERVAL)
@@ -273,6 +283,23 @@ def upload_table(api_url, token, db_path, table_name, dry_run=False):
         remote_count = int(remote_count_raw) if remote_count_raw else 0
         if remote_count == local_count:
             print(f"  OK: Turso={remote_count:,} == ローカル={local_count:,}")
+        elif remote_count > local_count:
+            excess = remote_count - local_count
+            print(f"  DEDUP: {excess}行の重複を検出、削除中...")
+            dedup_sql = f"""DELETE FROM [{table_name}] WHERE rowid NOT IN (
+                SELECT MIN(rowid) FROM [{table_name}] GROUP BY {', '.join(columns)}
+            )"""
+            turso_execute(api_url, token, [{"sql": dedup_sql}])
+            time.sleep(1)
+            after_raw = turso_query_scalar(
+                api_url, token, f"SELECT COUNT(*) FROM [{table_name}]"
+            )
+            after = int(after_raw) if after_raw else 0
+            if after == local_count:
+                print(f"  OK: DEDUP後 Turso={after:,} == ローカル={local_count:,}")
+            else:
+                print(f"  MISMATCH: DEDUP後 Turso={after:,} != ローカル={local_count:,}")
+                return False
         else:
             print(f"  MISMATCH: Turso={remote_count:,} != ローカル={local_count:,}")
             return False
