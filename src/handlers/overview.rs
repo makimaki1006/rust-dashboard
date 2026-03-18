@@ -258,6 +258,12 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
 
         match row_type.as_str() {
             "SUMMARY" => {
+                // 都道府県レベル（municipality空）は市区町村の集約なので除外して二重カウントを防ぐ
+                let muni = get_str(row, "municipality");
+                if muni.is_empty() {
+                    continue;
+                }
+
                 let male = get_i64(row, "male_count");
                 let female = get_i64(row, "female_count");
                 total_male += male;
