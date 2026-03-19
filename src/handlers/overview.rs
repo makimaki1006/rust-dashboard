@@ -239,7 +239,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
     let mut age_count: f64 = 0.0;
     let mut desired_sum: f64 = 0.0;
     let mut qual_sum: f64 = 0.0;
-    let mut dist_values: Vec<f64> = Vec::new();
+    let mut dist_weighted_sum: f64 = 0.0;
+    let mut dist_population: i64 = 0;
     let mut summary_count: i64 = 0;
 
     // 年齢層集計用
@@ -283,7 +284,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
 
                 let dist = get_f64(row, "avg_reference_distance_km");
                 if dist > 0.0 && total > 0 {
-                    dist_values.push(dist * total as f64);
+                    dist_weighted_sum += dist * total as f64;
+                    dist_population += total;
                 }
             }
             "AGE_GENDER" => {
@@ -328,8 +330,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
     } else {
         0.0
     };
-    stats.avg_distance_km = if !dist_values.is_empty() && summary_count > 0 {
-        dist_values.iter().sum::<f64>() / summary_count as f64
+    stats.avg_distance_km = if dist_population > 0 {
+        dist_weighted_sum / dist_population as f64
     } else {
         0.0
     };
@@ -359,7 +361,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
         let mut n_age_count: f64 = 0.0;
         let mut n_desired_sum: f64 = 0.0;
         let mut n_qual_sum: f64 = 0.0;
-        let mut n_dist_values: Vec<f64> = Vec::new();
+        let mut n_dist_weighted_sum: f64 = 0.0;
+        let mut n_dist_population: i64 = 0;
         let mut n_summary_count: i64 = 0;
 
         for row in nat_rows {
@@ -381,7 +384,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
 
             let dist = get_f64(row, "avg_reference_distance_km");
             if dist > 0.0 && row_total > 0 {
-                n_dist_values.push(dist * row_total as f64);
+                n_dist_weighted_sum += dist * row_total as f64;
+                n_dist_population += row_total;
             }
         }
 
@@ -403,8 +407,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
         } else {
             0.0
         };
-        stats.national_avg_distance_km = if !n_dist_values.is_empty() && n_summary_count > 0 {
-            n_dist_values.iter().sum::<f64>() / n_summary_count as f64
+        stats.national_avg_distance_km = if n_dist_population > 0 {
+            n_dist_weighted_sum / n_dist_population as f64
         } else {
             0.0
         };
