@@ -195,7 +195,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
                    FROM job_seeker_data \
                    WHERE job_type = ? \
                      AND row_type = 'SUMMARY' \
-                     AND prefecture != ''";
+                     AND prefecture != '' \
+                     AND municipality != ''";
     let nat_params = vec![Value::String(job_type.to_string())];
 
     let batch_results = if !prefecture.is_empty() {

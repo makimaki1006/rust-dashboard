@@ -26,40 +26,43 @@ pub const PREFECTURE_ORDER: [&str; 47] = [
     "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
 ];
 
-/// サポートされる職種一覧
-pub const JOB_TYPES: [&str; 19] = [
-    "介護職",
-    "看護師",
-    "保育士",
-    "栄養士",
-    "生活相談員",
-    "理学療法士",
-    "作業療法士",
-    "ケアマネジャー",
-    "サービス管理責任者",
-    "サービス提供責任者",
-    "学童支援",
-    "調理師、調理スタッフ",
-    "薬剤師",
-    "言語聴覚士",
-    "児童発達支援管理責任者",
-    "幼稚園教諭",
-    "児童指導員",
-    "生活支援員",
-    "臨床検査技師",
+/// 職種情報（プルダウン表示 + Tursoデータ有無を一元管理）
+/// 新職種追加時はここに1行追加するだけでOK
+pub struct JobTypeInfo {
+    pub name: &'static str,
+    pub has_turso_data: bool,
+}
+
+pub const ALL_JOB_TYPES: &[JobTypeInfo] = &[
+    JobTypeInfo { name: "介護職", has_turso_data: true },
+    JobTypeInfo { name: "看護師", has_turso_data: true },
+    JobTypeInfo { name: "保育士", has_turso_data: true },
+    JobTypeInfo { name: "栄養士", has_turso_data: true },
+    JobTypeInfo { name: "生活相談員", has_turso_data: true },
+    JobTypeInfo { name: "理学療法士", has_turso_data: true },
+    JobTypeInfo { name: "作業療法士", has_turso_data: true },
+    JobTypeInfo { name: "ケアマネジャー", has_turso_data: true },
+    JobTypeInfo { name: "サービス管理責任者", has_turso_data: true },
+    JobTypeInfo { name: "サービス提供責任者", has_turso_data: true },
+    JobTypeInfo { name: "学童支援", has_turso_data: true },
+    JobTypeInfo { name: "調理師、調理スタッフ", has_turso_data: true },
+    JobTypeInfo { name: "薬剤師", has_turso_data: false },
+    JobTypeInfo { name: "言語聴覚士", has_turso_data: false },
+    JobTypeInfo { name: "児童発達支援管理責任者", has_turso_data: true },
+    JobTypeInfo { name: "幼稚園教諭", has_turso_data: false },
+    JobTypeInfo { name: "児童指導員", has_turso_data: false },
+    JobTypeInfo { name: "生活支援員", has_turso_data: false },
+    JobTypeInfo { name: "臨床検査技師", has_turso_data: true },
 ];
 
-/// Turso人口データが存在する職種（16職種）
-pub const TURSO_JOB_TYPES: [&str; 16] = [
-    "介護職", "看護師", "保育士", "栄養士",
-    "生活相談員", "理学療法士", "作業療法士", "ケアマネジャー",
-    "サービス管理責任者", "サービス提供責任者", "学童支援", "調理師、調理スタッフ",
-    "児童指導員", "生活支援員", "児童発達支援管理責任者", "臨床検査技師",
-];
+/// プルダウン用の職種名リストを取得
+pub fn job_type_names() -> Vec<&'static str> {
+    ALL_JOB_TYPES.iter().map(|j| j.name).collect()
+}
 
 /// 指定職種にTurso人口データがあるかチェック
 pub fn has_turso_data(job_type: &str) -> bool {
-    TURSO_JOB_TYPES.contains(&job_type)
+    ALL_JOB_TYPES.iter().any(|j| j.name == job_type && j.has_turso_data)
 }
 
 /// Tursoデータなし職種向けのメッセージHTML

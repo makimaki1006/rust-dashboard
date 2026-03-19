@@ -113,6 +113,7 @@ pub(crate) async fn fetch_talentmap(state: &AppState, job_type: &str, prefecture
          male_count, female_count, applicant_count \
          FROM job_seeker_data \
          WHERE job_type = ? AND row_type = 'SUMMARY' \
+         AND municipality != '' \
          AND latitude IS NOT NULL AND longitude IS NOT NULL \
          AND latitude != '' AND longitude != ''"
     );

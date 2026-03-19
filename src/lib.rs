@@ -25,7 +25,7 @@ use auth::{
 use config::AppConfig;
 use db::cache::AppCache;
 use db::turso::TursoClient;
-use models::job_seeker::{JOB_TYPES, PREFECTURE_ORDER};
+use models::job_seeker::{job_type_names, PREFECTURE_ORDER};
 
 /// キャッシュキーのタブ名プレフィックス一覧
 const TAB_CACHE_PREFIXES: &[&str] = &[
@@ -425,7 +425,7 @@ async fn dashboard_page(
         .flatten()
         .unwrap_or_default();
 
-    let job_types: Vec<String> = JOB_TYPES.iter().map(|s| s.to_string()).collect();
+    let job_types: Vec<String> = job_type_names().iter().map(|s| s.to_string()).collect();
 
     let job_options: String = job_types
         .iter()
