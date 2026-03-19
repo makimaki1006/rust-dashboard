@@ -282,8 +282,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
                 summary_count += total;
 
                 let dist = get_f64(row, "avg_reference_distance_km");
-                if dist > 0.0 {
-                    dist_values.push(dist);
+                if dist > 0.0 && total > 0 {
+                    dist_values.push(dist * total as f64);
                 }
             }
             "AGE_GENDER" => {
@@ -328,8 +328,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
     } else {
         0.0
     };
-    stats.avg_distance_km = if !dist_values.is_empty() {
-        dist_values.iter().sum::<f64>() / dist_values.len() as f64
+    stats.avg_distance_km = if !dist_values.is_empty() && summary_count > 0 {
+        dist_values.iter().sum::<f64>() / summary_count as f64
     } else {
         0.0
     };
@@ -380,8 +380,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
             n_summary_count += row_total;
 
             let dist = get_f64(row, "avg_reference_distance_km");
-            if dist > 0.0 {
-                n_dist_values.push(dist);
+            if dist > 0.0 && row_total > 0 {
+                n_dist_values.push(dist * row_total as f64);
             }
         }
 
@@ -403,8 +403,8 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
         } else {
             0.0
         };
-        stats.national_avg_distance_km = if !n_dist_values.is_empty() {
-            n_dist_values.iter().sum::<f64>() / n_dist_values.len() as f64
+        stats.national_avg_distance_km = if !n_dist_values.is_empty() && n_summary_count > 0 {
+            n_dist_values.iter().sum::<f64>() / n_summary_count as f64
         } else {
             0.0
         };
