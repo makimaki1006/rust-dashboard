@@ -276,9 +276,7 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
         )
     }).collect();
 
-    // ===== 雇用形態×移動パターン =====
-    // [一時非表示] CSV再生成後に復活: let mobility_section = build_mobility_section(stats);
-    let _mobility_section = build_mobility_section(stats);
+    // 雇用形態×移動パターンは非表示（将来復活予定時にbuild_mobility_section(stats)を使用）
 
     include_str!("../../templates/tabs/workstyle.html")
         .replace("{{JOB_TYPE}}", &escape_html(job_type))
