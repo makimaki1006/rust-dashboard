@@ -78,8 +78,7 @@ async fn fetch_workstyle(state: &AppState, job_type: &str, prefecture: &str, mun
         FROM job_seeker_data \
         WHERE job_type = ? \
           AND row_type IN ('WORKSTYLE_DISTRIBUTION', 'WORKSTYLE_AGE_CROSS', \
-                           'WORKSTYLE_GENDER_CROSS', 'WORKSTYLE_EMPLOYMENT_STATUS', \
-                           'WORKSTYLE_MOBILITY'){location_filter}"
+                           'WORKSTYLE_GENDER_CROSS', 'WORKSTYLE_EMPLOYMENT_STATUS'){location_filter}"
     );
 
     let rows = match state.turso.query(&sql, &params).await {
