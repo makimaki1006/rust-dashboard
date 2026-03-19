@@ -215,8 +215,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/segment/crosstab",
             get(handlers::segment::segment_crosstab),
         )
-        // 求人作成タブ
-        .route("/tab/job_creator", get(handlers::job_creator::tab_job_creator))
+        // job_creator: _archive/に移動（2026-03-18）
         .route("/api/status", get(api_status))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

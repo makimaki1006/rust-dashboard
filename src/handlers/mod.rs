@@ -8,8 +8,8 @@ pub mod talentmap;
 pub mod competitive;
 pub mod segment;
 pub mod analysis;
-pub mod job_creator;
 pub mod compare;
+// job_creator: _archive/に移動（2026-03-18）Gemini AI iframe埋め込み、UIから非表示・ルーティングなし
 pub mod api;
 
 use axum::response::Html;
