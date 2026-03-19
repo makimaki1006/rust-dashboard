@@ -132,8 +132,8 @@ pub async fn tab_compare(
             })
             .collect();
         format!(
-            r#"<select id="{}" name="{}" class="bg-slate-700 text-white px-3 py-2 rounded-lg text-sm border border-slate-600"
-                hx-get="/tab/compare" hx-target="#content" hx-swap="innerHTML" hx-include="[name='job_a'],[name='job_b']">{}</select>"#,
+            r##"<select id="{}" name="{}" class="bg-slate-700 text-white px-3 py-2 rounded-lg text-sm border border-slate-600"
+                hx-get="/tab/compare" hx-target="#content" hx-swap="innerHTML" hx-include="[name='job_a'],[name='job_b']">{}</select>"##,
             id, id, opts.join("")
         )
     };
