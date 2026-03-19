@@ -9,6 +9,7 @@ pub mod competitive;
 pub mod segment;
 pub mod analysis;
 pub mod job_creator;
+pub mod compare;
 pub mod api;
 
 use axum::response::Html;
