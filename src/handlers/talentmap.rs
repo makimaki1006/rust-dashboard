@@ -260,7 +260,7 @@ pub(crate) async fn fetch_muni_detail(state: &AppState, job_type: &str, pref: &s
     // 3クエリを1バッチで実行
     let summary_sql = format!("SELECT SUM(male_count) as male_count, SUM(female_count) as female_count, SUM(applicant_count) as applicant_count \
                        FROM job_seeker_data \
-                       WHERE job_type = ? AND row_type = 'SUMMARY' AND prefecture = ?{}", muni_clause);
+                       WHERE job_type = ? AND row_type = 'SUMMARY' AND municipality != '' AND prefecture = ?{}", muni_clause);
     let ag_sql = format!("SELECT category1, SUM(male_count) as male_count, SUM(female_count) as female_count \
                   FROM job_seeker_data \
                   WHERE job_type = ? AND row_type = 'AGE_GENDER' AND prefecture = ?{} \
