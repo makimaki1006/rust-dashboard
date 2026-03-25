@@ -80,8 +80,11 @@ pub async fn tab_overview(
         }
     }
 
-    let stats = fetch_national_stats(&state, &job_type, &prefecture, &municipality).await;
+    let mut stats = fetch_national_stats(&state, &job_type, &prefecture, &municipality).await;
     let location_label = make_location_label(&prefecture, &municipality);
+
+    // segment_dbから需要側年代データを取得
+    stats.demand_age = fetch_demand_age_decade(&state, &job_type, &prefecture, &municipality).await;
 
     // Turso接続失敗チェック: 全データが0の場合、エラーバナーを追加
     let total = stats.male_count + stats.female_count;
@@ -142,6 +145,9 @@ struct NatStats {
     national_avg_distance_km: f64,
     national_male_count: i64,
     national_female_count: i64,
+
+    // 需給年代ピラミッド用: segment_age_decadeから取得
+    demand_age: Vec<(String, i64)>, // (decade, count) 求人対象年代
 }
 
 impl Default for NatStats {
@@ -167,6 +173,8 @@ impl Default for NatStats {
             national_avg_distance_km: 0.0,
             national_male_count: 0,
             national_female_count: 0,
+
+            demand_age: Vec::new(),
         }
     }
 }
@@ -417,6 +425,87 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
     stats
 }
 
+/// セッション職種名 → segment_summary.db 職種名へのマッピング
+fn map_job_type_for_segment(job_type: &str) -> Option<&str> {
+    match job_type {
+        "看護師" => Some("看護師・准看護師"),
+        "介護職" => Some("介護職・ヘルパー"),
+        "保育士" => Some("保育士"),
+        "栄養士" => Some("管理栄養士・栄養士"),
+        "生活相談員" => Some("生活相談員"),
+        "理学療法士" => Some("理学療法士"),
+        "作業療法士" => Some("作業療法士"),
+        "ケアマネジャー" => Some("ケアマネジャー"),
+        "サービス管理責任者" => Some("サービス管理責任者"),
+        "サービス提供責任者" => Some("サービス提供責任者"),
+        "学童支援" => Some("放課後児童支援員・学童指導員"),
+        "調理師、調理スタッフ" => Some("調理師・調理スタッフ"),
+        "薬剤師" => Some("薬剤師"),
+        "言語聴覚士" => Some("言語聴覚士"),
+        "児童指導員" => Some("児童指導員"),
+        "児童発達支援管理責任者" => Some("児童発達支援管理責任者"),
+        "生活支援員" => Some("生活支援員"),
+        "幼稚園教諭" => Some("幼稚園教諭"),
+        _ => None,
+    }
+}
+
+/// segment_dbから需要側（求人票）の年代分布を取得
+async fn fetch_demand_age_decade(
+    state: &AppState,
+    job_type: &str,
+    prefecture: &str,
+    municipality: &str,
+) -> Vec<(String, i64)> {
+    let seg_db = match &state.segment_db {
+        Some(db) => db,
+        None => return Vec::new(),
+    };
+
+    let seg_jt = match map_job_type_for_segment(job_type) {
+        Some(jt) => jt,
+        None => return Vec::new(),
+    };
+
+    // 全雇用形態で集計
+    let emp_type = "全て";
+
+    let mut params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
+    let mut location_clause = String::new();
+    if !prefecture.is_empty() {
+        location_clause.push_str(" AND prefecture = ?");
+        params.push(prefecture.to_string());
+        if !municipality.is_empty() {
+            location_clause.push_str(" AND municipality = ?");
+            params.push(municipality.to_string());
+        }
+    }
+
+    let query = format!(
+        "SELECT decade, SUM(count) as count \
+         FROM segment_age_decade WHERE job_type = ? AND employment_type = ?{} \
+         GROUP BY decade ORDER BY decade",
+        location_clause
+    );
+
+    let rows = match seg_db.query_owned(query, params).await {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+
+    let age_order = ["20代", "30代", "40代", "50代", "60代"];
+    let mut result: Vec<(String, i64)> = Vec::new();
+    for age in &age_order {
+        let cnt = rows.iter()
+            .find(|r| r.get("decade").and_then(|v| v.as_str()) == Some(age))
+            .and_then(|r| r.get("count").and_then(|v| v.as_i64()))
+            .unwrap_or(0);
+        result.push((age.to_string(), cnt));
+    }
+
+    result
+}
+
 /// 3層比較パネルのHTML生成
 /// 都道府県が選択されている場合のみ表示する。
 /// 全国 vs 地域（都道府県 or 市区町村）を横棒バーで比較。
@@ -589,6 +678,204 @@ fn build_diagnosis_section(_stats: &NatStats, _prefecture: &str) -> String {
     String::new()
 }
 
+/// 需給年代ピラミッド（バタフライチャート）を生成
+/// 左=求職者年代割合（供給）、右=求人対象年代割合（需要）
+fn build_pyramid_section(stats: &NatStats) -> String {
+    // 供給側（求職者）: AGE_GENDERから。60代と70歳以上を「60代以上」に統合
+    let age_labels = ["20代", "30代", "40代", "50代", "60代以上"];
+    let mut supply_counts: Vec<i64> = Vec::new();
+    for label in &age_labels {
+        let cnt = match *label {
+            "60代以上" => {
+                // 60代 + 70歳以上を統合
+                let c60 = stats.age_distribution.iter()
+                    .find(|(a, _)| a == "60代").map(|(_, c)| *c).unwrap_or(0);
+                let c70 = stats.age_distribution.iter()
+                    .find(|(a, _)| a == "70歳以上").map(|(_, c)| *c).unwrap_or(0);
+                c60 + c70
+            }
+            _ => stats.age_distribution.iter()
+                .find(|(a, _)| a == *label).map(|(_, c)| *c).unwrap_or(0),
+        };
+        supply_counts.push(cnt);
+    }
+
+    // 需要側（求人票）: segment_age_decadeから。60代を「60代以上」に対応
+    let mut demand_counts: Vec<i64> = Vec::new();
+    for label in &age_labels {
+        let cnt = match *label {
+            "60代以上" => stats.demand_age.iter()
+                .find(|(a, _)| a == "60代").map(|(_, c)| *c).unwrap_or(0),
+            _ => stats.demand_age.iter()
+                .find(|(a, _)| a == *label).map(|(_, c)| *c).unwrap_or(0),
+        };
+        demand_counts.push(cnt);
+    }
+
+    // データがどちらもない場合はセクションを表示しない
+    let supply_total: i64 = supply_counts.iter().sum();
+    let demand_total: i64 = demand_counts.iter().sum();
+    if supply_total == 0 && demand_total == 0 {
+        return String::new();
+    }
+
+    // 割合に変換（%）
+    let supply_pcts: Vec<f64> = supply_counts.iter()
+        .map(|c| if supply_total > 0 { *c as f64 / supply_total as f64 * 100.0 } else { 0.0 })
+        .collect();
+    let demand_pcts: Vec<f64> = demand_counts.iter()
+        .map(|c| if demand_total > 0 { *c as f64 / demand_total as f64 * 100.0 } else { 0.0 })
+        .collect();
+
+    // ECharts用JSON配列: 供給は負値（左側）、需要は正値（右側）
+    let supply_vals: Vec<String> = supply_pcts.iter()
+        .map(|p| format!("{:.1}", -p))
+        .collect();
+    let demand_vals: Vec<String> = demand_pcts.iter()
+        .map(|p| format!("{:.1}", p))
+        .collect();
+
+    let labels_json: Vec<String> = age_labels.iter().map(|a| format!("\"{}\"", a)).collect();
+
+    // テーブル行を生成
+    let mut table_rows = String::new();
+    for (i, label) in age_labels.iter().enumerate() {
+        let sp = supply_pcts[i];
+        let dp = demand_pcts[i];
+        let diff = dp - sp;
+        let diff_color = if diff > 3.0 {
+            "text-emerald-400" // 需要超過 = 採用チャンス
+        } else if diff < -3.0 {
+            "text-rose-400" // 供給超過 = 競争激しい
+        } else {
+            "text-slate-400"
+        };
+        let diff_sign = if diff > 0.0 { "+" } else { "" };
+        let hint = if diff > 3.0 {
+            "採用しやすい"
+        } else if diff < -3.0 {
+            "競争激しい"
+        } else {
+            "均衡"
+        };
+
+        table_rows.push_str(&format!(
+            r#"<tr class="border-b border-slate-700/50">
+                <td class="py-1.5 text-sm text-slate-300">{label}</td>
+                <td class="py-1.5 text-sm text-right text-cyan-400">{sp:.1}%</td>
+                <td class="py-1.5 text-sm text-right text-amber-400">{dp:.1}%</td>
+                <td class="py-1.5 text-sm text-right {diff_color}">{diff_sign}{diff:.1}%</td>
+                <td class="py-1.5 text-xs text-right {diff_color}">{hint}</td>
+            </tr>"#,
+            label = label,
+            sp = sp,
+            dp = dp,
+            diff_color = diff_color,
+            diff_sign = diff_sign,
+            diff = diff,
+            hint = hint,
+        ));
+    }
+
+    // チャートID（ユニーク）
+    let chart_id = format!("pyramid-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+
+    format!(
+        r##"<div class="stat-card">
+    <h3 class="text-sm text-slate-400 mb-1">&#x1f4ca; 需給年代バランス</h3>
+    <p class="text-xs text-slate-500 mb-3">左: 求職者の年代構成（供給） / 右: 求人の対象年代（需要）</p>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div>
+            <div id="{chart_id}" style="height:360px;"></div>
+            <script>
+            (function(){{
+                var el = document.getElementById('{chart_id}');
+                if (!el || typeof echarts === 'undefined') return;
+                var c = echarts.init(el, 'dark');
+                c.setOption({{
+                    tooltip: {{
+                        trigger: 'axis',
+                        axisPointer: {{type: 'shadow'}},
+                        formatter: function(params) {{
+                            var tip = params[0].name;
+                            params.forEach(function(p) {{
+                                tip += '<br>' + p.marker + p.seriesName + ': ' + Math.abs(p.value).toFixed(1) + '%';
+                            }});
+                            return tip;
+                        }}
+                    }},
+                    legend: {{data: ['求職者（供給）', '求人票（需要）'], top: 0, textStyle: {{color: '#94a3b8'}}}},
+                    grid: {{left: '3%', right: '3%', bottom: '3%', top: '40px', containLabel: true}},
+                    xAxis: {{
+                        type: 'value',
+                        axisLabel: {{
+                            color: '#94a3b8',
+                            formatter: function(v) {{ return Math.abs(v).toFixed(0) + '%'; }}
+                        }},
+                        splitLine: {{lineStyle: {{color: '#334155'}}}}
+                    }},
+                    yAxis: {{
+                        type: 'category',
+                        data: [{labels}],
+                        axisTick: {{show: false}},
+                        axisLabel: {{color: '#e2e8f0', fontSize: 13}}
+                    }},
+                    series: [
+                        {{
+                            name: '求職者（供給）',
+                            type: 'bar',
+                            stack: 'total',
+                            data: [{supply_vals}],
+                            itemStyle: {{color: '#22d3ee', borderRadius: [4, 0, 0, 4]}},
+                            barWidth: '55%'
+                        }},
+                        {{
+                            name: '求人票（需要）',
+                            type: 'bar',
+                            stack: 'total',
+                            data: [{demand_vals}],
+                            itemStyle: {{color: '#fbbf24', borderRadius: [0, 4, 4, 0]}},
+                            barWidth: '55%'
+                        }}
+                    ]
+                }});
+                new ResizeObserver(function(){{ c.resize(); }}).observe(el);
+            }})();
+            </script>
+        </div>
+        <div>
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-slate-600">
+                        <th class="py-1.5 text-xs text-left text-slate-500">年代</th>
+                        <th class="py-1.5 text-xs text-right text-cyan-500">供給</th>
+                        <th class="py-1.5 text-xs text-right text-amber-500">需要</th>
+                        <th class="py-1.5 text-xs text-right text-slate-500">差分</th>
+                        <th class="py-1.5 text-xs text-right text-slate-500">判定</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {table_rows}
+                </tbody>
+            </table>
+            <div class="mt-3 space-y-1">
+                <p class="text-xs text-slate-500">供給 = ジョブメドレー登録求職者の年代構成比</p>
+                <p class="text-xs text-slate-500">需要 = 求人票から推定される対象年代の構成比</p>
+                <p class="text-xs text-emerald-500/70">＋差分 = その年代は需要が高く採用しやすい</p>
+                <p class="text-xs text-rose-500/70">−差分 = その年代は供給過多で競争が激しい</p>
+            </div>
+        </div>
+    </div>
+</div>"##,
+        chart_id = chart_id,
+        labels = labels_json.join(","),
+        supply_vals = supply_vals.join(","),
+        demand_vals = demand_vals.join(","),
+        table_rows = table_rows,
+    )
+}
+
 /// HTMLレンダリング
 fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefecture: &str) -> String {
     let total = stats.male_count + stats.female_count;
@@ -610,11 +897,15 @@ fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefe
     // 3層比較セクション（都道府県選択時のみ生成）
     let comparison_section = build_comparison_section(stats, prefecture, location_label);
 
+    // 需給年代ピラミッド用データ（割合で計算）
+    let pyramid_section = build_pyramid_section(stats);
+
     include_str!("../../templates/tabs/overview.html")
         .replace("{{JOB_TYPE}}", &escape_html(job_type))
         .replace("{{LOCATION_LABEL}}", &escape_html(location_label))
         .replace("{{DIAGNOSIS_SECTION}}", &diagnosis_section)
         .replace("{{COMPARISON_SECTION}}", &comparison_section)
+        .replace("{{PYRAMID_SECTION}}", &pyramid_section)
         .replace("{{TOTAL_COUNT}}", &format_number(total))
         .replace("{{AVG_AGE}}", &format!("{:.1}", stats.avg_age))
         .replace("{{MALE_COUNT}}", &format_number(stats.male_count))
