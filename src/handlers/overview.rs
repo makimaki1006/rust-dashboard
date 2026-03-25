@@ -743,18 +743,20 @@ fn build_pyramid_section(stats: &NatStats) -> String {
         let sp = supply_pcts[i];
         let dp = demand_pcts[i];
         let diff = dp - sp;
+        // 需要 > 供給 → 求人が多く企業間で競争 → 採用しにくい
+        // 供給 > 需要 → 求職者が多い → 採用しやすい
         let diff_color = if diff > 3.0 {
-            "text-emerald-400" // 需要超過 = 採用チャンス
+            "text-rose-400" // 需要超過 = 企業間の競争激化
         } else if diff < -3.0 {
-            "text-rose-400" // 供給超過 = 競争激しい
+            "text-emerald-400" // 供給超過 = 候補者豊富
         } else {
             "text-slate-400"
         };
         let diff_sign = if diff > 0.0 { "+" } else { "" };
         let hint = if diff > 3.0 {
-            "採用しやすい"
+            "採用しにくい"
         } else if diff < -3.0 {
-            "競争激しい"
+            "採用しやすい"
         } else {
             "均衡"
         };
@@ -862,8 +864,12 @@ fn build_pyramid_section(stats: &NatStats) -> String {
             <div class="mt-3 space-y-1">
                 <p class="text-xs text-slate-500">供給 = ジョブメドレー登録求職者の年代構成比</p>
                 <p class="text-xs text-slate-500">需要 = 求人票から推定される対象年代の構成比</p>
-                <p class="text-xs text-emerald-500/70">＋差分 = その年代は需要が高く採用しやすい</p>
-                <p class="text-xs text-rose-500/70">−差分 = その年代は供給過多で競争が激しい</p>
+                <p class="text-xs text-rose-500/70">＋差分 = 需要超過（企業間の競争が激しく採用しにくい）</p>
+                <p class="text-xs text-emerald-500/70">−差分 = 供給超過（候補者が多く採用しやすい）</p>
+            </div>
+            <div class="mt-3 pt-3 border-t border-slate-700/50 space-y-1">
+                <p class="text-xs text-slate-500">&#x26a0;&#xfe0f; 供給側はあくまでインターネット上で求職活動を行っている人材です</p>
+                <p class="text-xs text-slate-500">&#x26a0;&#xfe0f; 顕在層（積極的に転職活動中）だけでなく潜在層（情報収集段階）も含みます</p>
             </div>
         </div>
     </div>
