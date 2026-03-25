@@ -208,10 +208,23 @@ async fn build_hw_workstyle_context(state: &AppState, prefecture: &str) -> Strin
 
         if holidays == 0.0 && salary_min == 0 { continue; }
 
-        let hol_color = if holidays >= 120.0 { "text-emerald-400" } else if holidays >= 105.0 { "text-amber-400" } else { "text-rose-400" };
-        let ot_color = if overtime <= 10.0 { "text-emerald-400" } else if overtime <= 20.0 { "text-amber-400" } else { "text-rose-400" };
+        let hol_text = if holidays > 0.0 {
+            let hol_color = if holidays >= 120.0 { "text-emerald-400" } else if holidays >= 105.0 { "text-amber-400" } else { "text-rose-400" };
+            format!(r#"<td class="py-2 text-sm text-right {}">{:.0}日</td>"#, hol_color, holidays)
+        } else {
+            r#"<td class="py-2 text-sm text-right text-slate-600">-</td>"#.to_string()
+        };
+        let ot_text = if overtime > 0.0 {
+            let ot_color = if overtime <= 10.0 { "text-emerald-400" } else if overtime <= 20.0 { "text-amber-400" } else { "text-rose-400" };
+            format!(r#"<td class="py-2 text-sm text-right {}">{:.1}h</td>"#, ot_color, overtime)
+        } else {
+            r#"<td class="py-2 text-sm text-right text-slate-600">-</td>"#.to_string()
+        };
 
-        let salary_text = if salary_max > salary_min {
+        let is_hourly = *emp == "パート";
+        let salary_text = if is_hourly && salary_min > 0 {
+            format!("¥{} 〜 ¥{}/h", format_number(salary_min), format_number(salary_max))
+        } else if salary_max > salary_min {
             format!("¥{} 〜 ¥{}", format_number(salary_min), format_number(salary_max))
         } else if salary_min > 0 {
             format!("¥{}", format_number(salary_min))
@@ -222,13 +235,12 @@ async fn build_hw_workstyle_context(state: &AppState, prefecture: &str) -> Strin
         rows_html.push_str(&format!(
             r#"<tr class="border-b border-slate-700/50">
                 <td class="py-2 text-sm font-semibold text-slate-300">{emp}</td>
-                <td class="py-2 text-sm text-right {hol_color}">{hol:.0}日</td>
-                <td class="py-2 text-sm text-right {ot_color}">{ot:.1}h</td>
+                {hol_text}
+                {ot_text}
                 <td class="py-2 text-sm text-right text-blue-400">{salary}</td>
                 <td class="py-2 text-xs text-right text-slate-500">{count}件</td>
             </tr>"#,
-            emp = emp, hol_color = hol_color, hol = holidays,
-            ot_color = ot_color, ot = overtime,
+            emp = emp, hol_text = hol_text, ot_text = ot_text,
             salary = salary_text, count = format_number(count),
         ));
     }
@@ -250,7 +262,7 @@ async fn build_hw_workstyle_context(state: &AppState, prefecture: &str) -> Strin
                 <th class="py-1.5 text-xs text-left text-slate-500">雇用形態</th>
                 <th class="py-1.5 text-xs text-right text-slate-500">年間休日</th>
                 <th class="py-1.5 text-xs text-right text-slate-500">月残業</th>
-                <th class="py-1.5 text-xs text-right text-slate-500">平均月給</th>
+                <th class="py-1.5 text-xs text-right text-slate-500">賃金水準</th>
                 <th class="py-1.5 text-xs text-right text-slate-500">求人数</th>
             </tr>
         </thead>

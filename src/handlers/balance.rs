@@ -477,23 +477,25 @@ async fn build_hw_salary_section(state: &AppState, prefecture: &str) -> String {
     // B-2 + B-7: 充足難易度 + 最低賃金比のKPIカード
     let mut kpi_row = String::new();
 
-    // B-2: 充足難易度
-    for row in &hw_fulfillment {
-        let emp = external::ext_str(row, "emp_group");
-        let avg_days = ext_f64(row, "avg_days");
-        let long_term = ext_i64(row, "long_term");
-        let very_long = ext_i64(row, "very_long");
-        if avg_days > 0.0 {
-            let color = if avg_days > 90.0 { "#ef4444" } else if avg_days > 60.0 { "#f59e0b" } else { "#22c55e" };
-            kpi_row.push_str(&format!(
-                r#"<div class="stat-card" style="flex:1;min-width:200px;">
-                    <div class="text-sm text-slate-400">{emp} 平均掲載日数</div>
-                    <div class="text-2xl font-bold" style="color:{color}">{days:.0}<span class="text-lg">日</span></div>
-                    <div class="text-xs text-slate-500 mt-1">90日超: {long}件 / 180日超: {vlong}件</div>
-                </div>"#,
-                emp = emp, color = color, days = avg_days,
-                long = format_number(long_term), vlong = format_number(very_long),
-            ));
+    // B-2: 充足難易度（正社員→パート順、「その他」非表示）
+    let ful_order = ["正社員", "パート"];
+    for target_emp in &ful_order {
+        if let Some(row) = hw_fulfillment.iter().find(|r| external::ext_str(r, "emp_group") == *target_emp) {
+            let avg_days = ext_f64(row, "avg_days");
+            let long_term = ext_i64(row, "long_term");
+            let very_long = ext_i64(row, "very_long");
+            if avg_days > 0.0 {
+                let color = if avg_days > 90.0 { "#ef4444" } else if avg_days > 60.0 { "#f59e0b" } else { "#22c55e" };
+                kpi_row.push_str(&format!(
+                    r#"<div class="stat-card" style="flex:1;min-width:200px;">
+                        <div class="text-sm text-slate-400">{emp} 平均掲載日数</div>
+                        <div class="text-2xl font-bold" style="color:{color}">{days:.0}<span class="text-lg">日</span></div>
+                        <div class="text-xs text-slate-500 mt-1">90日超: {long}件 / 180日超: {vlong}件</div>
+                    </div>"#,
+                    emp = target_emp, color = color, days = avg_days,
+                    long = format_number(long_term), vlong = format_number(very_long),
+                ));
+            }
         }
     }
 
