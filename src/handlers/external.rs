@@ -314,18 +314,23 @@ pub async fn fetch_daytime_population(
     ).await
 }
 
-/// 労働力統計（v2_external_labor_stats）— 最新年度
+/// 労働力統計（v2_external_labor_stats）— NULL以外のデータが最も多い年度を取得
 pub async fn fetch_labor_stats_latest(
     state: &AppState,
     prefecture: &str,
 ) -> Option<HashMap<String, Value>> {
     if prefecture.is_empty() { return None; }
+    // 複数年度をまとめて取得し、NULLでないデータを優先的に使う
     let rows = query_ext(state,
         "SELECT * FROM v2_external_labor_stats \
-         WHERE prefecture = ? ORDER BY fiscal_year DESC LIMIT 1",
+         WHERE prefecture = ? ORDER BY fiscal_year DESC LIMIT 5",
         &[Value::String(prefecture.to_string())],
     ).await;
-    rows.into_iter().next()
+    if rows.is_empty() { return None; }
+    // 各行のNULL以外カラム数をカウントし、最もデータが多い行を返す
+    rows.into_iter().max_by_key(|row| {
+        row.values().filter(|v| !v.is_null() && v.as_f64().map(|f| f != 0.0).unwrap_or(true)).count()
+    })
 }
 
 /// 事業所数（v2_external_establishments）— 医療福祉

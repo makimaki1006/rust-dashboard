@@ -1079,52 +1079,56 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
         }
     }
 
-    // 5. HW平均賃金（O-6）
-    for row in &hw_salary {
-        let emp = external::ext_str(row, "emp_group");
-        let avg_min = ext_i64(row, "avg_min");
-        let avg_max = ext_i64(row, "avg_max");
-        if avg_min > 0 {
-            let color = if emp.contains("正") { "#10b981" } else { "#8b5cf6" };
-            let salary_label = if avg_max > avg_min {
-                format!("{} 〜 {}", format_number(avg_min), format_number(avg_max))
-            } else {
-                format!("{}", format_number(avg_min))
-            };
-            kpi_cards.push_str(&format!(
-                r#"<div class="stat-card">
-                    <div class="stat-value" style="color:{color}"><span class="text-lg">¥</span>{salary}</div>
-                    <div class="stat-label">HW {emp} 平均月給</div>
-                    <div class="text-xs text-slate-500 mt-1">ハローワーク掲載求人の平均値</div>
-                </div>"#,
-                color = color, salary = salary_label, emp = emp,
-            ));
+    // 5. HW賃金・掲載日数（detailsで折りたたみ、正社員→パート順、「その他」非表示）
+    let mut hw_detail_cards = String::new();
+    let emp_order = ["正社員", "パート"];
+    for target_emp in &emp_order {
+        if let Some(row) = hw_salary.iter().find(|r| external::ext_str(r, "emp_group") == *target_emp) {
+            let avg_min = ext_i64(row, "avg_min");
+            let avg_max = ext_i64(row, "avg_max");
+            if avg_min > 0 {
+                let color = if *target_emp == "正社員" { "#10b981" } else { "#8b5cf6" };
+                let is_hourly = *target_emp == "パート";
+                let (type_label, salary_label) = if is_hourly {
+                    ("平均時給", format!("{} 〜 {}", format_number(avg_min), format_number(avg_max)))
+                } else {
+                    ("平均月給", if avg_max > avg_min {
+                        format!("{} 〜 {}", format_number(avg_min), format_number(avg_max))
+                    } else {
+                        format!("{}", format_number(avg_min))
+                    })
+                };
+                hw_detail_cards.push_str(&format!(
+                    r#"<div class="stat-card" style="flex:1;min-width:200px;">
+                        <div class="stat-value" style="color:{color}"><span class="text-lg">¥</span>{salary}</div>
+                        <div class="stat-label">HW {emp} {type_label}</div>
+                    </div>"#,
+                    color = color, salary = salary_label, emp = target_emp, type_label = type_label,
+                ));
+            }
+        }
+        if let Some(row) = hw_fulfillment.iter().find(|r| external::ext_str(r, "emp_group") == *target_emp) {
+            let avg_days = ext_f64(row, "avg_days");
+            let long_term = ext_i64(row, "long_term");
+            let count = ext_i64(row, "count");
+            if avg_days > 0.0 {
+                let days_color = if avg_days > 90.0 { "#ef4444" } else if avg_days > 60.0 { "#f59e0b" } else { "#22c55e" };
+                let difficulty = if avg_days > 90.0 { "充足困難" } else if avg_days > 60.0 { "やや困難" } else { "比較的容易" };
+                let long_pct = if count > 0 { long_term as f64 / count as f64 * 100.0 } else { 0.0 };
+                hw_detail_cards.push_str(&format!(
+                    r#"<div class="stat-card" style="flex:1;min-width:200px;">
+                        <div class="stat-value" style="color:{color}">{days:.0}<span class="text-lg">日</span></div>
+                        <div class="stat-label">HW {emp} 平均掲載日数</div>
+                        <div class="text-xs mt-1" style="color:{color}">{diff} (90日超: {long:.1}%)</div>
+                    </div>"#,
+                    color = days_color, days = avg_days, emp = target_emp,
+                    diff = difficulty, long = long_pct,
+                ));
+            }
         }
     }
 
-    // 6. HW掲載日数（O-7）
-    for row in &hw_fulfillment {
-        let emp = external::ext_str(row, "emp_group");
-        let avg_days = ext_f64(row, "avg_days");
-        let long_term = ext_i64(row, "long_term");
-        let count = ext_i64(row, "count");
-        if avg_days > 0.0 {
-            let days_color = if avg_days > 90.0 { "#ef4444" } else if avg_days > 60.0 { "#f59e0b" } else { "#22c55e" };
-            let difficulty = if avg_days > 90.0 { "充足困難" } else if avg_days > 60.0 { "やや困難" } else { "比較的容易" };
-            let long_pct = if count > 0 { long_term as f64 / count as f64 * 100.0 } else { 0.0 };
-            kpi_cards.push_str(&format!(
-                r#"<div class="stat-card">
-                    <div class="stat-value" style="color:{color}">{days:.0}<span class="text-lg">日</span></div>
-                    <div class="stat-label">HW {emp} 平均掲載日数</div>
-                    <div class="text-xs mt-1" style="color:{color}">{diff} (90日超: {long:.1}%)</div>
-                </div>"#,
-                color = days_color, days = avg_days, emp = emp,
-                diff = difficulty, long = long_pct,
-            ));
-        }
-    }
-
-    if kpi_cards.is_empty() {
+    if kpi_cards.is_empty() && hw_detail_cards.is_empty() {
         return String::new();
     }
 
@@ -1238,6 +1242,22 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
         }
     }
 
+    // HW詳細セクション（折りたたみ）
+    let hw_details_html = if !hw_detail_cards.is_empty() {
+        format!(
+            r#"<details class="mt-2">
+        <summary class="text-sm text-slate-400 cursor-pointer hover:text-slate-200 select-none">
+            &#x1f4b0; HW求人の賃金・充足状況（クリックで展開）
+        </summary>
+        <div class="flex flex-wrap gap-4 mt-3">{hw_detail_cards}</div>
+        <p class="text-xs text-slate-500 mt-2">※出典: ハローワークインターネットサービス掲載求人</p>
+    </details>"#,
+            hw_detail_cards = hw_detail_cards,
+        )
+    } else {
+        String::new()
+    };
+
     format!(
         r#"<div class="space-y-4">
     <div class="flex items-center gap-2">
@@ -1245,6 +1265,7 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
         <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
     </div>
     <div class="grid-stats">{kpi_cards}</div>
+    {hw_details_html}
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {ratio_chart}
         {radar_chart}
@@ -1252,6 +1273,7 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
 </div>"#,
         pref = escape_html(prefecture),
         kpi_cards = kpi_cards,
+        hw_details_html = hw_details_html,
         ratio_chart = ratio_chart,
         radar_chart = radar_chart,
     )

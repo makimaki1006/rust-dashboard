@@ -5,10 +5,7 @@
     <!-- 採用課題診断カード（都道府県選択時のみ表示） -->
     {{DIAGNOSIS_SECTION}}
 
-    <!-- 3層比較パネル（都道府県選択時のみ表示） -->
-    {{COMPARISON_SECTION}}
-
-    <!-- KPIカード -->
+    <!-- KPIカード（常に最初に表示） -->
     <div class="grid-stats">
         <div class="stat-card">
             <div class="stat-value text-blue-400">{{TOTAL_COUNT}}</div>
@@ -30,6 +27,9 @@
 
     <!-- V2外部統計: マクロ指標（都道府県選択時のみ表示） -->
     {{MACRO_SECTION}}
+
+    <!-- 3層比較パネル（都道府県選択時のみ表示、マクロ指標の後） -->
+    {{COMPARISON_SECTION}}
 
     <!-- 需給年代ピラミッド -->
     {{PYRAMID_SECTION}}
