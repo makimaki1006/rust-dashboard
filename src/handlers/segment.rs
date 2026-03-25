@@ -1516,15 +1516,53 @@ pub async fn segment_salary_compare(
         tables_html.push_str("</tbody></table></div>");
     }
 
+    // S-1: HW賃金との比較コンテキスト
+    let hw_salary = super::external::fetch_hw_salary_latest(&state, pref).await;
+    let hw_context = if !hw_salary.is_empty() {
+        let mut hw_rows = String::new();
+        let emp_order = ["正社員", "パート"];
+        for target in &emp_order {
+            if let Some(row) = hw_salary.iter().find(|r| super::external::ext_str(r, "emp_group") == *target) {
+                let avg_min = super::external::ext_i64(row, "avg_min");
+                let avg_max = super::external::ext_i64(row, "avg_max");
+                if avg_min > 0 {
+                    let is_hourly = *target == "パート";
+                    let label = if is_hourly { "時給" } else { "月給" };
+                    hw_rows.push_str(&format!(
+                        r#"<tr class="border-t border-slate-700"><td class="py-1 text-slate-200">HW {emp}</td>
+                        <td class="text-right text-blue-400">¥{min} 〜 ¥{max}{unit}</td>
+                        <td class="text-right text-slate-400">{label}</td></tr>"#,
+                        emp = target, min = format_number(avg_min), max = format_number(avg_max),
+                        unit = if is_hourly { "/h" } else { "" }, label = label,
+                    ));
+                }
+            }
+        }
+        if !hw_rows.is_empty() {
+            format!(
+                r#"<div class="stat-card mt-4">
+                <h4 class="text-sm font-bold text-slate-300 mb-2">&#x1f4b0; HW求人の賃金水準（参考）</h4>
+                <table class="w-full text-sm"><thead><tr class="text-slate-400 text-xs">
+                <th class="text-left py-1">ソース</th><th class="text-right">賃金</th><th class="text-right">種別</th>
+                </tr></thead><tbody>{hw_rows}</tbody></table>
+                <p class="text-xs text-slate-500 mt-2">※上記セグメント別給与とHW市場相場を比較し、各セグメントへの訴求力を判断してください</p>
+            </div>"#,
+                hw_rows = hw_rows,
+            )
+        } else { String::new() }
+    } else { String::new() };
+
     let html = format!(
         r##"<div class="space-y-4">
     <h3 class="text-lg font-bold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M4.5 4.5l7.5 9 7.5-9M4.5 12h15M4.5 15h15M12 12v9'/></svg>  セグメント別給与比較 <span class="text-sm font-normal text-slate-400">（{scope} / {job_type}）</span></h3>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">{tables}</div>
+    {hw_context}
     <p class="text-xs text-slate-500 italic">※ 月給は求人票記載の月給額（税込）。年収目安 = 月給 × 12〜14（賞与含む）</p>
 </div>"##,
         scope = escape_html(&scope_label),
         job_type = escape_html(&job_type),
         tables = tables_html,
+        hw_context = hw_context,
     );
 
     state.cache.set(cache_key, Value::String(html.clone()));
