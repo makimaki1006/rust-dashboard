@@ -996,6 +996,8 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
     let hw_salary = external::fetch_hw_salary_latest(state, prefecture).await;
     // HW掲載日数（最新）
     let hw_fulfillment = external::fetch_hw_fulfillment_latest(state, prefecture).await;
+    // 労働力統計（X-3レーダー用）
+    let labor_stats = external::fetch_labor_stats_latest(state, prefecture).await;
 
     // データが全くない場合は非表示
     if ratio_rows.is_empty() && pop_data.is_none() && care_data.is_none()
@@ -1174,6 +1176,68 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
         );
     }
 
+    // X-3: 労働力統計レーダーチャート
+    let mut radar_chart = String::new();
+    if let Some(ref ls) = labor_stats {
+        let chart_id = format!("labor-radar-{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+        // 6指標を0-100にスケーリング
+        let unemployment = ext_f64(ls, "unemployment_rate"); // ~2-5%
+        let employment = ext_f64(ls, "employment_rate"); // ~55-65%
+        let separation = ext_f64(ls, "separation_rate"); // ~10-20%
+        let fulfillment = ext_f64(ls, "fulfillment_rate"); // ~20-50%
+        let elderly_emp = ext_f64(ls, "elderly_employment_rate"); // ~20-35%
+        let placement = ext_f64(ls, "placement_rate"); // ~20-40%
+
+        if employment > 0.0 || unemployment > 0.0 {
+            radar_chart = format!(
+                r##"<div class="stat-card">
+    <h3 class="text-sm text-slate-400 mb-3">&#x1f3af; 労働市場レーダー（{pref}）</h3>
+    <div id="{id}" style="height:300px;"></div>
+    <script>
+    (function(){{
+        var el = document.getElementById('{id}');
+        if (!el || typeof echarts === 'undefined') return;
+        var c = echarts.init(el, 'dark');
+        c.setOption({{
+            tooltip: {{}},
+            radar: {{
+                indicator: [
+                    {{name:'就業率',max:80}},
+                    {{name:'充足率',max:60}},
+                    {{name:'就職率',max:50}},
+                    {{name:'高齢就業率',max:50}},
+                    {{name:'失業率(逆)',max:10}},
+                    {{name:'離職率(逆)',max:30}}
+                ],
+                axisName: {{color:'#94a3b8',fontSize:11}},
+                splitArea: {{areaStyle:{{color:['rgba(51,65,85,0.3)','rgba(51,65,85,0.1)']}}}}
+            }},
+            series: [{{
+                type:'radar',
+                data:[{{
+                    value:[{emp:.1},{ful:.1},{plc:.1},{eld:.1},{unemp_inv:.1},{sep_inv:.1}],
+                    name:'{pref}',
+                    areaStyle:{{opacity:0.2,color:'#3b82f6'}},
+                    lineStyle:{{color:'#3b82f6',width:2}},
+                    itemStyle:{{color:'#3b82f6'}}
+                }}]
+            }}]
+        }});
+        new ResizeObserver(function(){{c.resize();}}).observe(el);
+    }})();
+    </script>
+    <p class="text-xs text-slate-500 mt-2">※失業率・離職率は逆数表示（高いほど良好）。出典: e-Stat 社会・人口統計体系</p>
+</div>"##,
+                pref = escape_html(prefecture), id = chart_id,
+                emp = employment, ful = fulfillment, plc = placement,
+                eld = elderly_emp,
+                unemp_inv = (10.0 - unemployment).max(0.0),
+                sep_inv = (30.0 - separation).max(0.0),
+            );
+        }
+    }
+
     format!(
         r#"<div class="space-y-4">
     <div class="flex items-center gap-2">
@@ -1181,11 +1245,15 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
         <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
     </div>
     <div class="grid-stats">{kpi_cards}</div>
-    {ratio_chart}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {ratio_chart}
+        {radar_chart}
+    </div>
 </div>"#,
         pref = escape_html(prefecture),
         kpi_cards = kpi_cards,
         ratio_chart = ratio_chart,
+        radar_chart = radar_chart,
     )
 }
 

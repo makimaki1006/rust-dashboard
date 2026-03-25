@@ -37,7 +37,10 @@ pub async fn tab_balance(
     // V2 HW時系列: 求人推移チャート
     let hw_trend_section = build_hw_trend_section(&state, &prefecture).await;
 
-    let html = render_balance(&job_type, &prefecture, &municipality, &stats, &pop_context, &hw_trend_section);
+    // B-1: HW賃金推移、B-2: 充足難易度、B-7: 最低賃金比
+    let hw_salary_section = build_hw_salary_section(&state, &prefecture).await;
+
+    let html = render_balance(&job_type, &prefecture, &municipality, &stats, &pop_context, &hw_trend_section, &hw_salary_section);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -173,7 +176,7 @@ async fn fetch_balance(state: &AppState, job_type: &str, prefecture: &str, munic
     stats
 }
 
-fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &BalanceStats, pop_context: &str, hw_trend_section: &str) -> String {
+fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &BalanceStats, pop_context: &str, hw_trend_section: &str, hw_salary_section: &str) -> String {
     let location_label = make_location_label(prefecture, municipality);
     let pref_label = if prefecture.is_empty() || prefecture == "全国" { "全国" } else { prefecture };
 
@@ -243,6 +246,7 @@ fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &
         .replace("{{GAP_KPI_CARDS}}", &kpi_cards)
         .replace("{{POP_CONTEXT_SECTION}}", pop_context)
         .replace("{{HW_TREND_SECTION}}", hw_trend_section)
+        .replace("{{HW_SALARY_SECTION}}", hw_salary_section)
         .replace("{{SHARE_SECTION}}", &share_section)
         .replace("{{SHORTAGE_CHART}}", &shortage_chart)
         .replace("{{SURPLUS_CHART}}", &surplus_chart)
@@ -409,6 +413,138 @@ async fn build_hw_trend_section(state: &AppState, prefecture: &str) -> String {
         postings = postings.join(","),
         facilities = facilities.join(","),
         vacancy = vacancy_vals.join(","),
+    )
+}
+
+/// B-1: HW賃金推移、B-2: 充足難易度、B-7: 最低賃金比
+async fn build_hw_salary_section(state: &AppState, prefecture: &str) -> String {
+    if prefecture.is_empty() || prefecture == "全国" {
+        return String::new();
+    }
+
+    let hw_salary = external::fetch_hw_salary(state, prefecture).await;
+    let hw_fulfillment = external::fetch_hw_fulfillment_latest(state, prefecture).await;
+    let pref_stats = external::fetch_prefecture_macro(state, prefecture).await;
+
+    if hw_salary.is_empty() && hw_fulfillment.is_empty() {
+        return String::new();
+    }
+
+    let mut sections = String::new();
+
+    // B-1: HW賃金推移チャート（正社員の月給推移）
+    let regular_salary: Vec<_> = hw_salary.iter()
+        .filter(|r| external::ext_str(r, "emp_group").contains("正"))
+        .collect();
+    if regular_salary.len() >= 2 {
+        let chart_id = format!("hw-sal-{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+        let snapshots: Vec<String> = regular_salary.iter()
+            .map(|r| { let s = external::ext_str(r, "snapshot_id"); format!("'{}'", if s.len() > 6 { &s[s.len()-6..] } else { s }) }).collect();
+        let mins: Vec<String> = regular_salary.iter().map(|r| ext_i64(r, "avg_min").to_string()).collect();
+        let maxs: Vec<String> = regular_salary.iter().map(|r| ext_i64(r, "avg_max").to_string()).collect();
+
+        sections.push_str(&format!(
+            r##"<div class="stat-card">
+    <h3 class="text-sm text-slate-400 mb-1">&#x1f4b0; HW正社員 月給推移</h3>
+    <p class="text-xs text-slate-500 mb-3">ハローワーク掲載求人（{pref}）の正社員平均月給推移</p>
+    <div id="{id}" style="height:250px;"></div>
+    <script>
+    (function(){{
+        var el = document.getElementById('{id}');
+        if (!el || typeof echarts === 'undefined') return;
+        var c = echarts.init(el, 'dark');
+        c.setOption({{
+            tooltip: {{trigger:'axis'}},
+            legend: {{data:['下限平均','上限平均'], top:0, textStyle:{{color:'#94a3b8'}}}},
+            grid: {{left:'10%',right:'5%',top:'35px',bottom:'15%'}},
+            xAxis: {{type:'category', data:[{snaps}], axisLabel:{{color:'#94a3b8',fontSize:10,rotate:30}}}},
+            yAxis: {{type:'value', name:'円', axisLabel:{{color:'#94a3b8'}}, splitLine:{{lineStyle:{{color:'#334155'}}}}}},
+            series: [
+                {{name:'下限平均',type:'line',data:[{mins}],itemStyle:{{color:'#10b981'}},smooth:true,areaStyle:{{opacity:0.1}}}},
+                {{name:'上限平均',type:'line',data:[{maxs}],itemStyle:{{color:'#3b82f6'}},smooth:true,areaStyle:{{opacity:0.1}}}}
+            ]
+        }});
+        new ResizeObserver(function(){{c.resize();}}).observe(el);
+    }})();
+    </script>
+</div>"##,
+            pref = escape_html(prefecture), id = chart_id,
+            snaps = snapshots.join(","), mins = mins.join(","), maxs = maxs.join(","),
+        ));
+    }
+
+    // B-2 + B-7: 充足難易度 + 最低賃金比のKPIカード
+    let mut kpi_row = String::new();
+
+    // B-2: 充足難易度
+    for row in &hw_fulfillment {
+        let emp = external::ext_str(row, "emp_group");
+        let avg_days = ext_f64(row, "avg_days");
+        let long_term = ext_i64(row, "long_term");
+        let very_long = ext_i64(row, "very_long");
+        if avg_days > 0.0 {
+            let color = if avg_days > 90.0 { "#ef4444" } else if avg_days > 60.0 { "#f59e0b" } else { "#22c55e" };
+            kpi_row.push_str(&format!(
+                r#"<div class="stat-card" style="flex:1;min-width:200px;">
+                    <div class="text-sm text-slate-400">{emp} 平均掲載日数</div>
+                    <div class="text-2xl font-bold" style="color:{color}">{days:.0}<span class="text-lg">日</span></div>
+                    <div class="text-xs text-slate-500 mt-1">90日超: {long}件 / 180日超: {vlong}件</div>
+                </div>"#,
+                emp = emp, color = color, days = avg_days,
+                long = format_number(long_term), vlong = format_number(very_long),
+            ));
+        }
+    }
+
+    // B-7: 最低賃金比
+    if let Some(ref ps) = pref_stats {
+        let min_wage = ext_f64(ps, "min_wage");
+        if min_wage > 0.0 {
+            // 最新のHW正社員賃金から時給換算（月給÷160h）
+            let latest_sal = hw_salary.iter()
+                .filter(|r| external::ext_str(r, "emp_group").contains("正"))
+                .last();
+            if let Some(sal) = latest_sal {
+                let monthly = ext_i64(sal, "avg_min");
+                if monthly > 0 {
+                    let hourly = monthly as f64 / 160.0;
+                    let ratio = hourly / min_wage;
+                    let ratio_color = if ratio >= 1.5 { "#22c55e" } else if ratio >= 1.2 { "#f59e0b" } else { "#ef4444" };
+                    kpi_row.push_str(&format!(
+                        r#"<div class="stat-card" style="flex:1;min-width:200px;">
+                            <div class="text-sm text-slate-400">最低賃金比（正社員換算）</div>
+                            <div class="text-2xl font-bold" style="color:{color}">{ratio:.2}<span class="text-lg">倍</span></div>
+                            <div class="text-xs text-slate-500 mt-1">最低賃金 ¥{wage:.0}/h → 求人時給換算 ¥{hourly:.0}/h</div>
+                        </div>"#,
+                        color = ratio_color, ratio = ratio,
+                        wage = min_wage, hourly = hourly,
+                    ));
+                }
+            }
+        }
+    }
+
+    if !kpi_row.is_empty() {
+        sections.push_str(&format!(
+            r#"<div class="flex flex-wrap gap-4">{}</div>"#, kpi_row
+        ));
+    }
+
+    if sections.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        r#"<div class="space-y-4">
+    <div class="flex items-center gap-2">
+        <span class="text-sm font-semibold text-slate-400">&#x1f4b0; HW求人の賃金・充足分析</span>
+        <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+    </div>
+    {sections}
+</div>"#,
+        pref = escape_html(prefecture),
+        sections = sections,
     )
 }
 
