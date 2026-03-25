@@ -7,6 +7,7 @@ use tower_sessions::Session;
 
 use crate::AppState;
 use crate::handlers::overview::{format_number, get_session_filters};
+use crate::handlers::external::{self, ext_i64};
 use super::analysis::{calc_salary_stats, fetch_analysis, fetch_analysis_filtered};
 use super::fetch::{
     fetch_competitive, fetch_facility_types, fetch_facility_types_hierarchical,
@@ -429,5 +430,76 @@ pub async fn comp_report(
     let stats = calc_salary_stats(&postings);
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-    render_report_html(&job_type, pref, muni, emp, &postings, &stats, &today, nearby, radius_km)
+    // C-1: HW賃金比較コンテキスト
+    let hw_salary_context = build_hw_salary_context(&state, pref, emp).await;
+
+    render_report_html(&job_type, pref, muni, emp, &postings, &stats, &today, nearby, radius_km, &hw_salary_context)
+}
+
+/// C-1: HW賃金比較コンテキスト生成
+async fn build_hw_salary_context(state: &AppState, prefecture: &str, emp_filter: &str) -> String {
+    if prefecture.is_empty() {
+        return String::new();
+    }
+
+    let hw_salary = external::fetch_hw_salary_latest(state, prefecture).await;
+    if hw_salary.is_empty() {
+        return String::new();
+    }
+
+    let mut rows = String::new();
+    let emp_order = ["正社員", "パート"];
+    for target_emp in &emp_order {
+        // 雇用形態フィルタがある場合はマッチするもののみ
+        if !emp_filter.is_empty() && emp_filter != "全て" && !emp_filter.contains(target_emp) {
+            continue;
+        }
+        if let Some(row) = hw_salary.iter().find(|r| external::ext_str(r, "emp_group") == *target_emp) {
+            let avg_min = ext_i64(row, "avg_min");
+            let avg_max = ext_i64(row, "avg_max");
+            let count = ext_i64(row, "count");
+            if avg_min > 0 {
+                let is_hourly = *target_emp == "パート";
+                let salary_text = if is_hourly {
+                    format!("¥{} 〜 ¥{}/h", format_number(avg_min), format_number(avg_max))
+                } else if avg_max > avg_min {
+                    format!("¥{} 〜 ¥{}", format_number(avg_min), format_number(avg_max))
+                } else {
+                    format!("¥{}", format_number(avg_min))
+                };
+                rows.push_str(&format!(
+                    r#"<tr class="border-b border-slate-700/50">
+                        <td class="py-1.5 text-sm text-slate-300">{emp}</td>
+                        <td class="py-1.5 text-sm text-right text-blue-400">{salary}</td>
+                        <td class="py-1.5 text-xs text-right text-slate-500">{count}件</td>
+                    </tr>"#,
+                    emp = target_emp, salary = salary_text, count = format_number(count),
+                ));
+            }
+        }
+    }
+
+    if rows.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        r#"<div class="stat-card mt-4">
+    <h3 class="text-sm text-slate-400 mb-2">&#x1f4b0; HW求人の賃金水準（{pref}）</h3>
+    <p class="text-xs text-slate-500 mb-2">ハローワーク掲載求人の平均賃金。自社求人の給与水準と比較してください。</p>
+    <table class="w-full">
+        <thead>
+            <tr class="border-b border-slate-600">
+                <th class="py-1 text-xs text-left text-slate-500">雇用形態</th>
+                <th class="py-1 text-xs text-right text-slate-500">HW平均賃金</th>
+                <th class="py-1 text-xs text-right text-slate-500">HW求人数</th>
+            </tr>
+        </thead>
+        <tbody>{rows}</tbody>
+    </table>
+    <p class="text-xs text-slate-500 mt-2">※上記より高い給与を提示すれば、HW掲載求人より有利に採用できる可能性があります</p>
+</div>"#,
+        pref = super::escape_html(prefecture),
+        rows = rows,
+    )
 }

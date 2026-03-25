@@ -267,6 +267,7 @@ pub(crate) fn render_report_html(
     today: &str,
     nearby: bool,
     radius_km: f64,
+    hw_salary_context: &str,
 ) -> Html<String> {
     let region = if muni.is_empty() {
         pref.to_string()
@@ -408,6 +409,13 @@ tr:nth-child(even) {{ background-color: #f8f9fa; }}
         distance_th = distance_th,
         table_rows = table_rows,
     );
+
+    // C-1: HW賃金比較セクションを追加
+    let html = if !hw_salary_context.is_empty() {
+        format!("{}{}", html, hw_salary_context)
+    } else {
+        html
+    };
 
     Html(html)
 }
