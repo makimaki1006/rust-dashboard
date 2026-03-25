@@ -76,7 +76,7 @@ pub async fn fetch_job_openings_ratio(
 
     query_ext(
         state,
-        "SELECT fiscal_year, job_openings_with_part_time, job_openings_without_part_time \
+        "SELECT fiscal_year, ratio_total, ratio_excl_part \
          FROM v2_external_job_openings_ratio \
          WHERE prefecture = ? ORDER BY fiscal_year",
         &[Value::String(prefecture.to_string())],
@@ -155,7 +155,7 @@ pub async fn fetch_turnover(
     rows.into_iter().next()
 }
 
-/// HW求人数推移（ts_agg_counts）— 都道府県別合計
+/// HW求人数推移（ts_turso_counts）— 都道府県別合計
 pub async fn fetch_hw_posting_trend(
     state: &AppState,
     prefecture: &str,
@@ -168,7 +168,29 @@ pub async fn fetch_hw_posting_trend(
         state,
         "SELECT snapshot_id, SUM(posting_count) as total_postings, \
                 SUM(facility_count) as total_facilities \
-         FROM ts_agg_counts \
+         FROM ts_turso_counts \
+         WHERE prefecture = ? \
+         GROUP BY snapshot_id ORDER BY snapshot_id",
+        &[Value::String(prefecture.to_string())],
+    ).await
+}
+
+/// HW欠員率推移（ts_turso_vacancy）— 都道府県別平均
+pub async fn fetch_hw_vacancy_trend(
+    state: &AppState,
+    prefecture: &str,
+) -> Vec<HashMap<String, Value>> {
+    if prefecture.is_empty() {
+        return vec![];
+    }
+
+    query_ext(
+        state,
+        "SELECT snapshot_id, \
+                AVG(vacancy_rate) as avg_vacancy_rate, \
+                AVG(growth_rate) as avg_growth_rate, \
+                SUM(total_count) as total_count \
+         FROM ts_turso_vacancy \
          WHERE prefecture = ? \
          GROUP BY snapshot_id ORDER BY snapshot_id",
         &[Value::String(prefecture.to_string())],

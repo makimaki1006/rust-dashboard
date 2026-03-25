@@ -1003,7 +1003,7 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
 
     // 1. 有効求人倍率（最新値）
     if let Some(latest) = ratio_rows.last() {
-        let ratio = ext_f64(latest, "job_openings_with_part_time");
+        let ratio = ext_f64(latest, "ratio_total");
         let year = external::ext_str(latest, "fiscal_year");
         let ratio_color = if ratio >= 1.5 { "#ef4444" } else if ratio >= 1.0 { "#f59e0b" } else { "#22c55e" };
         let ratio_label = if ratio >= 1.5 { "人手不足" } else if ratio >= 1.0 { "やや不足" } else { "供給余裕" };
@@ -1085,10 +1085,10 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
             .map(|r| format!("'{}'", external::ext_str(r, "fiscal_year")))
             .collect();
         let ratios_pt: Vec<String> = ratio_rows.iter()
-            .map(|r| format!("{:.2}", ext_f64(r, "job_openings_with_part_time")))
+            .map(|r| format!("{:.2}", ext_f64(r, "ratio_total")))
             .collect();
         let ratios_nopt: Vec<String> = ratio_rows.iter()
-            .map(|r| format!("{:.2}", ext_f64(r, "job_openings_without_part_time")))
+            .map(|r| format!("{:.2}", ext_f64(r, "ratio_excl_part")))
             .collect();
 
         ratio_chart = format!(

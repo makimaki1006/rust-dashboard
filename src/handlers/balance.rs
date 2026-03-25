@@ -34,7 +34,10 @@ pub async fn tab_balance(
     // V2外部統計: 人口あたり需給KPI
     let pop_context = build_population_context_section(&state, &prefecture, &stats).await;
 
-    let html = render_balance(&job_type, &prefecture, &municipality, &stats, &pop_context);
+    // V2 HW時系列: 求人推移チャート
+    let hw_trend_section = build_hw_trend_section(&state, &prefecture).await;
+
+    let html = render_balance(&job_type, &prefecture, &municipality, &stats, &pop_context, &hw_trend_section);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -170,7 +173,7 @@ async fn fetch_balance(state: &AppState, job_type: &str, prefecture: &str, munic
     stats
 }
 
-fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &BalanceStats, pop_context: &str) -> String {
+fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &BalanceStats, pop_context: &str, hw_trend_section: &str) -> String {
     let location_label = make_location_label(prefecture, municipality);
     let pref_label = if prefecture.is_empty() || prefecture == "全国" { "全国" } else { prefecture };
 
@@ -239,6 +242,7 @@ fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &
         .replace("{{LOCATION_DISPLAY}}", &location_display)
         .replace("{{GAP_KPI_CARDS}}", &kpi_cards)
         .replace("{{POP_CONTEXT_SECTION}}", pop_context)
+        .replace("{{HW_TREND_SECTION}}", hw_trend_section)
         .replace("{{SHARE_SECTION}}", &share_section)
         .replace("{{SHORTAGE_CHART}}", &shortage_chart)
         .replace("{{SURPLUS_CHART}}", &surplus_chart)
@@ -326,6 +330,85 @@ async fn build_population_context_section(
         elderly = format_number(age_65),
         aging = aging_rate,
         care_kpi = care_kpi,
+    )
+}
+
+/// V2 HW時系列: 求人数推移 + 欠員率推移チャート
+async fn build_hw_trend_section(state: &AppState, prefecture: &str) -> String {
+    if prefecture.is_empty() || prefecture == "全国" {
+        return String::new();
+    }
+
+    let posting_trend = external::fetch_hw_posting_trend(state, prefecture).await;
+    let vacancy_trend = external::fetch_hw_vacancy_trend(state, prefecture).await;
+
+    if posting_trend.is_empty() {
+        return String::new();
+    }
+
+    let chart_id = format!("hw-trend-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+
+    let snapshots: Vec<String> = posting_trend.iter()
+        .map(|r| {
+            let sid = external::ext_str(r, "snapshot_id");
+            // snapshot_idが長い場合は末尾6文字
+            let short = if sid.len() > 6 { &sid[sid.len()-6..] } else { sid };
+            format!("'{}'", short)
+        }).collect();
+    let postings: Vec<String> = posting_trend.iter()
+        .map(|r| ext_i64(r, "total_postings").to_string()).collect();
+    let facilities: Vec<String> = posting_trend.iter()
+        .map(|r| ext_i64(r, "total_facilities").to_string()).collect();
+
+    // 欠員率データ（snapshotが一致する行のみ）
+    let vacancy_vals: Vec<String> = posting_trend.iter().map(|pt| {
+        let sid = external::ext_str(pt, "snapshot_id");
+        vacancy_trend.iter()
+            .find(|vt| external::ext_str(vt, "snapshot_id") == sid)
+            .map(|vt| format!("{:.1}", external::ext_f64(vt, "avg_vacancy_rate")))
+            .unwrap_or_else(|| "null".to_string())
+    }).collect();
+
+    format!(
+        r##"<div class="stat-card">
+    <div class="flex items-center gap-2 mb-1">
+        <h3 class="text-sm text-slate-400">&#x1f4c8; ハローワーク求人推移</h3>
+        <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">ハローワーク掲載求人の時系列推移（月次スナップショット）</p>
+    <div id="{id}" style="height:320px;"></div>
+    <script>
+    (function(){{
+        var el = document.getElementById('{id}');
+        if (!el || typeof echarts === 'undefined') return;
+        var c = echarts.init(el, 'dark');
+        c.setOption({{
+            tooltip: {{trigger:'axis'}},
+            legend: {{data:['求人数','施設数','欠員補充率'], top:0, textStyle:{{color:'#94a3b8'}}}},
+            grid: {{left:'8%',right:'8%',top:'35px',bottom:'15%'}},
+            xAxis: {{type:'category', data:[{snapshots}], axisLabel:{{color:'#94a3b8',fontSize:10,rotate:30}}}},
+            yAxis: [
+                {{type:'value', name:'件数', axisLabel:{{color:'#94a3b8'}}, splitLine:{{lineStyle:{{color:'#334155'}}}}}},
+                {{type:'value', name:'%', axisLabel:{{color:'#94a3b8'}}, splitLine:{{show:false}}}}
+            ],
+            series: [
+                {{name:'求人数',type:'bar',data:[{postings}],itemStyle:{{color:'#3b82f6'}},barWidth:'35%'}},
+                {{name:'施設数',type:'bar',data:[{facilities}],itemStyle:{{color:'#64748b'}},barWidth:'35%'}},
+                {{name:'欠員補充率',type:'line',yAxisIndex:1,data:[{vacancy}],itemStyle:{{color:'#ef4444'}},smooth:true,lineStyle:{{width:2}}}}
+            ]
+        }});
+        new ResizeObserver(function(){{c.resize();}}).observe(el);
+    }})();
+    </script>
+    <p class="text-xs text-slate-500 mt-2">※出典: ハローワークインターネットサービス掲載求人の定期スナップショット</p>
+</div>"##,
+        pref = escape_html(prefecture),
+        id = chart_id,
+        snapshots = snapshots.join(","),
+        postings = postings.join(","),
+        facilities = facilities.join(","),
+        vacancy = vacancy_vals.join(","),
     )
 }
 
