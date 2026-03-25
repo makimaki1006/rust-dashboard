@@ -9,6 +9,7 @@ use crate::AppState;
 
 use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, make_location_label, parse_municipalities};
 use super::competitive::escape_html;
+use super::external::{self, ext_f64, ext_i64};
 
 /// タブ4: 需給バランス
 pub async fn tab_balance(
@@ -29,7 +30,11 @@ pub async fn tab_balance(
     }
 
     let stats = fetch_balance(&state, &job_type, &prefecture, &municipality).await;
-    let html = render_balance(&job_type, &prefecture, &municipality, &stats);
+
+    // V2外部統計: 人口あたり需給KPI
+    let pop_context = build_population_context_section(&state, &prefecture, &stats).await;
+
+    let html = render_balance(&job_type, &prefecture, &municipality, &stats, &pop_context);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -165,7 +170,7 @@ async fn fetch_balance(state: &AppState, job_type: &str, prefecture: &str, munic
     stats
 }
 
-fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &BalanceStats) -> String {
+fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &BalanceStats, pop_context: &str) -> String {
     let location_label = make_location_label(prefecture, municipality);
     let pref_label = if prefecture.is_empty() || prefecture == "全国" { "全国" } else { prefecture };
 
@@ -233,10 +238,95 @@ fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &
         .replace("{{COMPETITION_SECTION}}", &competition_section)
         .replace("{{LOCATION_DISPLAY}}", &location_display)
         .replace("{{GAP_KPI_CARDS}}", &kpi_cards)
+        .replace("{{POP_CONTEXT_SECTION}}", pop_context)
         .replace("{{SHARE_SECTION}}", &share_section)
         .replace("{{SHORTAGE_CHART}}", &shortage_chart)
         .replace("{{SURPLUS_CHART}}", &surplus_chart)
         .replace("{{RATIO_CHART}}", &ratio_chart)
+}
+
+/// V2外部統計: 人口あたり需給コンテキスト
+async fn build_population_context_section(
+    state: &AppState,
+    prefecture: &str,
+    stats: &BalanceStats,
+) -> String {
+    if prefecture.is_empty() || prefecture == "全国" {
+        return String::new();
+    }
+
+    let pop_data = external::fetch_population(state, prefecture, "").await;
+    let care_data = external::fetch_care_demand(state, prefecture).await;
+
+    let pop_data = match pop_data {
+        Some(d) => d,
+        None => return String::new(),
+    };
+
+    let total_pop = ext_i64(&pop_data, "total_population");
+    let age_65 = ext_i64(&pop_data, "age_65_over");
+    let aging_rate = ext_f64(&pop_data, "aging_rate");
+
+    if total_pop == 0 {
+        return String::new();
+    }
+
+    // 需給データから集計
+    let total_supply: f64 = stats.gap_rows.iter().map(|r| r.supply_count).sum();
+    let total_demand: f64 = stats.gap_rows.iter().map(|r| r.demand_count).sum();
+
+    // KPI計算
+    let seekers_per_10k = if total_pop > 0 { total_supply / total_pop as f64 * 10000.0 } else { 0.0 };
+    let demand_per_elderly_1k = if age_65 > 0 { total_demand / age_65 as f64 * 1000.0 } else { 0.0 };
+
+    // 介護需要データ
+    let mut care_kpi = String::new();
+    if let Some(ref care) = care_data {
+        let care_users = ext_i64(care, "care_support_users");
+        let pop_65_rate = ext_f64(care, "pop_65_over_rate");
+        if care_users > 0 && age_65 > 0 {
+            let utilization = care_users as f64 / age_65 as f64 * 100.0;
+            care_kpi = format!(
+                r#"<div class="stat-card" style="flex:1;min-width:180px;">
+                    <div class="text-sm text-slate-400">介護サービス利用率</div>
+                    <div class="text-2xl font-bold text-purple-400">{util:.1}<span class="text-lg">%</span></div>
+                    <div class="text-xs text-slate-500 mt-1">高齢者に対する介護支援利用者の割合</div>
+                </div>"#,
+                util = utilization,
+            );
+        }
+    }
+
+    format!(
+        r#"<div class="space-y-3">
+    <div class="flex items-center gap-2">
+        <span class="text-sm font-semibold text-slate-400">&#x1f30d; 人口あたり需給コンテキスト</span>
+        <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+    </div>
+    <div class="flex flex-wrap gap-4">
+        <div class="stat-card" style="flex:1;min-width:180px;">
+            <div class="text-sm text-slate-400">人口1万人あたり求職者数</div>
+            <div class="text-2xl font-bold text-cyan-400">{seekers:.1}<span class="text-lg">人</span></div>
+            <div class="text-xs text-slate-500 mt-1">総人口 {pop} / 求職者 {supply:.0}</div>
+        </div>
+        <div class="stat-card" style="flex:1;min-width:180px;">
+            <div class="text-sm text-slate-400">高齢者1,000人あたり求人需要</div>
+            <div class="text-2xl font-bold text-amber-400">{demand_elderly:.1}<span class="text-lg">件</span></div>
+            <div class="text-xs text-slate-500 mt-1">65歳以上 {elderly} (高齢化率 {aging:.1}%)</div>
+        </div>
+        {care_kpi}
+    </div>
+    <p class="text-xs text-slate-500">※人口データ: 国勢調査（2020年）、介護データ: e-Stat 社会・人口統計体系</p>
+</div>"#,
+        pref = escape_html(prefecture),
+        seekers = seekers_per_10k,
+        pop = format_number(total_pop),
+        supply = total_supply,
+        demand_elderly = demand_per_elderly_1k,
+        elderly = format_number(age_65),
+        aging = aging_rate,
+        care_kpi = care_kpi,
+    )
 }
 
 fn build_competition_section(stats: &BalanceStats, avg_ratio: f64, prefecture: &str) -> String {
