@@ -866,7 +866,7 @@ fn build_pyramid_section(stats: &NatStats) -> String {
                 </tbody>
             </table>
             <div class="mt-3 space-y-1">
-                <p class="text-xs text-slate-500">供給 = ジョブメドレー登録求職者の年代構成比</p>
+                <p class="text-xs text-slate-500">供給 = 登録求職者の年代構成比</p>
                 <p class="text-xs text-slate-500">需要 = 求人票から推定される対象年代の構成比</p>
                 <p class="text-xs text-rose-500/70">＋差分 = 需要超過（企業間の競争が激しく採用しにくい）</p>
                 <p class="text-xs text-emerald-500/70">−差分 = 供給超過（候補者が多く採用しやすい）</p>
