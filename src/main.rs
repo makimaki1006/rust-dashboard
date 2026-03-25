@@ -38,6 +38,28 @@ async fn main() {
         Err(e) => tracing::warn!("Turso connection failed: {e} (continuing without Turso)"),
     }
 
+    // V2外部統計DB（country-statistics）への読み取り専用接続
+    let turso_ext = {
+        let ext_url = std::env::var("TURSO_EXT_URL").unwrap_or_default();
+        let ext_token = std::env::var("TURSO_EXT_TOKEN").unwrap_or_default();
+        if !ext_url.is_empty() && !ext_token.is_empty() {
+            let client = TursoClient::new(&ext_url, &ext_token);
+            match client.test_connection().await {
+                Ok(_) => {
+                    tracing::info!("V2 external statistics DB connection OK");
+                    Some(client)
+                }
+                Err(e) => {
+                    tracing::warn!("V2 external DB connection failed: {e} (external data disabled)");
+                    None
+                }
+            }
+        } else {
+            tracing::info!("TURSO_EXT_URL not set — external statistics data disabled");
+            None
+        }
+    };
+
     decompress_geojson_if_needed();
 
     // DB解凍を並列実行（コールドスタート高速化）
@@ -123,6 +145,7 @@ async fn main() {
     let state = Arc::new(AppState {
         config,
         turso,
+        turso_ext,
         local_db,
         segment_db,
         geocoded_db,

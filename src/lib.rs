@@ -44,6 +44,7 @@ const TAB_CACHE_PREFIXES: &[&str] = &[
 pub struct AppState {
     pub config: AppConfig,
     pub turso: TursoClient,
+    pub turso_ext: Option<TursoClient>, // V2外部統計DB（読み取り専用）
     pub local_db: Option<db::local_sqlite::LocalDb>,
     pub segment_db: Option<db::local_sqlite::LocalDb>,
     pub geocoded_db: Option<db::local_sqlite::LocalDb>,

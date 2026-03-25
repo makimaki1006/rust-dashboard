@@ -7,6 +7,7 @@ use tower_sessions::Session;
 
 use crate::auth::{SESSION_JOB_TYPE_KEY, SESSION_PREFECTURE_KEY, SESSION_MUNICIPALITY_KEY};
 use super::competitive::escape_html;
+use super::external::{self, ext_f64, ext_i64};
 use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
@@ -86,6 +87,9 @@ pub async fn tab_overview(
     // segment_dbから需要側年代データを取得
     stats.demand_age = fetch_demand_age_decade(&state, &job_type, &prefecture, &municipality).await;
 
+    // V2外部統計データからマクロ指標を取得
+    let macro_section = build_macro_indicators_section(&state, &prefecture).await;
+
     // Turso接続失敗チェック: 全データが0の場合、エラーバナーを追加
     let total = stats.male_count + stats.female_count;
     let turso_error_banner = if total == 0 {
@@ -105,7 +109,7 @@ pub async fn tab_overview(
         String::new()
     };
 
-    let html = format!("{}{}", turso_error_banner, render_overview(&job_type, &stats, &location_label, &prefecture));
+    let html = format!("{}{}", turso_error_banner, render_overview(&job_type, &stats, &location_label, &prefecture, &macro_section));
 
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
@@ -882,8 +886,169 @@ fn build_pyramid_section(stats: &NatStats) -> String {
     )
 }
 
+/// V2外部統計からマクロ指標セクションを生成（都道府県選択時のみ）
+async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> String {
+    if prefecture.is_empty() {
+        return String::new(); // 全国モードでは非表示
+    }
+
+    // 有効求人倍率の年度推移を取得
+    let ratio_rows = external::fetch_job_openings_ratio(state, prefecture).await;
+    // 人口データ
+    let pop_data = external::fetch_population(state, prefecture, "").await;
+    // 介護需要
+    let care_data = external::fetch_care_demand(state, prefecture).await;
+    // 離職率
+    let turnover_data = external::fetch_turnover(state, prefecture).await;
+
+    // データが全くない場合は非表示
+    if ratio_rows.is_empty() && pop_data.is_none() && care_data.is_none() {
+        return String::new();
+    }
+
+    // KPIカード群を構築
+    let mut kpi_cards = String::new();
+
+    // 1. 有効求人倍率（最新値）
+    if let Some(latest) = ratio_rows.last() {
+        let ratio = ext_f64(latest, "job_openings_with_part_time");
+        let year = external::ext_str(latest, "fiscal_year");
+        let ratio_color = if ratio >= 1.5 { "#ef4444" } else if ratio >= 1.0 { "#f59e0b" } else { "#22c55e" };
+        let ratio_label = if ratio >= 1.5 { "人手不足" } else if ratio >= 1.0 { "やや不足" } else { "供給余裕" };
+        kpi_cards.push_str(&format!(
+            r#"<div class="stat-card">
+                <div class="stat-value" style="color:{color}">{ratio:.2}<span class="text-lg">倍</span></div>
+                <div class="stat-label">有効求人倍率 ({year})</div>
+                <div class="text-xs mt-1" style="color:{color}">{label}</div>
+            </div>"#,
+            color = ratio_color, ratio = ratio, year = year, label = ratio_label,
+        ));
+    }
+
+    // 2. 人口・高齢化率
+    if let Some(ref pop) = pop_data {
+        let total_pop = ext_i64(pop, "total_population");
+        let aging_rate = ext_f64(pop, "aging_rate");
+        let working_rate = ext_f64(pop, "working_age_rate");
+        kpi_cards.push_str(&format!(
+            r#"<div class="stat-card">
+                <div class="stat-value text-cyan-400">{pop}<span class="text-lg">人</span></div>
+                <div class="stat-label">総人口</div>
+                <div class="text-xs text-slate-500 mt-1">高齢化率 {aging:.1}% / 生産年齢 {working:.1}%</div>
+            </div>"#,
+            pop = format_number(total_pop), aging = aging_rate, working = working_rate,
+        ));
+    }
+
+    // 3. 介護需要（施設数・利用者数）
+    if let Some(ref care) = care_data {
+        let home_offices = ext_i64(care, "home_care_offices");
+        let home_users = ext_i64(care, "home_care_users");
+        let helpers = ext_i64(care, "home_helper_count");
+        if home_offices > 0 || helpers > 0 {
+            kpi_cards.push_str(&format!(
+                r#"<div class="stat-card">
+                    <div class="stat-value text-purple-400">{offices}<span class="text-lg">所</span></div>
+                    <div class="stat-label">訪問介護事業所</div>
+                    <div class="text-xs text-slate-500 mt-1">利用者 {users}人 / ヘルパー {helpers}人</div>
+                </div>"#,
+                offices = format_number(home_offices),
+                users = format_number(home_users),
+                helpers = format_number(helpers),
+            ));
+        }
+    }
+
+    // 4. 離職率
+    if let Some(ref tn) = turnover_data {
+        let sep_rate = ext_f64(tn, "separation_rate");
+        let entry_rate = ext_f64(tn, "entry_rate");
+        let year = external::ext_str(tn, "fiscal_year");
+        if sep_rate > 0.0 {
+            let net_rate = entry_rate - sep_rate;
+            let net_color = if net_rate >= 0.0 { "#22c55e" } else { "#ef4444" };
+            let net_sign = if net_rate >= 0.0 { "+" } else { "" };
+            kpi_cards.push_str(&format!(
+                r#"<div class="stat-card">
+                    <div class="stat-value text-rose-400">{sep:.1}<span class="text-lg">%</span></div>
+                    <div class="stat-label">医療福祉 離職率 ({year})</div>
+                    <div class="text-xs mt-1" style="color:{net_color}">入職率 {entry:.1}% (純増減 {net_sign}{net:.1}%)</div>
+                </div>"#,
+                sep = sep_rate, year = year, entry = entry_rate,
+                net_color = net_color, net_sign = net_sign, net = net_rate,
+            ));
+        }
+    }
+
+    if kpi_cards.is_empty() {
+        return String::new();
+    }
+
+    // 有効求人倍率の推移チャート
+    let mut ratio_chart = String::new();
+    if ratio_rows.len() >= 2 {
+        let chart_id = format!("macro-ratio-{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+        let years: Vec<String> = ratio_rows.iter()
+            .map(|r| format!("'{}'", external::ext_str(r, "fiscal_year")))
+            .collect();
+        let ratios_pt: Vec<String> = ratio_rows.iter()
+            .map(|r| format!("{:.2}", ext_f64(r, "job_openings_with_part_time")))
+            .collect();
+        let ratios_nopt: Vec<String> = ratio_rows.iter()
+            .map(|r| format!("{:.2}", ext_f64(r, "job_openings_without_part_time")))
+            .collect();
+
+        ratio_chart = format!(
+            r##"<div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">有効求人倍率の推移（{pref}）</h3>
+            <div id="{id}" style="height:250px;"></div>
+            <script>
+            (function(){{
+                var el = document.getElementById('{id}');
+                if (!el || typeof echarts === 'undefined') return;
+                var c = echarts.init(el, 'dark');
+                c.setOption({{
+                    tooltip: {{trigger:'axis'}},
+                    legend: {{data:['パート含む','パート除く'], top:0, textStyle:{{color:'#94a3b8'}}}},
+                    grid: {{left:'8%',right:'5%',top:'35px',bottom:'12%'}},
+                    xAxis: {{type:'category', data:[{years}], axisLabel:{{color:'#94a3b8',fontSize:11}}}},
+                    yAxis: {{type:'value', name:'倍', axisLabel:{{color:'#94a3b8'}}, splitLine:{{lineStyle:{{color:'#334155'}}}}}},
+                    series: [
+                        {{name:'パート含む',type:'line',data:[{pt}],itemStyle:{{color:'#3b82f6'}},smooth:true}},
+                        {{name:'パート除く',type:'line',data:[{nopt}],itemStyle:{{color:'#f59e0b'}},smooth:true,lineStyle:{{type:'dashed'}}}}
+                    ]
+                }});
+                new ResizeObserver(function(){{c.resize();}}).observe(el);
+            }})();
+            </script>
+            <p class="text-xs text-slate-500 mt-2">※出典: e-Stat 社会・人口統計体系（厚生労働省）</p>
+        </div>"##,
+            pref = escape_html(prefecture),
+            id = chart_id,
+            years = years.join(","),
+            pt = ratios_pt.join(","),
+            nopt = ratios_nopt.join(","),
+        );
+    }
+
+    format!(
+        r#"<div class="space-y-4">
+    <div class="flex items-center gap-2">
+        <span class="text-sm font-semibold text-slate-400">&#x1f30d; 外部統計マクロ指標</span>
+        <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+    </div>
+    <div class="grid-stats">{kpi_cards}</div>
+    {ratio_chart}
+</div>"#,
+        pref = escape_html(prefecture),
+        kpi_cards = kpi_cards,
+        ratio_chart = ratio_chart,
+    )
+}
+
 /// HTMLレンダリング
-fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefecture: &str) -> String {
+fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefecture: &str, macro_section: &str) -> String {
     let total = stats.male_count + stats.female_count;
     let male_pct = if total > 0 {
         (stats.male_count as f64 / total as f64 * 100.0).round()
@@ -912,6 +1077,7 @@ fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefe
         .replace("{{DIAGNOSIS_SECTION}}", &diagnosis_section)
         .replace("{{COMPARISON_SECTION}}", &comparison_section)
         .replace("{{PYRAMID_SECTION}}", &pyramid_section)
+        .replace("{{MACRO_SECTION}}", macro_section)
         .replace("{{TOTAL_COUNT}}", &format_number(total))
         .replace("{{AVG_AGE}}", &format!("{:.1}", stats.avg_age))
         .replace("{{MALE_COUNT}}", &format_number(stats.male_count))

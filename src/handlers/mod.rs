@@ -11,6 +11,7 @@ pub mod analysis;
 pub mod compare;
 // job_creator: _archive/に移動（2026-03-18）Gemini AI iframe埋め込み、UIから非表示・ルーティングなし
 pub mod api;
+pub mod external;
 
 use axum::response::Html;
 
