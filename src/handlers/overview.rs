@@ -90,6 +90,9 @@ pub async fn tab_overview(
     // V2外部統計データからマクロ指標を取得
     let macro_section = build_macro_indicators_section(&state, &prefecture).await;
 
+    // V2外部統計: 人口ピラミッド（概況タブで3面比較）
+    let pop_pyramid_rows = external::fetch_population_pyramid(&state, &prefecture, &municipality).await;
+
     // Turso接続失敗チェック: 全データが0の場合、エラーバナーを追加
     let total = stats.male_count + stats.female_count;
     let turso_error_banner = if total == 0 {
@@ -109,7 +112,7 @@ pub async fn tab_overview(
         String::new()
     };
 
-    let html = format!("{}{}", turso_error_banner, render_overview(&job_type, &stats, &location_label, &prefecture, &macro_section));
+    let html = format!("{}{}", turso_error_banner, render_overview(&job_type, &stats, &location_label, &prefecture, &macro_section, &pop_pyramid_rows));
 
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
@@ -684,7 +687,7 @@ fn build_diagnosis_section(_stats: &NatStats, _prefecture: &str) -> String {
 
 /// 需給年代ピラミッド（バタフライチャート）を生成
 /// 左=求職者年代割合（供給）、右=求人対象年代割合（需要）
-fn build_pyramid_section(stats: &NatStats) -> String {
+fn build_pyramid_section(stats: &NatStats, pop_pyramid_rows: &[HashMap<String, Value>]) -> String {
     // 供給側（求職者）: AGE_GENDERから。60代と70歳以上を「60代以上」に統合
     let age_labels = ["20代", "30代", "40代", "50代", "60代以上"];
     let mut supply_counts: Vec<i64> = Vec::new();
@@ -716,6 +719,38 @@ fn build_pyramid_section(stats: &NatStats) -> String {
         demand_counts.push(cnt);
     }
 
+    // 人口データ（V2外部統計）: 9区分→5区分に統合
+    let has_pop = !pop_pyramid_rows.is_empty();
+    let mut pop_counts: Vec<i64> = Vec::new();
+    for label in &age_labels {
+        let cnt: i64 = if has_pop {
+            match *label {
+                "20代" => pop_pyramid_rows.iter()
+                    .find(|r| external::ext_str(r, "age_group") == "20-29")
+                    .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0),
+                "30代" => pop_pyramid_rows.iter()
+                    .find(|r| external::ext_str(r, "age_group") == "30-39")
+                    .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0),
+                "40代" => pop_pyramid_rows.iter()
+                    .find(|r| external::ext_str(r, "age_group") == "40-49")
+                    .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0),
+                "50代" => pop_pyramid_rows.iter()
+                    .find(|r| external::ext_str(r, "age_group") == "50-59")
+                    .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0),
+                "60代以上" => {
+                    ["60-69", "70-79", "80+"].iter().map(|ag| {
+                        pop_pyramid_rows.iter()
+                            .find(|r| external::ext_str(r, "age_group") == *ag)
+                            .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0)
+                    }).sum()
+                }
+                _ => 0,
+            }
+        } else { 0 };
+        pop_counts.push(cnt);
+    }
+    let pop_total: i64 = pop_counts.iter().sum();
+
     // データがどちらもない場合はセクションを表示しない
     let supply_total: i64 = supply_counts.iter().sum();
     let demand_total: i64 = demand_counts.iter().sum();
@@ -729,6 +764,9 @@ fn build_pyramid_section(stats: &NatStats) -> String {
         .collect();
     let demand_pcts: Vec<f64> = demand_counts.iter()
         .map(|c| if demand_total > 0 { *c as f64 / demand_total as f64 * 100.0 } else { 0.0 })
+        .collect();
+    let pop_pcts: Vec<f64> = pop_counts.iter()
+        .map(|c| if pop_total > 0 { *c as f64 / pop_total as f64 * 100.0 } else { 0.0 })
         .collect();
 
     // ECharts用JSON配列: 供給は負値（左側）、需要は正値（右側）
@@ -746,13 +784,12 @@ fn build_pyramid_section(stats: &NatStats) -> String {
     for (i, label) in age_labels.iter().enumerate() {
         let sp = supply_pcts[i];
         let dp = demand_pcts[i];
+        let pp = pop_pcts[i];
         let diff = dp - sp;
-        // 需要 > 供給 → 求人が多く企業間で競争 → 採用しにくい
-        // 供給 > 需要 → 求職者が多い → 採用しやすい
         let diff_color = if diff > 3.0 {
-            "text-rose-400" // 需要超過 = 企業間の競争激化
+            "text-rose-400"
         } else if diff < -3.0 {
-            "text-emerald-400" // 供給超過 = 候補者豊富
+            "text-emerald-400"
         } else {
             "text-slate-400"
         };
@@ -765,15 +802,23 @@ fn build_pyramid_section(stats: &NatStats) -> String {
             "均衡"
         };
 
+        let pop_cell = if has_pop {
+            format!(r#"<td class="py-1.5 text-sm text-right text-slate-400">{:.1}%</td>"#, pp)
+        } else {
+            String::new()
+        };
+
         table_rows.push_str(&format!(
             r#"<tr class="border-b border-slate-700/50">
                 <td class="py-1.5 text-sm text-slate-300">{label}</td>
+                {pop_cell}
                 <td class="py-1.5 text-sm text-right text-cyan-400">{sp:.1}%</td>
                 <td class="py-1.5 text-sm text-right text-amber-400">{dp:.1}%</td>
                 <td class="py-1.5 text-sm text-right {diff_color}">{diff_sign}{diff:.1}%</td>
                 <td class="py-1.5 text-xs text-right {diff_color}">{hint}</td>
             </tr>"#,
             label = label,
+            pop_cell = pop_cell,
             sp = sp,
             dp = dp,
             diff_color = diff_color,
@@ -787,10 +832,49 @@ fn build_pyramid_section(stats: &NatStats) -> String {
     let chart_id = format!("pyramid-{}", std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
 
+    // 人口データがある場合、チャートに3本目のシリーズを追加
+    let pop_series = if has_pop {
+        let pop_vals: Vec<String> = pop_pcts.iter().map(|p| format!("{:.1}", -p)).collect();
+        format!(
+            r#",{{
+                            name: '地域人口',
+                            type: 'bar',
+                            data: [{pop_vals}],
+                            itemStyle: {{color: 'rgba(100,116,139,0.5)', borderRadius: [4, 0, 0, 4]}},
+                            barWidth: '30%',
+                            barGap: '-100%',
+                            z: 0
+                        }}"#,
+            pop_vals = pop_vals.join(","),
+        )
+    } else {
+        String::new()
+    };
+
+    let legend_data = if has_pop {
+        "'地域人口','求職者（供給）','求人票（需要）'"
+    } else {
+        "'求職者（供給）','求人票（需要）'"
+    };
+
+    let pop_header = if has_pop {
+        r#"<th class="py-1.5 text-xs text-right text-slate-500">人口</th>"#
+    } else { "" };
+
+    let subtitle = if has_pop {
+        "左: 求職者（供給）＋地域人口 / 右: 求人の対象年代（需要）"
+    } else {
+        "左: 求職者の年代構成（供給） / 右: 求人の対象年代（需要）"
+    };
+
+    let pop_note = if has_pop {
+        r#"<p class="text-xs text-slate-500">人口 = 国勢調査による地域の実際の年代構成（20歳以上）</p>"#
+    } else { "" };
+
     format!(
         r##"<div class="stat-card">
     <h3 class="text-sm text-slate-400 mb-1">&#x1f4ca; 需給年代バランス</h3>
-    <p class="text-xs text-slate-500 mb-3">左: 求職者の年代構成（供給） / 右: 求人の対象年代（需要）</p>
+    <p class="text-xs text-slate-500 mb-3">{subtitle}</p>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div>
             <div id="{chart_id}" style="height:360px;"></div>
@@ -811,7 +895,7 @@ fn build_pyramid_section(stats: &NatStats) -> String {
                             return tip;
                         }}
                     }},
-                    legend: {{data: ['求職者（供給）', '求人票（需要）'], top: 0, textStyle: {{color: '#94a3b8'}}}},
+                    legend: {{data: [{legend_data}], top: 0, textStyle: {{color: '#94a3b8'}}}},
                     grid: {{left: '3%', right: '3%', bottom: '3%', top: '40px', containLabel: true}},
                     xAxis: {{
                         type: 'value',
@@ -844,6 +928,7 @@ fn build_pyramid_section(stats: &NatStats) -> String {
                             itemStyle: {{color: '#fbbf24', borderRadius: [0, 4, 4, 0]}},
                             barWidth: '55%'
                         }}
+                        {pop_series}
                     ]
                 }});
                 new ResizeObserver(function(){{ c.resize(); }}).observe(el);
@@ -855,6 +940,7 @@ fn build_pyramid_section(stats: &NatStats) -> String {
                 <thead>
                     <tr class="border-b border-slate-600">
                         <th class="py-1.5 text-xs text-left text-slate-500">年代</th>
+                        {pop_header}
                         <th class="py-1.5 text-xs text-right text-cyan-500">供給</th>
                         <th class="py-1.5 text-xs text-right text-amber-500">需要</th>
                         <th class="py-1.5 text-xs text-right text-slate-500">差分</th>
@@ -866,6 +952,7 @@ fn build_pyramid_section(stats: &NatStats) -> String {
                 </tbody>
             </table>
             <div class="mt-3 space-y-1">
+                {pop_note}
                 <p class="text-xs text-slate-500">供給 = 登録求職者の年代構成比</p>
                 <p class="text-xs text-slate-500">需要 = 求人票から推定される対象年代の構成比</p>
                 <p class="text-xs text-rose-500/70">＋差分 = 需要超過（企業間の競争が激しく採用しにくい）</p>
@@ -878,11 +965,16 @@ fn build_pyramid_section(stats: &NatStats) -> String {
         </div>
     </div>
 </div>"##,
+        subtitle = subtitle,
         chart_id = chart_id,
+        legend_data = legend_data,
         labels = labels_json.join(","),
         supply_vals = supply_vals.join(","),
         demand_vals = demand_vals.join(","),
+        pop_series = pop_series,
+        pop_header = pop_header,
         table_rows = table_rows,
+        pop_note = pop_note,
     )
 }
 
@@ -1048,7 +1140,7 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
 }
 
 /// HTMLレンダリング
-fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefecture: &str, macro_section: &str) -> String {
+fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefecture: &str, macro_section: &str, pop_pyramid_rows: &[HashMap<String, Value>]) -> String {
     let total = stats.male_count + stats.female_count;
     let male_pct = if total > 0 {
         (stats.male_count as f64 / total as f64 * 100.0).round()
@@ -1069,7 +1161,7 @@ fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefe
     let comparison_section = build_comparison_section(stats, prefecture, location_label);
 
     // 需給年代ピラミッド用データ（割合で計算）
-    let pyramid_section = build_pyramid_section(stats);
+    let pyramid_section = build_pyramid_section(stats, pop_pyramid_rows);
 
     include_str!("../../templates/tabs/overview.html")
         .replace("{{JOB_TYPE}}", &escape_html(job_type))
