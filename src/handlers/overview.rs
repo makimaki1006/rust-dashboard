@@ -992,9 +992,14 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
     let care_data = external::fetch_care_demand(state, prefecture).await;
     // 離職率
     let turnover_data = external::fetch_turnover(state, prefecture).await;
+    // HW賃金（最新）
+    let hw_salary = external::fetch_hw_salary_latest(state, prefecture).await;
+    // HW掲載日数（最新）
+    let hw_fulfillment = external::fetch_hw_fulfillment_latest(state, prefecture).await;
 
     // データが全くない場合は非表示
-    if ratio_rows.is_empty() && pop_data.is_none() && care_data.is_none() {
+    if ratio_rows.is_empty() && pop_data.is_none() && care_data.is_none()
+        && hw_salary.is_empty() && hw_fulfillment.is_empty() {
         return String::new();
     }
 
@@ -1068,6 +1073,51 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
                 </div>"#,
                 sep = sep_rate, year = year, entry = entry_rate,
                 net_color = net_color, net_sign = net_sign, net = net_rate,
+            ));
+        }
+    }
+
+    // 5. HW平均賃金（O-6）
+    for row in &hw_salary {
+        let emp = external::ext_str(row, "emp_group");
+        let avg_min = ext_i64(row, "avg_min");
+        let avg_max = ext_i64(row, "avg_max");
+        if avg_min > 0 {
+            let color = if emp.contains("正") { "#10b981" } else { "#8b5cf6" };
+            let salary_label = if avg_max > avg_min {
+                format!("{} 〜 {}", format_number(avg_min), format_number(avg_max))
+            } else {
+                format!("{}", format_number(avg_min))
+            };
+            kpi_cards.push_str(&format!(
+                r#"<div class="stat-card">
+                    <div class="stat-value" style="color:{color}"><span class="text-lg">¥</span>{salary}</div>
+                    <div class="stat-label">HW {emp} 平均月給</div>
+                    <div class="text-xs text-slate-500 mt-1">ハローワーク掲載求人の平均値</div>
+                </div>"#,
+                color = color, salary = salary_label, emp = emp,
+            ));
+        }
+    }
+
+    // 6. HW掲載日数（O-7）
+    for row in &hw_fulfillment {
+        let emp = external::ext_str(row, "emp_group");
+        let avg_days = ext_f64(row, "avg_days");
+        let long_term = ext_i64(row, "long_term");
+        let count = ext_i64(row, "count");
+        if avg_days > 0.0 {
+            let days_color = if avg_days > 90.0 { "#ef4444" } else if avg_days > 60.0 { "#f59e0b" } else { "#22c55e" };
+            let difficulty = if avg_days > 90.0 { "充足困難" } else if avg_days > 60.0 { "やや困難" } else { "比較的容易" };
+            let long_pct = if count > 0 { long_term as f64 / count as f64 * 100.0 } else { 0.0 };
+            kpi_cards.push_str(&format!(
+                r#"<div class="stat-card">
+                    <div class="stat-value" style="color:{color}">{days:.0}<span class="text-lg">日</span></div>
+                    <div class="stat-label">HW {emp} 平均掲載日数</div>
+                    <div class="text-xs mt-1" style="color:{color}">{diff} (90日超: {long:.1}%)</div>
+                </div>"#,
+                color = days_color, days = avg_days, emp = emp,
+                diff = difficulty, long = long_pct,
             ));
         }
     }

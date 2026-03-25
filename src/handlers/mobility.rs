@@ -10,6 +10,7 @@ use crate::AppState;
 
 use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, build_location_filter, make_location_label, parse_municipalities};
 use super::competitive::escape_html;
+use super::external::{self, ext_i64, ext_f64};
 
 /// 隣接県マップ（NiceGUI版 ADJACENT_PREFECTURES 完全移植）
 fn adjacent_prefectures(pref: &str) -> &'static [&'static str] {
@@ -116,7 +117,11 @@ pub async fn tab_mobility(
     }
 
     let stats = fetch_mobility(&state, &job_type, &prefecture, &municipality).await;
-    let html = render_mobility(&job_type, &prefecture, &municipality, &stats);
+
+    // V2外部統計: 転入出データ（M-1）
+    let migration_section = build_migration_section(&state, &prefecture).await;
+
+    let html = render_mobility(&job_type, &prefecture, &municipality, &stats, &migration_section);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -553,7 +558,74 @@ fn weighted_percentile(values: &[(f64, i64)], total_weight: i64, p: f64) -> f64 
     values.last().map(|(v, _)| *v).unwrap_or(0.0)
 }
 
-fn render_mobility(job_type: &str, prefecture: &str, municipality: &str, stats: &MobilityStats) -> String {
+/// V2外部統計: 転入出×求職者流入出対比（M-1）
+async fn build_migration_section(state: &AppState, prefecture: &str) -> String {
+    if prefecture.is_empty() || prefecture == "全国" {
+        return String::new();
+    }
+
+    let migration = external::fetch_migration(state, prefecture).await;
+    if migration.is_empty() {
+        return String::new();
+    }
+
+    // 上位5市区町村（転入超過）と下位5（転出超過）
+    let top_inflow: Vec<_> = migration.iter()
+        .filter(|r| ext_i64(r, "net_migration") > 0)
+        .take(5).collect();
+    let top_outflow: Vec<_> = migration.iter().rev()
+        .filter(|r| ext_i64(r, "net_migration") < 0)
+        .take(5).collect();
+
+    let mut rows = String::new();
+    for r in top_inflow.iter().chain(top_outflow.iter()) {
+        let muni = external::ext_str(r, "municipality");
+        let inflow = ext_i64(r, "inflow");
+        let outflow = ext_i64(r, "outflow");
+        let net = ext_i64(r, "net_migration");
+        let rate = ext_f64(r, "net_migration_rate");
+        let color = if net > 0 { "text-emerald-400" } else { "text-rose-400" };
+        let sign = if net > 0 { "+" } else { "" };
+        rows.push_str(&format!(
+            r#"<tr class="border-b border-slate-700/50">
+                <td class="py-1 text-sm text-slate-300">{muni}</td>
+                <td class="py-1 text-sm text-right text-blue-400">{inflow}</td>
+                <td class="py-1 text-sm text-right text-amber-400">{outflow}</td>
+                <td class="py-1 text-sm text-right {color}">{sign}{net}</td>
+                <td class="py-1 text-sm text-right {color}">{sign}{rate:.1}‰</td>
+            </tr>"#,
+            muni = muni, inflow = format_number(inflow), outflow = format_number(outflow),
+            color = color, sign = sign, net = format_number(net), rate = rate,
+        ));
+    }
+
+    format!(
+        r#"<div class="stat-card">
+    <div class="flex items-center gap-2 mb-1">
+        <h3 class="text-sm text-slate-400">&#x1f30d; 住民の転入出（住民基本台帳）</h3>
+        <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">一般住民の転入出と、求職者の希望勤務地フローを比較してください</p>
+    <table class="w-full">
+        <thead>
+            <tr class="border-b border-slate-600">
+                <th class="py-1 text-xs text-left text-slate-500">市区町村</th>
+                <th class="py-1 text-xs text-right text-blue-500">転入</th>
+                <th class="py-1 text-xs text-right text-amber-500">転出</th>
+                <th class="py-1 text-xs text-right text-slate-500">純移動</th>
+                <th class="py-1 text-xs text-right text-slate-500">移動率</th>
+            </tr>
+        </thead>
+        <tbody>{rows}</tbody>
+    </table>
+    <p class="text-xs text-slate-500 mt-2">※出典: 住民基本台帳人口移動報告（2023年度）</p>
+</div>"#,
+        pref = escape_html(prefecture),
+        rows = rows,
+    )
+}
+
+fn render_mobility(job_type: &str, prefecture: &str, municipality: &str, stats: &MobilityStats, migration_section: &str) -> String {
     let location_label = make_location_label(prefecture, municipality);
 
     // ===== 採用圏分析カード =====
@@ -595,6 +667,7 @@ fn render_mobility(job_type: &str, prefecture: &str, municipality: &str, stats: 
         .replace("{{DISTANCE_MEDIAN}}", &format!("{:.1}", stats.distance_median))
         .replace("{{DISTANCE_Q75}}", &format!("{:.1}", stats.distance_q75))
         .replace("{{RETENTION_SECTION}}", &retention_section)
+        .replace("{{MIGRATION_SECTION}}", migration_section)
 }
 
 /// 採用圏分析カードのHTML生成（都道府県選択時のみ表示）

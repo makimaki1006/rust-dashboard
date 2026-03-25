@@ -197,6 +197,151 @@ pub async fn fetch_hw_vacancy_trend(
     ).await
 }
 
+/// HW求人賃金統計（ts_turso_salary）— 都道府県別・最新snapshot
+pub async fn fetch_hw_salary(
+    state: &AppState,
+    prefecture: &str,
+) -> Vec<HashMap<String, Value>> {
+    if prefecture.is_empty() { return vec![]; }
+    query_ext(state,
+        "SELECT snapshot_id, emp_group, \
+                SUM(count) as count, \
+                ROUND(SUM(mean_min * count) / NULLIF(SUM(count), 0)) as avg_min, \
+                ROUND(SUM(mean_max * count) / NULLIF(SUM(count), 0)) as avg_max, \
+                ROUND(SUM(median_min * count) / NULLIF(SUM(count), 0)) as avg_median \
+         FROM ts_turso_salary \
+         WHERE prefecture = ? \
+         GROUP BY snapshot_id, emp_group ORDER BY snapshot_id",
+        &[Value::String(prefecture.to_string())],
+    ).await
+}
+
+/// HW求人賃金（最新snapshotの集約値のみ）
+pub async fn fetch_hw_salary_latest(
+    state: &AppState,
+    prefecture: &str,
+) -> Vec<HashMap<String, Value>> {
+    if prefecture.is_empty() { return vec![]; }
+    query_ext(state,
+        "SELECT emp_group, \
+                SUM(count) as count, \
+                ROUND(SUM(mean_min * count) / NULLIF(SUM(count), 0)) as avg_min, \
+                ROUND(SUM(mean_max * count) / NULLIF(SUM(count), 0)) as avg_max, \
+                ROUND(SUM(median_min * count) / NULLIF(SUM(count), 0)) as avg_median \
+         FROM ts_turso_salary \
+         WHERE prefecture = ? AND snapshot_id = (SELECT MAX(snapshot_id) FROM ts_turso_salary) \
+         GROUP BY emp_group",
+        &[Value::String(prefecture.to_string())],
+    ).await
+}
+
+/// HW掲載日数（ts_turso_fulfillment）— 都道府県別・最新snapshot
+pub async fn fetch_hw_fulfillment_latest(
+    state: &AppState,
+    prefecture: &str,
+) -> Vec<HashMap<String, Value>> {
+    if prefecture.is_empty() { return vec![]; }
+    query_ext(state,
+        "SELECT emp_group, \
+                SUM(count) as count, \
+                ROUND(SUM(avg_listing_days * count) / NULLIF(SUM(count), 0), 1) as avg_days, \
+                ROUND(SUM(median_listing_days * count) / NULLIF(SUM(count), 0), 1) as median_days, \
+                SUM(long_term_count) as long_term, \
+                SUM(very_long_count) as very_long \
+         FROM ts_turso_fulfillment \
+         WHERE prefecture = ? AND snapshot_id = (SELECT MAX(snapshot_id) FROM ts_turso_fulfillment) \
+         GROUP BY emp_group",
+        &[Value::String(prefecture.to_string())],
+    ).await
+}
+
+/// HW働き方統計（ts_agg_workstyle）— 都道府県別・最新snapshot
+pub async fn fetch_hw_workstyle_latest(
+    state: &AppState,
+    prefecture: &str,
+) -> Vec<HashMap<String, Value>> {
+    if prefecture.is_empty() { return vec![]; }
+    query_ext(state,
+        "SELECT emp_group, count, avg_annual_holidays, avg_overtime \
+         FROM ts_agg_workstyle \
+         WHERE prefecture = ? AND snapshot_id = (SELECT MAX(snapshot_id) FROM ts_agg_workstyle)",
+        &[Value::String(prefecture.to_string())],
+    ).await
+}
+
+/// HW求人追跡（ts_agg_tracking）— 都道府県別時系列
+pub async fn fetch_hw_tracking(
+    state: &AppState,
+    prefecture: &str,
+) -> Vec<HashMap<String, Value>> {
+    if prefecture.is_empty() { return vec![]; }
+    query_ext(state,
+        "SELECT snapshot_id, \
+                SUM(new_count) as new_total, \
+                SUM(continue_count) as continue_total, \
+                SUM(end_count) as end_total, \
+                ROUND(CAST(SUM(end_count) AS REAL) / NULLIF(SUM(continue_count) + SUM(end_count), 0) * 100, 1) as churn_rate \
+         FROM ts_agg_tracking \
+         WHERE prefecture = ? \
+         GROUP BY snapshot_id ORDER BY snapshot_id",
+        &[Value::String(prefecture.to_string())],
+    ).await
+}
+
+/// 転入出データ（v2_external_migration）
+pub async fn fetch_migration(
+    state: &AppState,
+    prefecture: &str,
+) -> Vec<HashMap<String, Value>> {
+    if prefecture.is_empty() { return vec![]; }
+    query_ext(state,
+        "SELECT municipality, inflow, outflow, net_migration, net_migration_rate \
+         FROM v2_external_migration WHERE prefecture = ? ORDER BY net_migration DESC",
+        &[Value::String(prefecture.to_string())],
+    ).await
+}
+
+/// 昼間人口データ（v2_external_daytime_population）
+pub async fn fetch_daytime_population(
+    state: &AppState,
+    prefecture: &str,
+) -> Vec<HashMap<String, Value>> {
+    if prefecture.is_empty() { return vec![]; }
+    query_ext(state,
+        "SELECT municipality, daytime_population, daytime_rate \
+         FROM v2_external_daytime_population WHERE prefecture = ? ORDER BY daytime_rate DESC",
+        &[Value::String(prefecture.to_string())],
+    ).await
+}
+
+/// 労働力統計（v2_external_labor_stats）— 最新年度
+pub async fn fetch_labor_stats_latest(
+    state: &AppState,
+    prefecture: &str,
+) -> Option<HashMap<String, Value>> {
+    if prefecture.is_empty() { return None; }
+    let rows = query_ext(state,
+        "SELECT * FROM v2_external_labor_stats \
+         WHERE prefecture = ? ORDER BY fiscal_year DESC LIMIT 1",
+        &[Value::String(prefecture.to_string())],
+    ).await;
+    rows.into_iter().next()
+}
+
+/// 事業所数（v2_external_establishments）— 医療福祉
+pub async fn fetch_establishments_medical(
+    state: &AppState,
+    prefecture: &str,
+) -> Option<HashMap<String, Value>> {
+    if prefecture.is_empty() { return None; }
+    let rows = query_ext(state,
+        "SELECT establishment_count, employee_count FROM v2_external_establishments \
+         WHERE prefecture = ? AND industry LIKE '%医療%福祉%'",
+        &[Value::String(prefecture.to_string())],
+    ).await;
+    rows.into_iter().next()
+}
+
 /// 人口ピラミッド（9区分×男女）を取得
 pub async fn fetch_population_pyramid(
     state: &AppState,

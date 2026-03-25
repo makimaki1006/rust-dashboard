@@ -8,8 +8,9 @@ use tower_sessions::Session;
 use crate::models::job_seeker::{has_turso_data, render_no_turso_data};
 use crate::AppState;
 
-use super::overview::{get_str, get_i64, get_session_filters, build_location_filter, make_location_label};
+use super::overview::{get_str, get_i64, get_session_filters, build_location_filter, make_location_label, format_number};
 use super::competitive::escape_html;
+use super::external::{self, ext_f64, ext_i64};
 
 /// タブ5: 雇用形態分析
 pub async fn tab_workstyle(
@@ -30,7 +31,11 @@ pub async fn tab_workstyle(
     }
 
     let stats = fetch_workstyle(&state, &job_type, &prefecture, &municipality).await;
-    let html = render_workstyle(&job_type, &prefecture, &municipality, &stats);
+
+    // V2 HW: 雇用形態別の休日・残業・賃金
+    let hw_context = build_hw_workstyle_context(&state, &prefecture).await;
+
+    let html = render_workstyle(&job_type, &prefecture, &municipality, &stats, &hw_context);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -176,7 +181,92 @@ async fn fetch_workstyle(state: &AppState, job_type: &str, prefecture: &str, mun
     stats
 }
 
-fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats: &WorkstyleStats) -> String {
+/// V2 HW: 雇用形態別の休日・残業・賃金比較（W-1, W-2）
+async fn build_hw_workstyle_context(state: &AppState, prefecture: &str) -> String {
+    if prefecture.is_empty() || prefecture == "全国" {
+        return String::new();
+    }
+
+    let hw_ws = external::fetch_hw_workstyle_latest(state, prefecture).await;
+    let hw_salary = external::fetch_hw_salary_latest(state, prefecture).await;
+
+    if hw_ws.is_empty() && hw_salary.is_empty() {
+        return String::new();
+    }
+
+    let mut rows_html = String::new();
+    // 雇用形態ごとに1行
+    for emp in &["正社員", "パート"] {
+        let ws_row = hw_ws.iter().find(|r| external::ext_str(r, "emp_group") == *emp);
+        let sal_row = hw_salary.iter().find(|r| external::ext_str(r, "emp_group") == *emp);
+
+        let holidays = ws_row.map(|r| ext_f64(r, "avg_annual_holidays")).unwrap_or(0.0);
+        let overtime = ws_row.map(|r| ext_f64(r, "avg_overtime")).unwrap_or(0.0);
+        let salary_min = sal_row.map(|r| ext_i64(r, "avg_min")).unwrap_or(0);
+        let salary_max = sal_row.map(|r| ext_i64(r, "avg_max")).unwrap_or(0);
+        let count = sal_row.map(|r| ext_i64(r, "count")).unwrap_or(0);
+
+        if holidays == 0.0 && salary_min == 0 { continue; }
+
+        let hol_color = if holidays >= 120.0 { "text-emerald-400" } else if holidays >= 105.0 { "text-amber-400" } else { "text-rose-400" };
+        let ot_color = if overtime <= 10.0 { "text-emerald-400" } else if overtime <= 20.0 { "text-amber-400" } else { "text-rose-400" };
+
+        let salary_text = if salary_max > salary_min {
+            format!("¥{} 〜 ¥{}", format_number(salary_min), format_number(salary_max))
+        } else if salary_min > 0 {
+            format!("¥{}", format_number(salary_min))
+        } else {
+            "-".to_string()
+        };
+
+        rows_html.push_str(&format!(
+            r#"<tr class="border-b border-slate-700/50">
+                <td class="py-2 text-sm font-semibold text-slate-300">{emp}</td>
+                <td class="py-2 text-sm text-right {hol_color}">{hol:.0}日</td>
+                <td class="py-2 text-sm text-right {ot_color}">{ot:.1}h</td>
+                <td class="py-2 text-sm text-right text-blue-400">{salary}</td>
+                <td class="py-2 text-xs text-right text-slate-500">{count}件</td>
+            </tr>"#,
+            emp = emp, hol_color = hol_color, hol = holidays,
+            ot_color = ot_color, ot = overtime,
+            salary = salary_text, count = format_number(count),
+        ));
+    }
+
+    if rows_html.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        r#"<div class="stat-card">
+    <div class="flex items-center gap-2 mb-1">
+        <h3 class="text-sm text-slate-400">&#x1f30d; HW求人の雇用条件実態</h3>
+        <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">ハローワーク掲載求人（医療・福祉）の平均的な雇用条件</p>
+    <table class="w-full">
+        <thead>
+            <tr class="border-b border-slate-600">
+                <th class="py-1.5 text-xs text-left text-slate-500">雇用形態</th>
+                <th class="py-1.5 text-xs text-right text-slate-500">年間休日</th>
+                <th class="py-1.5 text-xs text-right text-slate-500">月残業</th>
+                <th class="py-1.5 text-xs text-right text-slate-500">平均月給</th>
+                <th class="py-1.5 text-xs text-right text-slate-500">求人数</th>
+            </tr>
+        </thead>
+        <tbody>{rows}</tbody>
+    </table>
+    <div class="mt-2 space-y-0.5">
+        <p class="text-xs text-slate-500">※出典: ハローワークインターネットサービス掲載求人</p>
+        <p class="text-xs text-slate-500">※求職者の希望する雇用形態と、実際のHW求人条件を比較してください</p>
+    </div>
+</div>"#,
+        pref = escape_html(prefecture),
+        rows = rows_html,
+    )
+}
+
+fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats: &WorkstyleStats, hw_context: &str) -> String {
     let location_label = make_location_label(prefecture, municipality);
 
     // ===== 雇用形態分布ドーナツ =====
@@ -288,6 +378,7 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
         .replace("{{EMP_CROSS_SERIES}}", &emp_series.join(","))
         // [一時非表示] WORKSTYLE_MOBILITYデータ未修正のため空文字（CSV再生成・再インポート後に復活）
         // 復活時: .replace("{{MOBILITY_CARD}}", &format!(r#"<div class=\"stat-card\">...{{MOBILITY_SECTION}}...</div>"#))
+        .replace("{{HW_WORKSTYLE_CONTEXT}}", hw_context)
         .replace("{{MOBILITY_CARD}}", "")
 }
 
