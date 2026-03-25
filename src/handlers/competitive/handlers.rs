@@ -129,10 +129,19 @@ pub async fn comp_filter(
 
     let salary_stats = calc_salary_stats(&postings);
 
-    render_posting_table(
+    // C-1: HW賃金比較コンテキスト
+    let hw_context = build_hw_salary_context(&state, pref, emp).await;
+
+    let mut result = render_posting_table(
         &job_type, pref, muni, page_data, &salary_stats,
         page, total_pages, total, nearby, radius_km, emp, ftype, stype,
-    )
+    );
+    // HW賃金比較をテーブルの後に追加
+    if !hw_context.is_empty() {
+        let inner = result.0;
+        result = Html(format!("{}{}", inner, hw_context));
+    }
+    result
 }
 
 /// 市区町村一覧API
