@@ -11,6 +11,7 @@ use crate::AppState;
 
 use super::overview::{get_str, get_i64, get_f64, format_number, get_session_filters, build_location_filter, make_location_label};
 use super::competitive::escape_html;
+use super::external::{self, ext_i64};
 
 /// タブ2: ペルソナ分析 - HTMXパーシャルHTML
 pub async fn tab_demographics(
@@ -31,7 +32,11 @@ pub async fn tab_demographics(
     }
 
     let stats = fetch_demographics(&state, &job_type, &prefecture, &municipality).await;
-    let html = render_demographics(&job_type, &prefecture, &municipality, &stats);
+
+    // V2外部統計: 人口ピラミッド重畳チャート
+    let pop_pyramid_section = build_population_pyramid_overlay(&state, &prefecture, &municipality, &stats).await;
+
+    let html = render_demographics(&job_type, &prefecture, &municipality, &stats, &pop_pyramid_section);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -480,7 +485,214 @@ async fn fetch_demographics(state: &AppState, job_type: &str, prefecture: &str, 
 
 // ===== レンダリング =====
 
-fn render_demographics(job_type: &str, prefecture: &str, municipality: &str, stats: &DemoStats) -> String {
+/// V2外部統計: 人口ピラミッド × 求職者分布 重畳チャート
+async fn build_population_pyramid_overlay(
+    state: &AppState,
+    prefecture: &str,
+    municipality: &str,
+    stats: &DemoStats,
+) -> String {
+    if prefecture.is_empty() || stats.age_gender.is_empty() {
+        return String::new();
+    }
+
+    let pyramid_rows = external::fetch_population_pyramid(state, prefecture, municipality).await;
+    if pyramid_rows.is_empty() {
+        return String::new();
+    }
+
+    // 人口ピラミッド9区分: "0-9","10-19","20-29","30-39","40-49","50-59","60-69","70-79","80+"
+    // 求職者データ6区分: "20代","30代","40代","50代","60代","70歳以上"
+    // → 共通5区分にマッピング: 20代, 30代, 40代, 50代, 60代以上
+
+    let age_map_labels = ["20代", "30代", "40代", "50代", "60代以上"];
+
+    // 人口データ: 9区分→5区分に統合
+    let mut pop_counts: Vec<i64> = Vec::new();
+    for label in &age_map_labels {
+        let cnt: i64 = match *label {
+            "20代" => pyramid_rows.iter()
+                .find(|r| external::ext_str(r, "age_group") == "20-29")
+                .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0),
+            "30代" => pyramid_rows.iter()
+                .find(|r| external::ext_str(r, "age_group") == "30-39")
+                .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0),
+            "40代" => pyramid_rows.iter()
+                .find(|r| external::ext_str(r, "age_group") == "40-49")
+                .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0),
+            "50代" => pyramid_rows.iter()
+                .find(|r| external::ext_str(r, "age_group") == "50-59")
+                .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0),
+            "60代以上" => {
+                let c60 = pyramid_rows.iter()
+                    .find(|r| external::ext_str(r, "age_group") == "60-69")
+                    .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0);
+                let c70 = pyramid_rows.iter()
+                    .find(|r| external::ext_str(r, "age_group") == "70-79")
+                    .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0);
+                let c80 = pyramid_rows.iter()
+                    .find(|r| external::ext_str(r, "age_group") == "80+")
+                    .map(|r| ext_i64(r, "male_count") + ext_i64(r, "female_count")).unwrap_or(0);
+                c60 + c70 + c80
+            }
+            _ => 0,
+        };
+        pop_counts.push(cnt);
+    }
+
+    // 求職者データ: 既存age_genderから5区分に統合
+    let mut seeker_counts: Vec<i64> = Vec::new();
+    for label in &age_map_labels {
+        let cnt: i64 = match *label {
+            "60代以上" => {
+                let c60 = stats.age_gender.iter().find(|(a, _, _)| a == "60代").map(|(_, m, f)| m + f).unwrap_or(0);
+                let c70 = stats.age_gender.iter().find(|(a, _, _)| a == "70歳以上").map(|(_, m, f)| m + f).unwrap_or(0);
+                c60 + c70
+            }
+            _ => stats.age_gender.iter().find(|(a, _, _)| a == *label).map(|(_, m, f)| m + f).unwrap_or(0),
+        };
+        seeker_counts.push(cnt);
+    }
+
+    let pop_total: i64 = pop_counts.iter().sum();
+    let seeker_total: i64 = seeker_counts.iter().sum();
+    if pop_total == 0 || seeker_total == 0 {
+        return String::new();
+    }
+
+    // 割合に変換
+    let pop_pcts: Vec<f64> = pop_counts.iter().map(|c| *c as f64 / pop_total as f64 * 100.0).collect();
+    let seeker_pcts: Vec<f64> = seeker_counts.iter().map(|c| *c as f64 / seeker_total as f64 * 100.0).collect();
+
+    // 求職参入率（求職者数 / 人口 × 1000）
+    let participation_rates: Vec<String> = pop_counts.iter().zip(seeker_counts.iter())
+        .map(|(p, s)| if *p > 0 { format!("{:.1}", *s as f64 / *p as f64 * 1000.0) } else { "0.0".to_string() })
+        .collect();
+
+    let labels_json: Vec<String> = age_map_labels.iter().map(|a| format!("'{}'", a)).collect();
+    let pop_vals: Vec<String> = pop_pcts.iter().map(|p| format!("{:.1}", -p)).collect();
+    let seeker_vals: Vec<String> = seeker_pcts.iter().map(|p| format!("{:.1}", p)).collect();
+
+    let chart_id = format!("pop-pyramid-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+
+    // テーブル行
+    let mut table_rows = String::new();
+    for (i, label) in age_map_labels.iter().enumerate() {
+        let pop_p = pop_pcts[i];
+        let sk_p = seeker_pcts[i];
+        let diff = sk_p - pop_p;
+        let diff_color = if diff > 3.0 { "text-emerald-400" } else if diff < -3.0 { "text-rose-400" } else { "text-slate-400" };
+        let diff_sign = if diff > 0.0 { "+" } else { "" };
+        table_rows.push_str(&format!(
+            r#"<tr class="border-b border-slate-700/50">
+                <td class="py-1.5 text-sm text-slate-300">{label}</td>
+                <td class="py-1.5 text-sm text-right text-slate-400">{pop:.1}%</td>
+                <td class="py-1.5 text-sm text-right text-blue-400">{sk:.1}%</td>
+                <td class="py-1.5 text-sm text-right {dc}">{ds}{diff:.1}%</td>
+                <td class="py-1.5 text-sm text-right text-amber-400">{rate}‰</td>
+            </tr>"#,
+            label=label, pop=pop_p, sk=sk_p, dc=diff_color, ds=diff_sign, diff=diff,
+            rate=participation_rates[i],
+        ));
+    }
+
+    let location = if municipality.is_empty() { escape_html(prefecture) } else {
+        format!("{} {}", escape_html(prefecture), escape_html(municipality))
+    };
+
+    format!(
+        r##"<div class="stat-card">
+    <h3 class="text-sm text-slate-400 mb-1">&#x1f30d; 人口構造 × 求職者分布</h3>
+    <p class="text-xs text-slate-500 mb-3">左: 地域の実際の人口構成（国勢調査） / 右: 登録求職者の年代構成</p>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div>
+            <div id="{id}" style="height:360px;"></div>
+            <script>
+            (function(){{
+                var el = document.getElementById('{id}');
+                if (!el || typeof echarts === 'undefined') return;
+                var c = echarts.init(el, 'dark');
+                c.setOption({{
+                    tooltip: {{
+                        trigger: 'axis',
+                        axisPointer: {{type: 'shadow'}},
+                        formatter: function(params) {{
+                            var tip = params[0].name;
+                            params.forEach(function(p) {{
+                                tip += '<br>' + p.marker + p.seriesName + ': ' + Math.abs(p.value).toFixed(1) + '%';
+                            }});
+                            return tip;
+                        }}
+                    }},
+                    legend: {{data:['地域人口', '求職者'], top:0, textStyle:{{color:'#94a3b8'}}}},
+                    grid: {{left:'3%',right:'3%',bottom:'3%',top:'40px',containLabel:true}},
+                    xAxis: {{
+                        type:'value',
+                        axisLabel:{{color:'#94a3b8',formatter:function(v){{return Math.abs(v).toFixed(0)+'%';}}}},
+                        splitLine:{{lineStyle:{{color:'#334155'}}}}
+                    }},
+                    yAxis: {{
+                        type:'category',
+                        data:[{labels}],
+                        axisTick:{{show:false}},
+                        axisLabel:{{color:'#e2e8f0',fontSize:13}}
+                    }},
+                    series: [
+                        {{
+                            name:'地域人口',
+                            type:'bar',
+                            stack:'total',
+                            data:[{pop_vals}],
+                            itemStyle:{{color:'#64748b',borderRadius:[4,0,0,4]}},
+                            barWidth:'55%'
+                        }},
+                        {{
+                            name:'求職者',
+                            type:'bar',
+                            stack:'total',
+                            data:[{seeker_vals}],
+                            itemStyle:{{color:'#3b82f6',borderRadius:[0,4,4,0]}},
+                            barWidth:'55%'
+                        }}
+                    ]
+                }});
+                new ResizeObserver(function(){{c.resize();}}).observe(el);
+            }})();
+            </script>
+        </div>
+        <div>
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-slate-600">
+                        <th class="py-1.5 text-xs text-left text-slate-500">年代</th>
+                        <th class="py-1.5 text-xs text-right text-slate-500">人口構成</th>
+                        <th class="py-1.5 text-xs text-right text-blue-500">求職者構成</th>
+                        <th class="py-1.5 text-xs text-right text-slate-500">偏差</th>
+                        <th class="py-1.5 text-xs text-right text-amber-500">参入率</th>
+                    </tr>
+                </thead>
+                <tbody>{table_rows}</tbody>
+            </table>
+            <div class="mt-3 space-y-1">
+                <p class="text-xs text-slate-500">人口構成 = {location}の国勢調査人口（20歳以上）</p>
+                <p class="text-xs text-slate-500">参入率 = 人口1,000人あたりの求職者登録数</p>
+                <p class="text-xs text-emerald-500/70">＋偏差 = その年代は求職活動が活発</p>
+                <p class="text-xs text-rose-500/70">−偏差 = その年代は求職参入が少ない（潜在層の可能性）</p>
+            </div>
+        </div>
+    </div>
+</div>"##,
+        id=chart_id,
+        labels=labels_json.join(","),
+        pop_vals=pop_vals.join(","),
+        seeker_vals=seeker_vals.join(","),
+        table_rows=table_rows,
+        location=location,
+    )
+}
+
+fn render_demographics(job_type: &str, prefecture: &str, municipality: &str, stats: &DemoStats, pop_pyramid_section: &str) -> String {
     let location_label = make_location_label(prefecture, municipality);
     let has_pref = !prefecture.is_empty() && prefecture != "全国";
 
@@ -568,6 +780,7 @@ fn render_demographics(job_type: &str, prefecture: &str, municipality: &str, sta
         .replace("{{RARITY_AGE_CHECKBOXES}}", &rarity_age_checkboxes)
         .replace("{{RARITY_QUAL_CHECKBOXES}}", &rarity_qual_checkboxes)
         .replace("{{RARITY_QUAL_COUNT}}", &rarity_qual_count)
+        .replace("{{POP_PYRAMID_OVERLAY}}", pop_pyramid_section)
         .replace("{{URG_GENDER_SECTION}}", &urg_gender_section)
         .replace("{{URG_START_SECTION}}", &urg_start_section)
 }

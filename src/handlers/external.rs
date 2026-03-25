@@ -175,6 +175,36 @@ pub async fn fetch_hw_posting_trend(
     ).await
 }
 
+/// 人口ピラミッド（9区分×男女）を取得
+pub async fn fetch_population_pyramid(
+    state: &AppState,
+    prefecture: &str,
+    municipality: &str,
+) -> Vec<HashMap<String, Value>> {
+    if prefecture.is_empty() {
+        return vec![];
+    }
+
+    let (sql, params) = if municipality.is_empty() {
+        // 都道府県全体: SUM集計
+        (
+            "SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
+             FROM v2_external_population_pyramid WHERE prefecture = ? \
+             GROUP BY age_group ORDER BY age_group".to_string(),
+            vec![Value::String(prefecture.to_string())],
+        )
+    } else {
+        (
+            "SELECT age_group, male_count, female_count \
+             FROM v2_external_population_pyramid WHERE prefecture = ? AND municipality = ? \
+             ORDER BY age_group".to_string(),
+            vec![Value::String(prefecture.to_string()), Value::String(municipality.to_string())],
+        )
+    };
+
+    query_ext(state, &sql, &params).await
+}
+
 /// HashMap値取得ヘルパー
 pub fn ext_f64(row: &HashMap<String, Value>, key: &str) -> f64 {
     row.get(key)
