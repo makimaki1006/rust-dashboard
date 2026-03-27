@@ -705,10 +705,6 @@ fn build_share_section(stats: &BalanceStats, total_supply: f64, prefecture: &str
         (stats.job_count as f64 / stats.job_total as f64) * 100.0
     } else { 0.0 };
 
-    // 求職者シェアは全国の求職者合計に対する比率
-    // ここでは簡略化してjob_openingsと同様の計算
-    let _seeker_share = job_share; // 近似値（将来の全国求職者シェア計算用）
-
     let competition_ratio = if total_supply > 0.0 {
         stats.job_count as f64 / total_supply
     } else { 0.0 };

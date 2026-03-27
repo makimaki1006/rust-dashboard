@@ -1767,7 +1767,7 @@ pub async fn segment_job_desc_insights(
     }
     } // else (県/市区町村)
 
-    let chart_id = format!("jd-donut-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+    let chart_id = super::external::next_chart_id("jd-donut");
 
     let html = format!(
         r##"<div class="space-y-4">
@@ -1882,7 +1882,7 @@ pub async fn segment_age_decade(
         ("50代", "#ef4444"), ("60代", "#8b5cf6"),
     ];
 
-    let chart_id = format!("age-chart-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+    let chart_id = super::external::next_chart_id("age-chart");
     let mut chart_cats = String::new();
     let mut chart_vals = String::new();
     let mut bar_html = String::new();
@@ -2178,7 +2178,7 @@ pub async fn segment_gender_lifecycle(
     }
     } // else (県/市区町村)
 
-    let chart_id = format!("lifecycle-chart-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+    let chart_id = super::external::next_chart_id("lifecycle");
 
     let html = format!(
         r##"<div class="space-y-4">
@@ -2305,7 +2305,7 @@ pub async fn segment_exp_qual(
         ("条件不明", "#64748b", "要件が明示されていない求人"),
     ];
 
-    let chart_id = format!("expqual-chart-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+    let chart_id = super::external::next_chart_id("expqual");
     let mut chart_data = String::new();
     let mut grid_html = String::new();
 
@@ -2459,10 +2459,7 @@ pub async fn segment_work_schedule(
         scope_label
     };
 
-    let millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+    let millis = super::external::next_chart_id("seg");
 
     let is_national = pref.is_empty();
 
@@ -2767,10 +2764,7 @@ pub async fn segment_holidays(
         ));
     }
 
-    let millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+    let millis = super::external::next_chart_id("seg");
 
     let is_national = pref.is_empty();
 
@@ -3024,10 +3018,7 @@ pub async fn segment_salary_shift(
         ));
     }
 
-    let millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+    let millis = super::external::next_chart_id("seg");
 
     // salary_type別にデータ取得
     let mut all_params: Vec<String> = vec![seg_jt.to_string(), emp_type.to_string()];
@@ -3073,10 +3064,10 @@ pub async fn segment_salary_shift(
 
     // ヒートマップ＋スタックドバー生成
     let monthly_html = build_salary_shift_charts(
-        "monthly", "月給", &monthly_bands, &shift_types, &shift_colors, &monthly_map, millis,
+        "monthly", "月給", &monthly_bands, &shift_types, &shift_colors, &monthly_map, &millis,
     );
     let hourly_html = build_salary_shift_charts(
-        "hourly", "時給", &hourly_bands, &shift_types, &shift_colors, &hourly_map, millis,
+        "hourly", "時給", &hourly_bands, &shift_types, &shift_colors, &hourly_map, &millis,
     );
 
     let html = format!(
@@ -3109,7 +3100,7 @@ fn build_salary_shift_charts(
     shift_types: &[&str],
     shift_colors: &[&str],
     data_map: &std::collections::HashMap<(String, String), i64>,
-    millis: u128,
+    millis: &str,
 ) -> String {
     let heatmap_id = format!("{}-heatmap-{}", chart_prefix, millis);
     let stack_id = format!("{}-stack-{}", chart_prefix, millis);

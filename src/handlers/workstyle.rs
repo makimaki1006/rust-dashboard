@@ -307,7 +307,7 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
                 <div class="text-sm font-semibold text-white">{}</div>
                 <div class="text-xs text-slate-400">{}人 ({:.1}%)</div>
             </div>"#,
-            color, ws, format_num(*cnt), pct
+            color, ws, format_number(*cnt), pct
         )
     }).collect();
 
@@ -453,7 +453,7 @@ fn build_mobility_section(stats: &WorkstyleStats) -> String {
                 <div class="text-sm font-bold text-white">{}</div>
                 <div class="text-xl font-bold text-blue-400">{}</div>
             </div>"#,
-            ws, format_num(total)
+            ws, format_number(total)
         )
     }).collect();
 
@@ -508,17 +508,4 @@ fn build_mobility_section(stats: &WorkstyleStats) -> String {
     )
 }
 
-/// 数値をカンマ区切りでフォーマット
-fn format_num(n: i64) -> String {
-    let s = n.to_string();
-    let bytes = s.as_bytes();
-    let len = bytes.len();
-    let mut result = String::with_capacity(len + len / 3);
-    for (i, &b) in bytes.iter().enumerate() {
-        if i > 0 && (len - i) % 3 == 0 {
-            result.push(',');
-        }
-        result.push(b as char);
-    }
-    result
-}
+// format_number は overview.rs からインポート済み

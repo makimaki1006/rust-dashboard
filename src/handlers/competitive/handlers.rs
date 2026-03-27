@@ -178,7 +178,7 @@ pub async fn comp_municipalities(
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if !m.is_empty() {
-            html.push_str(&format!(r#"<option value="{m}">{m}</option>"#));
+            html.push_str(&format!(r#"<option value="{val}">{label}</option>"#, val = super::escape_html(m), label = super::escape_html(m)));
         }
     }
     Html(html)

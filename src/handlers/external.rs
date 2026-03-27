@@ -3,6 +3,15 @@
 
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static CHART_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// ユニークなチャートID生成（並行リクエスト安全）
+pub fn next_chart_id(prefix: &str) -> String {
+    let n = CHART_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{}-{}", prefix, n)
+}
 use std::sync::Arc;
 
 use crate::AppState;
