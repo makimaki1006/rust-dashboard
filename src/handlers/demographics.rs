@@ -36,7 +36,10 @@ pub async fn tab_demographics(
     // V2外部統計: 人口ピラミッド重畳チャート
     let pop_pyramid_section = build_population_pyramid_overlay(&state, &prefecture, &municipality, &stats).await;
 
-    let html = render_demographics(&job_type, &prefecture, &municipality, &stats, &pop_pyramid_section);
+    // D-2/D-5: 地域の雇用環境KPI
+    let labor_context = build_labor_context_section(&state, &prefecture).await;
+
+    let html = render_demographics(&job_type, &prefecture, &municipality, &stats, &pop_pyramid_section, &labor_context);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -692,7 +695,58 @@ async fn build_population_pyramid_overlay(
     )
 }
 
-fn render_demographics(job_type: &str, prefecture: &str, municipality: &str, stats: &DemoStats, pop_pyramid_section: &str) -> String {
+/// D-2/D-5: 地域の雇用環境KPI
+async fn build_labor_context_section(state: &AppState, prefecture: &str) -> String {
+    if prefecture.is_empty() {
+        return String::new();
+    }
+    let mut kpis = String::new();
+
+    // D-2: 失業率
+    if let Some(ls) = external::fetch_labor_stats_latest(state, prefecture).await {
+        let unemp = external::ext_f64(&ls, "unemployment_rate");
+        let emp_rate = external::ext_f64(&ls, "employment_rate");
+        if unemp > 0.0 || emp_rate > 0.0 {
+            let color = if unemp > 4.0 { "#ef4444" } else if unemp > 2.5 { "#f59e0b" } else { "#22c55e" };
+            kpis.push_str(&format!(
+                r#"<div class="stat-card" style="flex:1;min-width:180px;">
+                    <div class="text-2xl font-bold" style="color:{color}">{unemp:.1}%</div>
+                    <div class="text-sm text-slate-400">完全失業率</div>
+                    <div class="text-xs text-slate-500 mt-1">就業率 {emp:.1}%</div>
+                </div>"#, color=color, unemp=unemp, emp=emp_rate,
+            ));
+        }
+    }
+
+    // D-5: 昼間人口比
+    let daytime = external::fetch_daytime_population(state, prefecture).await;
+    if !daytime.is_empty() {
+        let avg: f64 = daytime.iter().map(|r| external::ext_f64(r, "daytime_rate")).sum::<f64>() / daytime.len() as f64;
+        if avg > 0.0 {
+            let label = if avg > 100.0 { "通勤流入型" } else { "ベッドタウン型" };
+            kpis.push_str(&format!(
+                r#"<div class="stat-card" style="flex:1;min-width:180px;">
+                    <div class="text-2xl font-bold text-sky-400">{avg:.0}%</div>
+                    <div class="text-sm text-slate-400">平均昼間人口比</div>
+                    <div class="text-xs text-slate-500 mt-1">{label}</div>
+                </div>"#, avg=avg, label=label,
+            ));
+        }
+    }
+
+    if kpis.is_empty() { return String::new(); }
+    format!(
+        r#"<div class="space-y-3">
+        <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-slate-400">&#x1f30d; 地域の雇用環境</span>
+            <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+        </div>
+        <div class="flex flex-wrap gap-4">{kpis}</div>
+    </div>"#, pref=escape_html(prefecture), kpis=kpis,
+    )
+}
+
+fn render_demographics(job_type: &str, prefecture: &str, municipality: &str, stats: &DemoStats, pop_pyramid_section: &str, labor_context: &str) -> String {
     let location_label = make_location_label(prefecture, municipality);
     let has_pref = !prefecture.is_empty() && prefecture != "全国";
 
@@ -781,6 +835,7 @@ fn render_demographics(job_type: &str, prefecture: &str, municipality: &str, sta
         .replace("{{RARITY_QUAL_CHECKBOXES}}", &rarity_qual_checkboxes)
         .replace("{{RARITY_QUAL_COUNT}}", &rarity_qual_count)
         .replace("{{POP_PYRAMID_OVERLAY}}", pop_pyramid_section)
+        .replace("{{LABOR_CONTEXT}}", labor_context)
         .replace("{{URG_GENDER_SECTION}}", &urg_gender_section)
         .replace("{{URG_START_SECTION}}", &urg_start_section)
 }

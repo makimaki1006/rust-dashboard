@@ -118,10 +118,13 @@ pub async fn tab_mobility(
 
     let stats = fetch_mobility(&state, &job_type, &prefecture, &municipality).await;
 
-    // V2外部統計: 転入出データ（M-1）
+    // V2外部統計: 転入出データ（M-1, M-4）
     let migration_section = build_migration_section(&state, &prefecture).await;
 
-    let html = render_mobility(&job_type, &prefecture, &municipality, &stats, &migration_section);
+    // M-2: 昼間人口比セクション
+    let daytime_pop_section = build_daytime_pop_section(&state, &prefecture).await;
+
+    let html = render_mobility(&job_type, &prefecture, &municipality, &stats, &migration_section, &daytime_pop_section);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -577,6 +580,12 @@ async fn build_migration_section(state: &AppState, prefecture: &str) -> String {
         .filter(|r| ext_i64(r, "net_migration") < 0)
         .take(5).collect();
 
+    // M-4: 転入超過地域数・転出超過地域数を集計
+    let inflow_surplus_count = migration.iter()
+        .filter(|r| ext_i64(r, "net_migration") > 0).count();
+    let outflow_surplus_count = migration.iter()
+        .filter(|r| ext_i64(r, "net_migration") < 0).count();
+
     let mut rows = String::new();
     for r in top_inflow.iter().chain(top_outflow.iter()) {
         let muni = external::ext_str(r, "municipality");
@@ -606,6 +615,16 @@ async fn build_migration_section(state: &AppState, prefecture: &str) -> String {
         <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
     </div>
     <p class="text-xs text-slate-500 mb-3">一般住民の転入出と、求職者の希望勤務地フローを比較してください</p>
+    <div class="flex flex-wrap gap-4 mb-4">
+        <div class="flex-1 p-3 rounded-lg min-w-[160px]" style="background-color: rgba(16, 185, 129, 0.1);">
+            <div class="text-xs text-slate-400">転入超過地域数</div>
+            <div class="text-2xl font-bold" style="color: #10b981;">{inflow_surplus}<span class="text-sm text-slate-400"> 地域</span></div>
+        </div>
+        <div class="flex-1 p-3 rounded-lg min-w-[160px]" style="background-color: rgba(239, 68, 68, 0.1);">
+            <div class="text-xs text-slate-400">転出超過地域数</div>
+            <div class="text-2xl font-bold" style="color: #ef4444;">{outflow_surplus}<span class="text-sm text-slate-400"> 地域</span></div>
+        </div>
+    </div>
     <table class="w-full">
         <thead>
             <tr class="border-b border-slate-600">
@@ -622,10 +641,69 @@ async fn build_migration_section(state: &AppState, prefecture: &str) -> String {
 </div>"#,
         pref = escape_html(prefecture),
         rows = rows,
+        inflow_surplus = inflow_surplus_count,
+        outflow_surplus = outflow_surplus_count,
     )
 }
 
-fn render_mobility(job_type: &str, prefecture: &str, municipality: &str, stats: &MobilityStats, migration_section: &str) -> String {
+/// M-2: 昼間人口比×移動距離分布セクション
+async fn build_daytime_pop_section(state: &AppState, prefecture: &str) -> String {
+    if prefecture.is_empty() || prefecture == "全国" {
+        return String::new();
+    }
+
+    let daytime_data = external::fetch_daytime_population(state, prefecture).await;
+    if daytime_data.is_empty() {
+        return String::new();
+    }
+
+    // Top5（昼間人口比が高い）とBottom5（低い）
+    let top5: Vec<_> = daytime_data.iter().take(5).collect();
+    let bottom5: Vec<_> = daytime_data.iter().rev().take(5).collect();
+
+    let mut rows_html = String::new();
+    for (_label, items) in [("高い", &top5), ("低い", &bottom5)] {
+        for r in items.iter() {
+            let muni = external::ext_str(r, "municipality");
+            let pop = ext_i64(r, "daytime_population");
+            let rate = ext_f64(r, "daytime_rate");
+            let color = if rate >= 100.0 { "text-emerald-400" } else { "text-amber-400" };
+            rows_html.push_str(&format!(
+                r#"<tr class="border-b border-slate-700/50">
+                    <td class="py-1 text-sm text-slate-300">{muni}</td>
+                    <td class="py-1 text-sm text-right text-blue-400">{pop}</td>
+                    <td class="py-1 text-sm text-right {color}">{rate:.1}%</td>
+                </tr>"#,
+                muni = muni, pop = format_number(pop), color = color, rate = rate,
+            ));
+        }
+    }
+
+    format!(
+        r#"<div class="stat-card">
+    <div class="flex items-center gap-2 mb-1">
+        <h3 class="text-sm text-slate-400">&#x1f3d9;&#xfe0f; 昼間人口比（国勢調査）</h3>
+        <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">昼間人口比が100%超の地域は周辺から人が流入する求心エリア。通勤距離分布と合わせて採用圏を検討してください</p>
+    <table class="w-full">
+        <thead>
+            <tr class="border-b border-slate-600">
+                <th class="py-1 text-xs text-left text-slate-500">市区町村</th>
+                <th class="py-1 text-xs text-right text-blue-500">昼間人口</th>
+                <th class="py-1 text-xs text-right text-slate-500">昼間人口比</th>
+            </tr>
+        </thead>
+        <tbody>{rows}</tbody>
+    </table>
+    <p class="text-xs text-slate-500 mt-2">※出典: 国勢調査（2020年）昼間人口。Top5（高い）+ Bottom5（低い）を表示</p>
+</div>"#,
+        pref = escape_html(prefecture),
+        rows = rows_html,
+    )
+}
+
+fn render_mobility(job_type: &str, prefecture: &str, municipality: &str, stats: &MobilityStats, migration_section: &str, daytime_pop_section: &str) -> String {
     let location_label = make_location_label(prefecture, municipality);
 
     // ===== 採用圏分析カード =====
@@ -668,6 +746,7 @@ fn render_mobility(job_type: &str, prefecture: &str, municipality: &str, stats: 
         .replace("{{DISTANCE_Q75}}", &format!("{:.1}", stats.distance_q75))
         .replace("{{RETENTION_SECTION}}", &retention_section)
         .replace("{{MIGRATION_SECTION}}", migration_section)
+        .replace("{{DAYTIME_POP_SECTION}}", daytime_pop_section)
 }
 
 /// 採用圏分析カードのHTML生成（都道府県選択時のみ表示）

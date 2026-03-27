@@ -11,6 +11,7 @@ use crate::AppState;
 use crate::models::job_seeker::PREFECTURE_ORDER;
 use super::competitive::escape_html;
 use super::overview::{get_session_filters, make_location_label, format_number};
+use super::external;
 
 /// 近隣都道府県を返す（品質マップのフィルタリング用）
 fn adjacent_prefectures(pref: &str) -> &'static [&'static str] {
@@ -1906,11 +1907,31 @@ pub async fn api_clusters(
 
     let colors = ["#06b6d4", "#8b5cf6", "#f59e0b", "#ef4444", "#10b981", "#3b82f6", "#ec4899"];
 
+    // A-4: 地域マクロ指標KPI
+    let mut macro_kpis = String::new();
+    if !prefecture.is_empty() {
+        if let Some(ps) = external::fetch_prefecture_macro(&state, &prefecture).await {
+            let mw = external::ext_f64(&ps, "min_wage");
+            let ratio = external::ext_f64(&ps, "job_offers_rate");
+            let unemp = external::ext_f64(&ps, "unemployment_rate");
+            if mw > 0.0 || ratio > 0.0 {
+                macro_kpis = format!(
+                    r#"<div class="flex flex-wrap gap-3 mb-3">{}{}{}</div>"#,
+                    if ratio > 0.0 { format!(r#"<div class="bg-slate-800 rounded-lg px-3 py-2"><span class="text-xs text-slate-400">有効求人倍率</span><span class="text-sm font-bold text-blue-400 ml-2">{:.2}倍</span></div>"#, ratio) } else { String::new() },
+                    if unemp > 0.0 { format!(r#"<div class="bg-slate-800 rounded-lg px-3 py-2"><span class="text-xs text-slate-400">完全失業率</span><span class="text-sm font-bold text-amber-400 ml-2">{:.1}%</span></div>"#, unemp) } else { String::new() },
+                    if mw > 0.0 { format!(r#"<div class="bg-slate-800 rounded-lg px-3 py-2"><span class="text-xs text-slate-400">最低賃金</span><span class="text-sm font-bold text-emerald-400 ml-2">¥{:.0}/h</span></div>"#, mw) } else { String::new() },
+                );
+            }
+        }
+    }
+
     let mut html = format!(
         r#"<div class="space-y-4">
         <h3 class="text-lg font-semibold text-white"><svg class='inline w-5 h-5 mr-1 -mt-0.5' fill='none' stroke='currentColor' stroke-width='1.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M12 2.25v2.25m0 15v2.25M2.25 12h2.25m15 0h2.25M12 6a6 6 0 100 12 6 6 0 000-12z'/></svg>  求人クラスタ分析 — {location}</h3>
+        {macro_kpis}
         {scope_note}"#,
         location = escape_html(&location_label),
+        macro_kpis = macro_kpis,
         scope_note = scope_note,
     );
 

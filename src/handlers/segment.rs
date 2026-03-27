@@ -361,6 +361,54 @@ pub async fn segment_overview(
 
     let scope_label = build_scope_label_ext(pref, muni, emp, &ftypes);
 
+    // S-2/S-5: 外部統計コンテキスト
+    let mut ext_context = String::new();
+    if !pref.is_empty() {
+        let mut ext_kpis = String::new();
+        // S-2: 高齢化率
+        if let Some(pop) = super::external::fetch_population(&state, pref, "").await {
+            let aging = super::external::ext_f64(&pop, "aging_rate");
+            let total_pop = super::external::ext_i64(&pop, "total_population");
+            let age_65 = super::external::ext_i64(&pop, "age_65_over");
+            if aging > 0.0 {
+                ext_kpis.push_str(&format!(
+                    r#"<div class="stat-card" style="flex:1;min-width:180px;">
+                        <div class="text-2xl font-bold text-amber-400">{aging:.1}%</div>
+                        <div class="text-sm text-slate-400">高齢化率</div>
+                        <div class="text-xs text-slate-500 mt-1">65歳以上 {elderly} / 総人口 {pop}</div>
+                    </div>"#, aging=aging, elderly=format_number(age_65), pop=format_number(total_pop),
+                ));
+            }
+        }
+        // S-5: 介護需要
+        if let Some(care) = super::external::fetch_care_demand(&state, pref).await {
+            let home_offices = super::external::ext_i64(&care, "home_care_offices");
+            let home_users = super::external::ext_i64(&care, "home_care_users");
+            let helpers = super::external::ext_i64(&care, "home_helper_count");
+            if home_offices > 0 {
+                ext_kpis.push_str(&format!(
+                    r#"<div class="stat-card" style="flex:1;min-width:180px;">
+                        <div class="text-2xl font-bold text-purple-400">{offices}</div>
+                        <div class="text-sm text-slate-400">訪問介護事業所</div>
+                        <div class="text-xs text-slate-500 mt-1">利用者 {users} / ヘルパー {helpers}</div>
+                    </div>"#, offices=format_number(home_offices), users=format_number(home_users), helpers=format_number(helpers),
+                ));
+            }
+        }
+        if !ext_kpis.is_empty() {
+            ext_context = format!(
+                r#"<div class="space-y-3 mt-4">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-semibold text-slate-400">&#x1f30d; 地域の背景データ</span>
+                    <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+                </div>
+                <div class="flex flex-wrap gap-4">{kpis}</div>
+                <p class="text-xs text-slate-500">※出典: 国勢調査、e-Stat 社会・人口統計体系</p>
+            </div>"#, pref=escape_html(pref), kpis=ext_kpis,
+            );
+        }
+    }
+
     // レーダーチャート: 各軸のトップカテゴリ比率
     let radar_indicators: Vec<String> = ["A", "B", "C", "D", "E"]
         .iter()
@@ -458,12 +506,14 @@ pub async fn segment_overview(
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         {axis_charts}
     </div>
+    {ext_context}
 </div>"##,
         scope = escape_html(&scope_label),
         job_type = escape_html(&job_type),
         indicators = radar_indicators.join(","),
         values = radar_values.join(","),
         axis_charts = axis_charts,
+        ext_context = ext_context,
     );
 
     state.cache.set(cache_key, Value::String(html.clone()));
@@ -1516,9 +1566,10 @@ pub async fn segment_salary_compare(
         tables_html.push_str("</tbody></table></div>");
     }
 
-    // S-1: HW賃金との比較コンテキスト
+    // S-1: HW賃金との比較コンテキスト + S-4: HW休日
     let hw_salary = super::external::fetch_hw_salary_latest(&state, pref).await;
-    let hw_context = if !hw_salary.is_empty() {
+    let hw_workstyle = super::external::fetch_hw_workstyle_latest(&state, pref).await;
+    let hw_context = if !hw_salary.is_empty() || !hw_workstyle.is_empty() {
         let mut hw_rows = String::new();
         let emp_order = ["正社員", "パート"];
         for target in &emp_order {
@@ -1537,13 +1588,28 @@ pub async fn segment_salary_compare(
                     ));
                 }
             }
+            // S-4: HW休日・残業
+            if let Some(ws) = hw_workstyle.iter().find(|r| super::external::ext_str(r, "emp_group") == *target) {
+                let hol = super::external::ext_f64(ws, "avg_annual_holidays");
+                let ot = super::external::ext_f64(ws, "avg_overtime");
+                if hol > 0.0 || ot > 0.0 {
+                    let hol_text = if hol > 0.0 { format!("{:.0}日", hol) } else { "-".to_string() };
+                    let ot_text = if ot > 0.0 { format!("{:.1}h", ot) } else { "-".to_string() };
+                    hw_rows.push_str(&format!(
+                        r#"<tr class="border-t border-slate-700/50"><td class="py-1 text-slate-300">HW {emp} 休日/残業</td>
+                        <td class="text-right text-amber-400">{hol} / {ot}</td>
+                        <td class="text-right text-slate-400">年間/月</td></tr>"#,
+                        emp = target, hol = hol_text, ot = ot_text,
+                    ));
+                }
+            }
         }
         if !hw_rows.is_empty() {
             format!(
                 r#"<div class="stat-card mt-4">
-                <h4 class="text-sm font-bold text-slate-300 mb-2">&#x1f4b0; HW求人の賃金水準（参考）</h4>
+                <h4 class="text-sm font-bold text-slate-300 mb-2">&#x1f4b0; HW求人の条件（参考）</h4>
                 <table class="w-full text-sm"><thead><tr class="text-slate-400 text-xs">
-                <th class="text-left py-1">ソース</th><th class="text-right">賃金</th><th class="text-right">種別</th>
+                <th class="text-left py-1">ソース</th><th class="text-right">値</th><th class="text-right">種別</th>
                 </tr></thead><tbody>{hw_rows}</tbody></table>
                 <p class="text-xs text-slate-500 mt-2">※上記セグメント別給与とHW市場相場を比較し、各セグメントへの訴求力を判断してください</p>
             </div>"#,

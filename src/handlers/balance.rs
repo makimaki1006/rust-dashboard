@@ -40,7 +40,10 @@ pub async fn tab_balance(
     // B-1: HW賃金推移、B-2: 充足難易度、B-7: 最低賃金比
     let hw_salary_section = build_hw_salary_section(&state, &prefecture).await;
 
-    let html = render_balance(&job_type, &prefecture, &municipality, &stats, &pop_context, &hw_trend_section, &hw_salary_section);
+    // B-3: HW新規/終了求人×離脱率トレンド
+    let hw_tracking_section = build_hw_tracking_section(&state, &prefecture).await;
+
+    let html = render_balance(&job_type, &prefecture, &municipality, &stats, &pop_context, &hw_trend_section, &hw_salary_section, &hw_tracking_section);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -176,7 +179,7 @@ async fn fetch_balance(state: &AppState, job_type: &str, prefecture: &str, munic
     stats
 }
 
-fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &BalanceStats, pop_context: &str, hw_trend_section: &str, hw_salary_section: &str) -> String {
+fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &BalanceStats, pop_context: &str, hw_trend_section: &str, hw_salary_section: &str, hw_tracking_section: &str) -> String {
     let location_label = make_location_label(prefecture, municipality);
     let pref_label = if prefecture.is_empty() || prefecture == "全国" { "全国" } else { prefecture };
 
@@ -251,6 +254,7 @@ fn render_balance(job_type: &str, prefecture: &str, municipality: &str, stats: &
         .replace("{{SHORTAGE_CHART}}", &shortage_chart)
         .replace("{{SURPLUS_CHART}}", &surplus_chart)
         .replace("{{RATIO_CHART}}", &ratio_chart)
+        .replace("{{HW_TRACKING_SECTION}}", hw_tracking_section)
 }
 
 /// V2外部統計: 人口あたり需給コンテキスト
@@ -265,6 +269,7 @@ async fn build_population_context_section(
 
     let pop_data = external::fetch_population(state, prefecture, "").await;
     let care_data = external::fetch_care_demand(state, prefecture).await;
+    let estab_data = external::fetch_establishments_medical(state, prefecture).await;
 
     let pop_data = match pop_data {
         Some(d) => d,
@@ -305,6 +310,25 @@ async fn build_population_context_section(
         }
     }
 
+    // B-4: 事業所1所あたり求人数KPI
+    let mut estab_kpi = String::new();
+    if let Some(ref est) = estab_data {
+        let estab_count = ext_i64(est, "establishment_count");
+        if estab_count > 0 && total_demand > 0.0 {
+            let per_estab = total_demand / estab_count as f64;
+            let color = if per_estab >= 2.0 { "#ef4444" } else if per_estab >= 1.0 { "#f59e0b" } else { "#22c55e" };
+            estab_kpi = format!(
+                r#"<div class="stat-card" style="flex:1;min-width:180px;">
+                    <div class="text-sm text-slate-400">事業所1所あたり求人数</div>
+                    <div class="text-2xl font-bold" style="color:{color}">{per:.1}<span class="text-lg">件</span></div>
+                    <div class="text-xs text-slate-500 mt-1">医療福祉事業所 {est} / 総需要 {dem:.0}</div>
+                </div>"#,
+                color = color, per = per_estab,
+                est = format_number(estab_count), dem = total_demand,
+            );
+        }
+    }
+
     format!(
         r#"<div class="space-y-3">
     <div class="flex items-center gap-2">
@@ -323,8 +347,9 @@ async fn build_population_context_section(
             <div class="text-xs text-slate-500 mt-1">65歳以上 {elderly} (高齢化率 {aging:.1}%)</div>
         </div>
         {care_kpi}
+        {estab_kpi}
     </div>
-    <p class="text-xs text-slate-500">※人口データ: 国勢調査（2020年）、介護データ: e-Stat 社会・人口統計体系</p>
+    <p class="text-xs text-slate-500">※人口データ: 国勢調査（2020年）、介護データ: e-Stat 社会・人口統計体系、事業所データ: 経済センサス</p>
 </div>"#,
         pref = escape_html(prefecture),
         seekers = seekers_per_10k,
@@ -334,6 +359,7 @@ async fn build_population_context_section(
         elderly = format_number(age_65),
         aging = aging_rate,
         care_kpi = care_kpi,
+        estab_kpi = estab_kpi,
     )
 }
 
@@ -413,6 +439,78 @@ async fn build_hw_trend_section(state: &AppState, prefecture: &str) -> String {
         postings = postings.join(","),
         facilities = facilities.join(","),
         vacancy = vacancy_vals.join(","),
+    )
+}
+
+/// B-3: HW新規/終了求人×離脱率トレンド
+async fn build_hw_tracking_section(state: &AppState, prefecture: &str) -> String {
+    if prefecture.is_empty() || prefecture == "全国" {
+        return String::new();
+    }
+
+    let tracking = external::fetch_hw_tracking(state, prefecture).await;
+    if tracking.is_empty() {
+        return String::new();
+    }
+
+    let chart_id = format!("hw-track-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+
+    let snapshots: Vec<String> = tracking.iter()
+        .map(|r| {
+            let sid = external::ext_str(r, "snapshot_id");
+            let short = if sid.len() > 6 { &sid[sid.len()-6..] } else { sid };
+            format!("'{}'", short)
+        }).collect();
+    let new_counts: Vec<String> = tracking.iter()
+        .map(|r| ext_i64(r, "new_total").to_string()).collect();
+    let end_counts: Vec<String> = tracking.iter()
+        .map(|r| ext_i64(r, "end_total").to_string()).collect();
+    let churn_rates: Vec<String> = tracking.iter()
+        .map(|r| {
+            let v = ext_f64(r, "churn_rate");
+            if v > 0.0 { format!("{:.1}", v) } else { "null".to_string() }
+        }).collect();
+
+    format!(
+        r##"<div class="stat-card">
+    <div class="flex items-center gap-2 mb-1">
+        <h3 class="text-sm text-slate-400">&#x1f504; HW求人の新規・終了・離脱率</h3>
+        <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">新規掲載数と終了数の推移。離脱率（churn rate）は終了数÷（継続+終了）で算出</p>
+    <div id="{id}" style="height:320px;"></div>
+    <script>
+    (function(){{
+        var el = document.getElementById('{id}');
+        if (!el || typeof echarts === 'undefined') return;
+        var c = echarts.init(el, 'dark');
+        c.setOption({{
+            tooltip: {{trigger:'axis'}},
+            legend: {{data:['新規','終了','離脱率'], top:0, textStyle:{{color:'#94a3b8'}}}},
+            grid: {{left:'8%',right:'8%',top:'35px',bottom:'15%'}},
+            xAxis: {{type:'category', data:[{snapshots}], axisLabel:{{color:'#94a3b8',fontSize:10,rotate:30}}}},
+            yAxis: [
+                {{type:'value', name:'件数', axisLabel:{{color:'#94a3b8'}}, splitLine:{{lineStyle:{{color:'#334155'}}}}}},
+                {{type:'value', name:'%', axisLabel:{{color:'#94a3b8'}}, splitLine:{{show:false}}}}
+            ],
+            series: [
+                {{name:'新規',type:'bar',stack:'total',data:[{new_counts}],itemStyle:{{color:'#3b82f6'}},barWidth:'40%'}},
+                {{name:'終了',type:'bar',stack:'total',data:[{end_counts}],itemStyle:{{color:'#ef4444'}},barWidth:'40%'}},
+                {{name:'離脱率',type:'line',yAxisIndex:1,data:[{churn_rates}],itemStyle:{{color:'#f59e0b'}},smooth:true,lineStyle:{{width:2}},symbol:'circle',symbolSize:6}}
+            ]
+        }});
+        new ResizeObserver(function(){{c.resize();}}).observe(el);
+    }})();
+    </script>
+    <p class="text-xs text-slate-500 mt-2">※出典: ハローワーク求人の定期スナップショット追跡データ</p>
+</div>"##,
+        pref = escape_html(prefecture),
+        id = chart_id,
+        snapshots = snapshots.join(","),
+        new_counts = new_counts.join(","),
+        end_counts = end_counts.join(","),
+        churn_rates = churn_rates.join(","),
     )
 }
 

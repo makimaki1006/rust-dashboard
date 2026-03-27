@@ -1079,6 +1079,51 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
         }
     }
 
+    // O-1: 昼間人口比
+    let daytime_rows = external::fetch_daytime_population(state, prefecture).await;
+    if !daytime_rows.is_empty() {
+        let urban_count = daytime_rows.iter()
+            .filter(|r| ext_f64(r, "daytime_rate") > 100.0).count();
+        let avg_rate: f64 = {
+            let sum: f64 = daytime_rows.iter().map(|r| ext_f64(r, "daytime_rate")).sum();
+            if !daytime_rows.is_empty() { sum / daytime_rows.len() as f64 } else { 0.0 }
+        };
+        if avg_rate > 0.0 {
+            let label = if avg_rate > 100.0 { "通勤流入型" } else { "ベッドタウン型" };
+            kpi_cards.push_str(&format!(
+                r#"<div class="stat-card">
+                    <div class="stat-value text-sky-400">{rate:.0}<span class="text-lg">%</span></div>
+                    <div class="stat-label">平均昼間人口比</div>
+                    <div class="text-xs text-slate-500 mt-1">{label}（流入超過 {urban}地域）</div>
+                </div>"#,
+                rate = avg_rate, label = label, urban = urban_count,
+            ));
+        }
+    }
+
+    // O-3: 外国人比率
+    let foreign_rows = external::query_ext(
+        state,
+        "SELECT SUM(total_foreign) as total_foreign, \
+                ROUND(CAST(SUM(total_foreign) AS REAL) * 100.0 / NULLIF((SELECT SUM(total_population) FROM v2_external_population WHERE prefecture = ?), 0), 2) as foreign_rate \
+         FROM v2_external_foreign_residents WHERE prefecture = ?",
+        &[serde_json::Value::String(prefecture.to_string()), serde_json::Value::String(prefecture.to_string())],
+    ).await;
+    if let Some(fr) = foreign_rows.first() {
+        let foreign_total = ext_i64(fr, "total_foreign");
+        let foreign_rate = ext_f64(fr, "foreign_rate");
+        if foreign_total > 0 {
+            kpi_cards.push_str(&format!(
+                r#"<div class="stat-card">
+                    <div class="stat-value text-teal-400">{rate:.1}<span class="text-lg">%</span></div>
+                    <div class="stat-label">外国人比率</div>
+                    <div class="text-xs text-slate-500 mt-1">{count}人（技能実習・特定技能含む）</div>
+                </div>"#,
+                rate = foreign_rate, count = format_number(foreign_total),
+            ));
+        }
+    }
+
     // 5. HW賃金・掲載日数（detailsで折りたたみ、正社員→パート順、「その他」非表示）
     let mut hw_detail_cards = String::new();
     let emp_order = ["正社員", "パート"];

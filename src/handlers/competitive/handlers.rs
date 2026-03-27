@@ -492,6 +492,53 @@ async fn build_hw_salary_context(state: &AppState, prefecture: &str, emp_filter:
         return String::new();
     }
 
+    // C-2: 最低賃金比を計算
+    let mut min_wage_note = String::new();
+    if let Some(ps) = external::fetch_prefecture_macro(state, prefecture).await {
+        let mw = external::ext_f64(&ps, "min_wage");
+        if mw > 0.0 {
+            // 正社員: 月給÷160h÷最低賃金
+            if let Some(reg) = hw_salary.iter().find(|r| external::ext_str(r, "emp_group") == "正社員") {
+                let avg_min = ext_i64(reg, "avg_min");
+                if avg_min > 0 {
+                    let hourly = avg_min as f64 / 160.0;
+                    let ratio = hourly / mw;
+                    let color = if ratio >= 1.5 { "#22c55e" } else if ratio >= 1.2 { "#f59e0b" } else { "#ef4444" };
+                    min_wage_note.push_str(&format!(
+                        r#"<p class="text-xs mt-1">正社員時給換算: <span style="color:{color}">最低賃金の{ratio:.2}倍</span>（¥{hourly:.0}/h vs 最低賃金¥{mw:.0}/h）</p>"#,
+                        color=color, ratio=ratio, hourly=hourly, mw=mw,
+                    ));
+                }
+            }
+            // パート: 時給÷最低賃金
+            if let Some(pt) = hw_salary.iter().find(|r| external::ext_str(r, "emp_group") == "パート") {
+                let avg_min = ext_i64(pt, "avg_min");
+                if avg_min > 0 {
+                    let ratio = avg_min as f64 / mw;
+                    let color = if ratio >= 1.5 { "#22c55e" } else if ratio >= 1.2 { "#f59e0b" } else { "#ef4444" };
+                    min_wage_note.push_str(&format!(
+                        r#"<p class="text-xs">パート時給: <span style="color:{color}">最低賃金の{ratio:.2}倍</span>（¥{wage} vs ¥{mw:.0}）</p>"#,
+                        color=color, ratio=ratio, wage=format_number(avg_min), mw=mw,
+                    ));
+                }
+            }
+        }
+    }
+
+    // C-4: 欠員補充率
+    let mut vacancy_note = String::new();
+    let vacancy_data = external::fetch_hw_vacancy_trend(state, prefecture).await;
+    if let Some(latest) = vacancy_data.last() {
+        let vr = external::ext_f64(latest, "avg_vacancy_rate");
+        if vr > 0.0 {
+            let color = if vr > 50.0 { "#ef4444" } else if vr > 30.0 { "#f59e0b" } else { "#22c55e" };
+            vacancy_note = format!(
+                r#"<p class="text-xs mt-1">欠員補充率: <span style="color:{color}">{vr:.1}%</span>（HW求人のうち離職による欠員補充の割合）</p>"#,
+                color=color, vr=vr,
+            );
+        }
+    }
+
     format!(
         r#"<div class="stat-card mt-4">
     <h3 class="text-sm text-slate-400 mb-2">&#x1f4b0; HW求人の賃金水準（{pref}）</h3>
@@ -506,9 +553,13 @@ async fn build_hw_salary_context(state: &AppState, prefecture: &str, emp_filter:
         </thead>
         <tbody>{rows}</tbody>
     </table>
+    {min_wage_note}
+    {vacancy_note}
     <p class="text-xs text-slate-500 mt-2">※上記より高い給与を提示すれば、HW掲載求人より有利に採用できる可能性があります</p>
 </div>"#,
         pref = super::escape_html(prefecture),
         rows = rows,
+        min_wage_note = min_wage_note,
+        vacancy_note = vacancy_note,
     )
 }
