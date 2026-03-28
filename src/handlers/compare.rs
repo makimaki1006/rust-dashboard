@@ -15,6 +15,7 @@ pub struct CompareParams {
     pub job_b: Option<String>,
 }
 
+#[allow(dead_code)]
 struct JobStats {
     name: String,
     total: i64,

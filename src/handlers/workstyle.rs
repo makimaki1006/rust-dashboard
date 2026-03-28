@@ -394,6 +394,7 @@ fn render_workstyle(job_type: &str, prefecture: &str, municipality: &str, stats:
         .replace("{{MOBILITY_CARD}}", "")
 }
 
+#[allow(dead_code)] // WORKSTYLE_MOBILITYデータ修正後に復活予定
 fn build_mobility_section(stats: &WorkstyleStats) -> String {
     if stats.mobility.is_empty() {
         return r#"<p class="text-slate-500 text-sm">WORKSTYLE_MOBILITYデータなし（Tursoへのインポートが必要です）</p>"#.to_string();

@@ -53,6 +53,7 @@ pub async fn tab_talentmap(
 
 // ===== データ構造 =====
 
+#[allow(dead_code)]
 pub(crate) struct MarkerData {
     pub(crate) municipality: String,
     pub(crate) prefecture: String,
@@ -63,6 +64,7 @@ pub(crate) struct MarkerData {
     pub(crate) female_count: i64,
 }
 
+#[allow(dead_code)]
 pub(crate) struct FlowLine {
     pub(crate) from_pref: String,
     pub(crate) from_muni: String,

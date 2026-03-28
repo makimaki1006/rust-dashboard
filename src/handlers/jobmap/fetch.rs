@@ -82,8 +82,8 @@ fn haversine_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
 pub(crate) fn fetch_markers(
     db: &LocalDb,
     job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    _prefecture: &str,
+    _municipality: &str,
     employment_type: &str,
     salary_type: &str,
     lat: f64,
@@ -313,6 +313,7 @@ pub(crate) fn fetch_municipalities(
 }
 
 /// 都道府県の中心座標を取得（municipality_geocode テーブルから）
+#[allow(dead_code)]
 pub(crate) fn get_pref_center(
     local_db: &LocalDb,
     prefecture: &str,

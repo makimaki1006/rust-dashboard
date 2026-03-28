@@ -28,6 +28,7 @@ use db::turso::TursoClient;
 use models::job_seeker::{job_type_names, PREFECTURE_ORDER};
 
 /// キャッシュキーのタブ名プレフィックス一覧
+#[allow(dead_code)]
 const TAB_CACHE_PREFIXES: &[&str] = &[
     "overview_",
     "demographics_",
@@ -537,7 +538,7 @@ async fn set_prefecture(
     session: Session,
     Form(form): Form<SetPrefectureForm>,
 ) -> impl IntoResponse {
-    let old_pref: String = session
+    let _old_pref: String = session
         .get(SESSION_PREFECTURE_KEY)
         .await
         .ok()
@@ -576,7 +577,7 @@ async fn set_municipality(
         .ok()
         .flatten()
         .unwrap_or_default();
-    let prefecture: String = session
+    let _prefecture: String = session
         .get(SESSION_PREFECTURE_KEY)
         .await
         .ok()

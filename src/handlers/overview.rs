@@ -1441,6 +1441,18 @@ mod tests {
         assert_eq!(format_number(-336), "-336");
         assert_eq!(format_number(-53), "-53");
         assert_eq!(format_number(-1), "-1");
+        assert_eq!(format_number(-1000000), "-1,000,000");
+    }
+
+    #[test]
+    fn test_format_number_edge_cases() {
+        assert_eq!(format_number(100), "100");
+        assert_eq!(format_number(1000), "1,000");
+        assert_eq!(format_number(10000), "10,000");
+        assert_eq!(format_number(100000), "100,000");
+        assert_eq!(format_number(-100), "-100");
+        assert_eq!(format_number(-1000), "-1,000");
+        assert_eq!(format_number(-10000), "-10,000");
     }
 
     // build_location_filter テスト
