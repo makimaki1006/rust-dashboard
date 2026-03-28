@@ -29,30 +29,8 @@ pub struct CrossTabParams {
     pub axis_y: Option<String>,
 }
 
-/// DB職種名 → セグメントDB職種名へのマッピング（tags/text_features用）
-fn map_job_type_to_segment(job_type: &str) -> Option<&str> {
-    match job_type {
-        "看護師" => Some("看護師・准看護師"),
-        "介護職" => Some("介護職・ヘルパー"),
-        "保育士" => Some("保育士"),
-        "栄養士" => Some("管理栄養士・栄養士"),
-        "生活相談員" => Some("生活相談員"),
-        "理学療法士" => Some("理学療法士"),
-        "作業療法士" => Some("作業療法士"),
-        "ケアマネジャー" => Some("ケアマネジャー"),
-        "サービス管理責任者" => Some("サービス管理責任者"),
-        "サービス提供責任者" => Some("サービス提供責任者"),
-        "学童支援" => Some("放課後児童支援員・学童指導員"),
-        "調理師、調理スタッフ" => Some("調理師・調理スタッフ"),
-        "薬剤師" => Some("薬剤師"),
-        "言語聴覚士" => Some("言語聴覚士"),
-        "児童指導員" => Some("児童指導員"),
-        "児童発達支援管理責任者" => Some("児童発達支援管理責任者"),
-        "生活支援員" => Some("生活支援員"),
-        "幼稚園教諭" => Some("幼稚園教諭"),
-        _ => None,
-    }
-}
+// map_job_type_to_segment は overview.rs に統合済み
+use super::overview::map_job_type_for_segment as map_job_type_to_segment;
 
 /// Tier2ラベル定数（segment_classifier.py:440-450 と同期）
 const TIER2_LABELS: &[(&str, &str)] = &[

@@ -12,7 +12,7 @@ pub fn next_chart_id(prefix: &str) -> String {
     let n = CHART_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{}-{}", prefix, n)
 }
-use std::sync::Arc;
+
 
 use crate::AppState;
 
@@ -412,4 +412,71 @@ fn short_hash(sql: &str, params: &[Value]) -> String {
         p.to_string().hash(&mut hasher);
     }
     format!("{:x}", hasher.finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_next_chart_id_unique() {
+        let id1 = next_chart_id("test");
+        let id2 = next_chart_id("test");
+        let id3 = next_chart_id("other");
+        assert_ne!(id1, id2, "Same prefix should produce different IDs");
+        assert!(id1.starts_with("test-"));
+        assert!(id3.starts_with("other-"));
+    }
+
+    #[test]
+    fn test_next_chart_id_sequential() {
+        let id1 = next_chart_id("seq");
+        let id2 = next_chart_id("seq");
+        let n1: u64 = id1.split('-').last().unwrap().parse().unwrap();
+        let n2: u64 = id2.split('-').last().unwrap().parse().unwrap();
+        assert!(n2 > n1, "Counter should increment");
+    }
+
+    #[test]
+    fn test_ext_f64_various() {
+        let mut map = HashMap::new();
+        map.insert("a".to_string(), Value::Number(serde_json::Number::from_f64(3.14).unwrap()));
+        map.insert("b".to_string(), Value::String("2.5".to_string()));
+        map.insert("c".to_string(), Value::Null);
+        assert!((ext_f64(&map, "a") - 3.14).abs() < 0.001);
+        assert!((ext_f64(&map, "b") - 2.5).abs() < 0.001);
+        assert_eq!(ext_f64(&map, "c"), 0.0);
+        assert_eq!(ext_f64(&map, "missing"), 0.0);
+    }
+
+    #[test]
+    fn test_ext_i64_various() {
+        let mut map = HashMap::new();
+        map.insert("a".to_string(), serde_json::json!(42));
+        map.insert("b".to_string(), Value::String("100".to_string()));
+        map.insert("c".to_string(), serde_json::json!(3.9));
+        assert_eq!(ext_i64(&map, "a"), 42);
+        assert_eq!(ext_i64(&map, "b"), 100);
+        assert_eq!(ext_i64(&map, "c"), 3); // f64→i64 truncation
+        assert_eq!(ext_i64(&map, "missing"), 0);
+    }
+
+    #[test]
+    fn test_ext_str_various() {
+        let mut map = HashMap::new();
+        map.insert("a".to_string(), Value::String("hello".to_string()));
+        map.insert("b".to_string(), serde_json::json!(42));
+        assert_eq!(ext_str(&map, "a"), "hello");
+        assert_eq!(ext_str(&map, "b"), ""); // non-string → empty
+        assert_eq!(ext_str(&map, "missing"), "");
+    }
+
+    #[test]
+    fn test_short_hash_deterministic() {
+        let h1 = short_hash("SELECT * FROM t", &[Value::String("x".to_string())]);
+        let h2 = short_hash("SELECT * FROM t", &[Value::String("x".to_string())]);
+        let h3 = short_hash("SELECT * FROM t", &[Value::String("y".to_string())]);
+        assert_eq!(h1, h2, "Same input should produce same hash");
+        assert_ne!(h1, h3, "Different params should produce different hash");
+    }
 }

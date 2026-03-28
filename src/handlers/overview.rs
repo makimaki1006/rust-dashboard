@@ -43,13 +43,16 @@ pub fn parse_municipalities(municipality: &str) -> Vec<String> {
 }
 
 /// SQLのWHERE句とパラメータを構築するヘルパー（市区町村マルチセレクト対応）
+/// 「全国」「すべて」は空文字として扱う（防御的正規化）
 pub fn build_location_filter(prefecture: &str, municipality: &str, params: &mut Vec<Value>) -> String {
+    let pref = if prefecture == "全国" { "" } else { prefecture };
+    let muni = if municipality == "すべて" || pref.is_empty() { "" } else { municipality };
     let mut clause = String::new();
-    if !prefecture.is_empty() {
+    if !pref.is_empty() {
         clause.push_str(" AND prefecture = ?");
-        params.push(Value::String(prefecture.to_string()));
+        params.push(Value::String(pref.to_string()));
     }
-    let munis = parse_municipalities(municipality);
+    let munis = parse_municipalities(muni);
     if munis.len() == 1 {
         clause.push_str(" AND municipality = ?");
         params.push(Value::String(munis[0].clone()));
@@ -433,7 +436,7 @@ async fn fetch_national_stats(state: &AppState, job_type: &str, prefecture: &str
 }
 
 /// セッション職種名 → segment_summary.db 職種名へのマッピング
-fn map_job_type_for_segment(job_type: &str) -> Option<&str> {
+pub fn map_job_type_for_segment(job_type: &str) -> Option<&str> {
     match job_type {
         "看護師" => Some("看護師・准看護師"),
         "介護職" => Some("介護職・ヘルパー"),
@@ -1017,7 +1020,7 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
         kpi_cards.push_str(&format!(
             r#"<div class="stat-card">
                 <div class="stat-value" style="color:{color}">{ratio:.2}<span class="text-lg">倍</span></div>
-                <div class="stat-label">有効求人倍率 ({year})</div>
+                <div class="stat-label">有効求人倍率 <span class="text-slate-500">全産業</span> ({year})</div>
                 <div class="text-xs mt-1" style="color:{color}">{label}</div>
             </div>"#,
             color = ratio_color, ratio = ratio, year = year, label = ratio_label,
@@ -1070,8 +1073,9 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
             kpi_cards.push_str(&format!(
                 r#"<div class="stat-card">
                     <div class="stat-value text-rose-400">{sep:.1}<span class="text-lg">%</span></div>
-                    <div class="stat-label">医療福祉 離職率 ({year})</div>
+                    <div class="stat-label">離職率 <span class="text-slate-500">医療福祉全体</span> <span class="text-amber-400">({year})</span></div>
                     <div class="text-xs mt-1" style="color:{net_color}">入職率 {entry:.1}% (純増減 {net_sign}{net:.1}%)</div>
+                    <div class="text-xs text-slate-600">※職種固有ではなく産業全体の値</div>
                 </div>"#,
                 sep = sep_rate, year = year, entry = entry_rate,
                 net_color = net_color, net_sign = net_sign, net = net_rate,
@@ -1116,8 +1120,8 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
             kpi_cards.push_str(&format!(
                 r#"<div class="stat-card">
                     <div class="stat-value text-teal-400">{rate:.1}<span class="text-lg">%</span></div>
-                    <div class="stat-label">外国人比率</div>
-                    <div class="text-xs text-slate-500 mt-1">{count}人（技能実習・特定技能含む）</div>
+                    <div class="stat-label">外国人比率 <span class="text-slate-500">地域全体</span></div>
+                    <div class="text-xs text-slate-500 mt-1">{count}人（国勢調査）</div>
                 </div>"#,
                 rate = foreign_rate, count = format_number(foreign_total),
             ));
@@ -1194,7 +1198,7 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
 
         ratio_chart = format!(
             r##"<div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">有効求人倍率の推移（{pref}）</h3>
+            <h3 class="text-sm text-slate-400 mb-3">有効求人倍率の推移 <span class="text-slate-500">全産業</span>（{pref}）</h3>
             <div id="{id}" style="height:250px;"></div>
             <script>
             (function(){{
@@ -1241,7 +1245,7 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
         if employment > 0.0 || unemployment > 0.0 {
             radar_chart = format!(
                 r##"<div class="stat-card">
-    <h3 class="text-sm text-slate-400 mb-3">&#x1f3af; 労働市場レーダー（{pref}）</h3>
+    <h3 class="text-sm text-slate-400 mb-3">&#x1f3af; 労働市場レーダー <span class="text-slate-500">全産業</span>（{pref}）</h3>
     <div id="{id}" style="height:300px;"></div>
     <script>
     (function(){{
@@ -1276,7 +1280,7 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
         new ResizeObserver(function(){{c.resize();}}).observe(el);
     }})();
     </script>
-    <p class="text-xs text-slate-500 mt-2">※失業率・離職率は逆数表示（高いほど良好）。出典: e-Stat 社会・人口統計体系</p>
+    <p class="text-xs text-slate-500 mt-2">※全産業の統計値（職種固有ではない）。失業率・離職率は逆数表示（高いほど良好）。出典: e-Stat</p>
 </div>"##,
                 pref = escape_html(prefecture), id = chart_id,
                 emp = employment, ful = fulfillment, plc = placement,
@@ -1308,6 +1312,7 @@ async fn build_macro_indicators_section(state: &AppState, prefecture: &str) -> S
     <div class="flex items-center gap-2">
         <span class="text-sm font-semibold text-slate-400">&#x1f30d; 外部統計マクロ指標</span>
         <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
+        <span class="text-xs text-slate-600">※地域・産業全体の公的統計（職種固有ではありません）</span>
     </div>
     <div class="grid-stats">{kpi_cards}</div>
     {hw_details_html}
@@ -1370,15 +1375,20 @@ fn render_overview(job_type: &str, stats: &NatStats, location_label: &str, prefe
 
 /// 数値を3桁区切りフォーマット
 pub fn format_number(n: i64) -> String {
-    let s = n.to_string();
+    let (sign, abs_s) = if n < 0 {
+        ("-", (-n).to_string())
+    } else {
+        ("", n.to_string())
+    };
     let mut result = String::new();
-    for (i, ch) in s.chars().rev().enumerate() {
+    for (i, ch) in abs_s.chars().rev().enumerate() {
         if i > 0 && i % 3 == 0 {
             result.push(',');
         }
         result.push(ch);
     }
-    result.chars().rev().collect()
+    let formatted: String = result.chars().rev().collect();
+    format!("{}{}", sign, formatted)
 }
 
 /// HashMap からString値を取得
@@ -1428,6 +1438,9 @@ mod tests {
     #[test]
     fn test_format_number_negative() {
         assert_eq!(format_number(-1234), "-1,234");
+        assert_eq!(format_number(-336), "-336");
+        assert_eq!(format_number(-53), "-53");
+        assert_eq!(format_number(-1), "-1");
     }
 
     // build_location_filter テスト
@@ -1466,6 +1479,31 @@ mod tests {
     }
 
     #[test]
+    fn test_build_location_filter_zenkoku_normalized() {
+        let mut params = Vec::new();
+        let clause = build_location_filter("全国", "すべて", &mut params);
+        assert!(clause.is_empty(), "全国+すべて should produce empty clause");
+        assert!(params.is_empty(), "全国+すべて should have no params");
+    }
+
+    #[test]
+    fn test_build_location_filter_zenkoku_with_municipality() {
+        let mut params = Vec::new();
+        let clause = build_location_filter("全国", "新宿区", &mut params);
+        assert!(clause.is_empty(), "全国 should be normalized to empty");
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn test_build_location_filter_pref_with_subete() {
+        let mut params = Vec::new();
+        let clause = build_location_filter("東京都", "すべて", &mut params);
+        assert!(clause.contains("prefecture = ?"));
+        assert!(!clause.contains("municipality"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
     fn test_parse_municipalities() {
         assert!(parse_municipalities("").is_empty());
         assert_eq!(parse_municipalities("新宿区"), vec!["新宿区"]);
@@ -1485,6 +1523,19 @@ mod tests {
     fn test_get_str_missing() {
         let map = HashMap::new();
         assert_eq!(get_str(&map, "name"), "");
+    }
+
+    // map_job_type_for_segment テスト
+    #[test]
+    fn test_map_job_type_for_segment_known() {
+        assert_eq!(map_job_type_for_segment("看護師"), Some("看護師・准看護師"));
+        assert_eq!(map_job_type_for_segment("介護職"), Some("介護職・ヘルパー"));
+        assert_eq!(map_job_type_for_segment("保育士"), Some("保育士"));
+    }
+
+    #[test]
+    fn test_map_job_type_for_segment_unknown() {
+        assert_eq!(map_job_type_for_segment("不明な職種"), None);
     }
 
     // get_i64 テスト

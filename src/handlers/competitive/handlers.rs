@@ -542,7 +542,7 @@ async fn build_hw_salary_context(state: &AppState, prefecture: &str, emp_filter:
     format!(
         r#"<div class="stat-card mt-4">
     <h3 class="text-sm text-slate-400 mb-2">&#x1f4b0; HW求人の賃金水準（{pref}）</h3>
-    <p class="text-xs text-slate-500 mb-2">ハローワーク掲載求人の平均賃金。自社求人の給与水準と比較してください。</p>
+    <p class="text-xs text-slate-500 mb-2">ハローワーク掲載求人（医療福祉全体）の平均賃金。※職種固有ではなく産業全体の参考値</p>
     <table class="w-full">
         <thead>
             <tr class="border-b border-slate-600">

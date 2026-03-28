@@ -94,6 +94,19 @@ async fn fetch_balance(state: &AppState, job_type: &str, prefecture: &str, munic
         gap_params.push(Value::String(prefecture.to_string()));
         gap_sql.push_str(" AND prefecture = ?");
     }
+    if has_muni {
+        let munis = parse_municipalities(municipality);
+        if munis.len() == 1 {
+            gap_params.push(Value::String(munis[0].clone()));
+            gap_sql.push_str(" AND municipality = ?");
+        } else if munis.len() > 1 {
+            let ph: Vec<&str> = munis.iter().map(|_| "?").collect();
+            gap_sql.push_str(&format!(" AND municipality IN ({})", ph.join(", ")));
+            for m in &munis {
+                gap_params.push(Value::String(m.clone()));
+            }
+        }
+    }
 
     if has_pref {
         // 都道府県選択時: 3クエリを1バッチで実行
@@ -296,7 +309,7 @@ async fn build_population_context_section(
     let mut care_kpi = String::new();
     if let Some(ref care) = care_data {
         let care_users = ext_i64(care, "care_support_users");
-        let pop_65_rate = ext_f64(care, "pop_65_over_rate");
+        let _pop_65_rate = ext_f64(care, "pop_65_over_rate");
         if care_users > 0 && age_65 > 0 {
             let utilization = care_users as f64 / age_65 as f64 * 100.0;
             care_kpi = format!(
@@ -319,9 +332,9 @@ async fn build_population_context_section(
             let color = if per_estab >= 2.0 { "#ef4444" } else if per_estab >= 1.0 { "#f59e0b" } else { "#22c55e" };
             estab_kpi = format!(
                 r#"<div class="stat-card" style="flex:1;min-width:180px;">
-                    <div class="text-sm text-slate-400">事業所1所あたり求人数</div>
-                    <div class="text-2xl font-bold" style="color:{color}">{per:.1}<span class="text-lg">件</span></div>
-                    <div class="text-xs text-slate-500 mt-1">医療福祉事業所 {est} / 総需要 {dem:.0}</div>
+                    <div class="text-sm text-slate-400">事業所1所あたり求職希望者数</div>
+                    <div class="text-2xl font-bold" style="color:{color}">{per:.1}<span class="text-lg">人</span></div>
+                    <div class="text-xs text-slate-500 mt-1">医療福祉事業所 {est} / 求職希望者 {dem:.0}</div>
                 </div>"#,
                 color = color, per = per_estab,
                 est = format_number(estab_count), dem = total_demand,
@@ -342,8 +355,8 @@ async fn build_population_context_section(
             <div class="text-xs text-slate-500 mt-1">総人口 {pop} / 求職者 {supply:.0}</div>
         </div>
         <div class="stat-card" style="flex:1;min-width:180px;">
-            <div class="text-sm text-slate-400">高齢者1,000人あたり求人需要</div>
-            <div class="text-2xl font-bold text-amber-400">{demand_elderly:.1}<span class="text-lg">件</span></div>
+            <div class="text-sm text-slate-400">高齢者1,000人あたり求職希望者数</div>
+            <div class="text-2xl font-bold text-amber-400">{demand_elderly:.1}<span class="text-lg">人</span></div>
             <div class="text-xs text-slate-500 mt-1">65歳以上 {elderly} (高齢化率 {aging:.1}%)</div>
         </div>
         {care_kpi}

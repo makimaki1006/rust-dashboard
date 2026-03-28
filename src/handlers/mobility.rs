@@ -13,7 +13,7 @@ use super::competitive::escape_html;
 use super::external::{self, ext_i64, ext_f64};
 
 /// 隣接県マップ（NiceGUI版 ADJACENT_PREFECTURES 完全移植）
-fn adjacent_prefectures(pref: &str) -> &'static [&'static str] {
+pub fn adjacent_prefectures(pref: &str) -> &'static [&'static str] {
     match pref {
         "北海道" => &["青森県"],
         "青森県" => &["北海道", "岩手県", "秋田県"],

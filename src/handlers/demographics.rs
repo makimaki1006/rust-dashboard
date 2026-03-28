@@ -1,6 +1,5 @@
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::Html;
-use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;

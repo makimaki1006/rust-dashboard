@@ -255,7 +255,7 @@ async fn build_hw_workstyle_context(state: &AppState, prefecture: &str) -> Strin
         <h3 class="text-sm text-slate-400">&#x1f30d; HW求人の雇用条件実態</h3>
         <span class="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded">【{pref}】</span>
     </div>
-    <p class="text-xs text-slate-500 mb-3">ハローワーク掲載求人（医療・福祉）の平均的な雇用条件</p>
+    <p class="text-xs text-slate-500 mb-3">ハローワーク掲載求人（医療・福祉産業全体）の平均的な雇用条件 ※職種固有ではありません</p>
     <table class="w-full">
         <thead>
             <tr class="border-b border-slate-600">
